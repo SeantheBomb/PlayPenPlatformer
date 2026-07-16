@@ -42,6 +42,10 @@ function save(id, name, g, background, entities) {
   g.rect(36, 17, 36, 20, "C");        // cracked wall gate (4 tall)
   save("orientation", "Orientation", g, "#17131f", [
     { type: "spawn", x: 3, y: 20 },
+    { type: "hint", x: 6, y: 17, text: "A / D — move · SPACE — jump" },
+    { type: "hint", x: 18, y: 14, text: "hold SPACE to jump higher" },
+    { type: "hint", x: 32, y: 15, text: "TAB — craft what you find" },
+    { type: "hint", x: 37, y: 14, text: "F — swing the hammer at cracks" },
     { type: "pickup", item: "scrap_metal", x: 9, y: 20 },
     { type: "pickup", item: "plank", x: 21, y: 17 },
     { type: "pickup", item: "scrap_metal", x: 25, y: 20 },
@@ -79,8 +83,8 @@ function save(id, name, g, background, entities) {
   frame(g, 21);
   g.rect(20, 1, 35, 14, "#");         // low vent ceiling section
   g.rect(24, 20, 28, 20, "G");        // goo strip
-  g.rect(49, 19, 50, 23, "#");        // step to ledge
-  g.rect(46, 17, 48, 23, "#");        // right ledge
+  g.rect(42, 19, 43, 23, "#");        // stair step (2-tile rise)
+  g.rect(44, 17, 50, 23, "#");        // landing with the door (2-tile rise)
   save("vents", "The Vents", g, "#101a17", [
     { type: "spawn", x: 2, y: 20 },
     { type: "checkpoint", x: 6, y: 20 },
@@ -91,8 +95,9 @@ function save(id, name, g, background, entities) {
     { type: "enemy", enemy: "spotter", x: 30, y: 20 },
     { type: "pickup", item: "glow_mushroom", x: 34, y: 20 },
     { type: "locker", x: 38, y: 20 },
-    { type: "pickup", item: "glow_mushroom", x: 50, y: 18 },
-    { type: "door", x: 47, y: 16, to: "next" },
+    { type: "hint", x: 19, y: 16, text: "E — hide in lockers to break line of sight" },
+    { type: "pickup", item: "glow_mushroom", x: 45, y: 16 },
+    { type: "door", x: 49, y: 16, to: "next" },
   ]);
 }
 
@@ -118,6 +123,7 @@ function save(id, name, g, background, entities) {
       dialogDone: "A mushroom! You beautiful stranger. Take this goo I've been hoarding, and a recipe I scratched into a food tray: goo + mushroom = instant privacy. Poof.",
       dialogAfter: "Go. GO. Wave at the parking lot for me." },
     { type: "pickup", item: "cog", x: 14, y: 20 },
+    { type: "hint", x: 18, y: 18, text: "this floor looks... cracked" },
     { type: "note", x: 18, y: 22, recipe: "recipe_lockpick",
       text: "They lock everything, but they're cheap about it. Scrap + a cog = a pick. One use. Make it count. — Subject #19" },
     { type: "door", x: 24, y: 20, locked: true, gate: true },
@@ -142,6 +148,7 @@ function save(id, name, g, background, entities) {
   save("the_gap", "The Gap", g, "#141522", [
     { type: "spawn", x: 2, y: 24 },
     { type: "checkpoint", x: 4, y: 24 },
+    { type: "hint", x: 9, y: 20, text: "bounce pads launch you upward" },
     { type: "pickup", item: "spring_coil", x: 6, y: 24 },
     { type: "pickup", item: "spring_coil", x: 8, y: 22 },
     { type: "pickup", item: "cloth", x: 17, y: 12 },
@@ -164,6 +171,7 @@ function save(id, name, g, background, entities) {
     { type: "spawn", x: 2, y: 20 },
     { type: "checkpoint", x: 4, y: 20 },
     { type: "pickup", item: "glow_mushroom", x: 6, y: 20 },
+    { type: "hint", x: 30, y: 15, text: "Q — cycle items · F — use" },
     { type: "pickup", item: "plank", x: 9, y: 17 },
     { type: "enemy", enemy: "crawler", x: 14, y: 20, patrolMinX: 12, patrolMaxX: 26 },
     { type: "note", x: 17, y: 17, recipe: "recipe_sticky_trap",

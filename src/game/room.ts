@@ -45,6 +45,7 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   npc: [12, 16],
   checkpoint: [8, 24],
   exit: [28, 44],
+  hint: [16, 16],
 };
 
 export class RoomRuntime {
@@ -341,6 +342,15 @@ export class RoomRuntime {
         ctx.fill();
         break;
       }
+      case "hint": {
+        // Faint in-world tutorial text; content-authored, editor-placeable.
+        const txt = e.def.text ?? "";
+        ctx.font = "9px monospace";
+        ctx.fillStyle = "rgba(232,226,244,0.42)";
+        const tw = ctx.measureText(txt).width;
+        ctx.fillText(txt, e.x + e.w / 2 - tw / 2, e.y + 6 + bob * 0.4);
+        break;
+      }
       case "exit": {
         ctx.fillStyle = "#2b3a2e";
         ctx.fillRect(e.x - 3, e.y - 3, e.w + 6, e.h + 3);
@@ -361,7 +371,7 @@ export class RoomRuntime {
     const d = en.def;
     if (en.state === "trapped") {
       ctx.globalAlpha = 0.8;
-      drawBlob(ctx, en.x, en.y, d.width, d.height, shade(d.color, -50), d.eyeColor, en.facing, { eyeStyle: "sleepy" });
+      drawBlob(ctx, en.x, en.y, d.width, d.height, shade(d.color, -50), d.eyeColor, en.facing, { eyeStyle: "sleepy", sprite: d });
       ctx.fillStyle = "rgba(139,212,79,0.55)";
       roundRect(ctx, en.x - 3, en.y + d.height * 0.4, d.width + 6, d.height * 0.6 + 2, 4);
       ctx.fill();
@@ -369,7 +379,7 @@ export class RoomRuntime {
       return;
     }
     if (en.state === "stunned") {
-      drawBlob(ctx, en.x, en.y, d.width, d.height, shade(d.color, -30), d.eyeColor, en.facing, { blink: true });
+      drawBlob(ctx, en.x, en.y, d.width, d.height, shade(d.color, -30), d.eyeColor, en.facing, { blink: true, sprite: d });
       ctx.fillStyle = "#ffffff";
       ctx.font = "8px monospace";
       const wob = Math.sin(animT * 8) * 3;
@@ -380,7 +390,7 @@ export class RoomRuntime {
     const wobble = Math.sin(animT * (chasing ? 18 : 7) + en.index) * (chasing ? 0.12 : 0.05);
     drawBlob(
       ctx, en.x, en.y, d.width, d.height, d.color, d.eyeColor, en.facing,
-      { squashX: 1 + wobble, squashY: 1 - wobble, eyeStyle: chasing ? "wide" : "dot" }
+      { squashX: 1 + wobble, squashY: 1 - wobble, eyeStyle: chasing ? "wide" : "dot", sprite: d }
     );
     if (chasing) {
       ctx.fillStyle = "#ff5470";

@@ -24,7 +24,7 @@
     "eyeColor": "#fdfffc",
     "speed": 38,
     "chaseSpeed": 128,
-    "sightRange": 150,
+    "sightRange": 130,
     "damage": 1,
     "loseTargetMs": 2600,
     "returnsHome": true,

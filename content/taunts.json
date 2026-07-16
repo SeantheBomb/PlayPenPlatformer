@@ -7,7 +7,8 @@
     "lines": [
       "Good morning, Subject #47! Welcome to the PlayPen. Snack time is never.",
       "Ah, you're awake. Orientation is self-guided. Mostly because the guide quit."
-    ]
+    ],
+    "emotion": "smug"
   },
   {
     "id": "room_orientation",
@@ -17,7 +18,8 @@
     "chance": 1,
     "lines": [
       "Left, right, jump. Even the sock puppet figured that out eventually."
-    ]
+    ],
+    "emotion": "bored"
   },
   {
     "id": "room_vents",
@@ -27,7 +29,8 @@
     "chance": 1,
     "lines": [
       "The Spotter is nocturnal, diurnal, and extremely motivated. Do wave hello."
-    ]
+    ],
+    "emotion": "gleeful"
   },
   {
     "id": "room_exit_wing",
@@ -37,7 +40,8 @@
     "chance": 1,
     "lines": [
       "The Exit Wing! Named ironically, of course. No one exits. It's more of a theme."
-    ]
+    ],
+    "emotion": "smug"
   },
   {
     "id": "first_death",
@@ -46,7 +50,8 @@
     "chance": 1,
     "lines": [
       "Oh no. Anyway — you respawn. We recycle subjects here. Very eco-friendly."
-    ]
+    ],
+    "emotion": "gleeful"
   },
   {
     "id": "death",
@@ -59,7 +64,8 @@
       "I've seen worse. I'm legally required to say that.",
       "The floor is not your friend. Nothing here is your friend.",
       "Subject #46 lasted longer. And #46 was a mop."
-    ]
+    ],
+    "emotion": "bored"
   },
   {
     "id": "craft_fail",
@@ -70,7 +76,8 @@
       "Fascinating combination. Truly. Write that down and then throw it away.",
       "That's not a recipe, that's a cry for help.",
       "I love watching you do science."
-    ]
+    ],
+    "emotion": "smug"
   },
   {
     "id": "first_craft",
@@ -79,7 +86,8 @@
     "chance": 1,
     "lines": [
       "You MADE something? Hm. Noting 'exhibits tool use' on your chart. Concerning."
-    ]
+    ],
+    "emotion": "shocked"
   },
   {
     "id": "craft_sock_puppet",
@@ -89,7 +97,8 @@
     "chance": 1,
     "lines": [
       "You made a SOCK PUPPET? Oh, this is the best day of my career. He stays. Forever."
-    ]
+    ],
+    "emotion": "proud"
   },
   {
     "id": "idle",
@@ -99,7 +108,8 @@
     "lines": [
       "Standing still is technically an escape strategy. A bad one, but technically.",
       "I can see you, you know. That's my whole job."
-    ]
+    ],
+    "emotion": "bored"
   },
   {
     "id": "hide",
@@ -109,7 +119,8 @@
     "lines": [
       "Hiding in the locker. Classic. The locker union thanks you for your business.",
       "I'll pretend I don't know where you are. It's more fun for both of us."
-    ]
+    ],
+    "emotion": "smug"
   },
   {
     "id": "npc_help",
@@ -118,7 +129,8 @@
     "chance": 1,
     "lines": [
       "Fraternizing with the other subjects? Fine. Friendship is just a slower escape."
-    ]
+    ],
+    "emotion": "annoyed"
   },
   {
     "id": "win",
@@ -127,6 +139,7 @@
     "chance": 1,
     "lines": [
       "Wait. WAIT. Who left the Exit Wing exit-able?! ...Enjoy the parking lot, #47. There's a second facility under it."
-    ]
+    ],
+    "emotion": "shocked"
   }
 ]

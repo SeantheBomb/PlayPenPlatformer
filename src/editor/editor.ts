@@ -2,9 +2,17 @@
 // has a tab here: rooms, tiles, items, recipes, enemies, taunts, game, campaign.
 import type { ContentStore } from "../data/content";
 import { isElectron } from "../data/content";
+import type { EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
+import {
+  currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait,
+} from "../engine/renderer";
 import { autoForm, el, toast } from "./forms";
 import { RoomEditor } from "./roomeditor";
+import { openPixelEditor } from "./pixeleditor";
+
+const SPRITE_KEYS = ["sprite", "spriteFrames", "spriteFps", "portraits"];
+const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
 
 const CSS = `
 .pp-editor { position:absolute; inset:0; background:#12101c; color:#d8d2ec;
@@ -66,6 +74,34 @@ const CSS = `
 .pp-rightcol { width:250px; flex:none; background:#1a1626; border:1px solid #2c2740;
   border-radius:6px; padding:10px; max-height:78vh; overflow:auto; }
 hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
+/* Thumbnails + sprites */
+.pp-listitem { display:flex; align-items:center; gap:7px; }
+.pp-thumb { width:24px; height:24px; flex:none; background:#100e1a; border-radius:4px; }
+.pp-spritepanel { margin-top:10px; padding:8px; background:#161226; border:1px solid #2c2740;
+  border-radius:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.pp-spritepreview { width:48px; height:48px; background:
+  repeating-conic-gradient(#1a1626 0% 25%, #221e30 0% 50%) 0 0 / 12px 12px; border-radius:4px; }
+/* Pixel editor modal */
+.pp-pixmodal { position:fixed; inset:0; background:rgba(5,4,10,0.8); z-index:50;
+  display:flex; align-items:center; justify-content:center; }
+.pp-pixpanel { background:#1a1626; border:1px solid #3a3550; border-radius:8px; padding:16px;
+  color:#d8d2ec; font:12px "Segoe UI", system-ui, sans-serif; }
+.pp-pixcols { display:flex; gap:16px; align-items:flex-start; margin-top:8px; }
+.pp-pixgrid { cursor:crosshair; border:1px solid #2c2740; border-radius:4px; }
+.pp-pixside { display:flex; flex-direction:column; gap:6px; width:130px; }
+.pp-pixpreview { background:
+  repeating-conic-gradient(#1a1626 0% 25%, #221e30 0% 50%) 0 0 / 16px 16px;
+  border:1px solid #2c2740; border-radius:4px; }
+.pp-paletterow { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; align-items:center; }
+.pp-swatch { width:22px; height:22px; border:1px solid #3a3550; border-radius:4px; cursor:pointer; }
+.pp-swatch.pp-active { outline:2px solid #ffd166; }
+.pp-framestrip { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.pp-framethumb { width:32px; height:32px; background:#100e1a; border:1px solid #3a3550;
+  border-radius:4px; cursor:pointer; }
+.pp-framethumb.pp-active { border-color:#ffd166; }
+.pp-portraitgrid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:8px; }
+.pp-portraitcell { background:#161226; border:1px solid #2c2740; border-radius:6px; padding:8px;
+  display:flex; flex-direction:column; align-items:center; gap:5px; }
 `;
 
 type TabId =
@@ -78,6 +114,11 @@ interface ListSpec {
   setList: (l: Record<string, unknown>[]) => void;
   template: () => Record<string, unknown>;
   label: (item: Record<string, unknown>) => string;
+  /** Draw a 24x24 thumbnail for a list row. */
+  thumb?: (item: Record<string, unknown>, ctx: CanvasRenderingContext2D) => void;
+  /** Show the custom-sprite panel (upload / pixel editor / clear). */
+  sprites?: boolean;
+  spriteSize?: number;
 }
 
 let styleEl: HTMLStyleElement | null = null;
@@ -94,6 +135,7 @@ export function openEditor(root: HTMLElement, store: ContentStore, game: Game): 
 }
 
 export function closeEditor(root: HTMLElement): void {
+  activeShell?.dispose();
   root.replaceChildren();
   activeShell = null;
 }
@@ -116,6 +158,10 @@ class EditorShell {
       this.game.setContent(this.store.content);
       this.game.newRun(roomId);
     });
+  }
+
+  dispose(): void {
+    this.roomEditor.dispose();
   }
 
   render(): void {
@@ -165,6 +211,12 @@ class EditorShell {
             solid: true, color: "#888888",
           }),
           label: (t) => `${t.char}  ${t.id}`,
+          thumb: (t, ctx) => {
+            ctx.scale(1.5, 1.5);
+            drawTile(ctx, t as unknown as TileDef, 0, 0, 0);
+          },
+          sprites: true,
+          spriteSize: 16,
         });
         break;
       case "items":
@@ -177,6 +229,9 @@ class EditorShell {
             color: "#888888", description: "",
           }),
           label: (t) => `${t.id} (${t.kind})`,
+          thumb: (t, ctx) => drawItemIcon(ctx, t as unknown as ItemDef, 12, 12, 1.3),
+          sprites: true,
+          spriteSize: 16,
         });
         break;
       case "recipes":
@@ -201,6 +256,16 @@ class EditorShell {
             speed: 50, damage: 1, turnAtEdges: true, stunnable: true, trappable: true,
           }),
           label: (t) => `${t.id} (${t.behavior})`,
+          thumb: (t, ctx) => {
+            const d = t as unknown as EnemyDef;
+            const s = 18 / Math.max(d.width || 16, d.height || 16);
+            ctx.translate((24 - d.width * s) / 2, (24 - d.height * s) / 2);
+            ctx.scale(s, s);
+            drawBlob(ctx, 0, 0, d.width || 16, d.height || 16,
+              d.color || "#888", d.eyeColor || "#000", 1, { sprite: d });
+          },
+          sprites: true,
+          spriteSize: 16,
         });
         break;
       case "taunts":
@@ -220,7 +285,16 @@ class EditorShell {
         panel.append(
           el("p", { className: "pp-hint" },
             "Global tuning: player feel, camera, juice, rules, audio. Changes apply on save."),
-          autoForm(c.game as unknown as Record<string, unknown>, () => {}),
+          autoForm(c.game as unknown as Record<string, unknown>, () => {}, SPRITE_KEYS),
+          el("div", { className: "pp-sidehead", style: "margin-top:14px" }, "Player sprite"),
+          this.spritePanel(
+            c.game.player as unknown as Record<string, unknown>,
+            "Player", 16, () => this.renderTab()
+          ),
+          el("div", { className: "pp-sidehead", style: "margin-top:14px" }, "Warden portraits"),
+          el("p", { className: "pp-hint" },
+            "One face per emotion. Taunts pick their face via their 'emotion' field (taunts tab)."),
+          this.portraitGrid(),
           el("div", { className: "pp-btnrow" },
             el("button", {
               className: "pp-btn pp-primary",
@@ -246,15 +320,22 @@ class EditorShell {
     if (this.selectedIndex >= list.length) this.selectedIndex = 0;
     const listEl = el("div", { className: "pp-list" });
     list.forEach((item, i) => {
-      listEl.append(
-        el("div", {
-          className: "pp-listitem" + (i === this.selectedIndex ? " pp-active" : ""),
-          onclick: () => {
-            this.selectedIndex = i;
-            this.renderTab();
-          },
-        }, spec.label(item))
-      );
+      const row = el("div", {
+        className: "pp-listitem" + (i === this.selectedIndex ? " pp-active" : ""),
+        onclick: () => {
+          this.selectedIndex = i;
+          this.renderTab();
+        },
+      });
+      if (spec.thumb) {
+        const cv = el("canvas", { width: 24, height: 24, className: "pp-thumb" });
+        try {
+          spec.thumb(item, cv.getContext("2d")!);
+        } catch { /* half-filled entries shouldn't break the list */ }
+        row.append(cv);
+      }
+      row.append(el("span", {}, spec.label(item)));
+      listEl.append(row);
     });
     listEl.append(
       el("div", { className: "pp-btnrow" },
@@ -273,7 +354,10 @@ class EditorShell {
     const item = list[this.selectedIndex];
     if (item) {
       panel.append(
-        autoForm(item, () => {}),
+        autoForm(item, () => {}, SPRITE_KEYS),
+        spec.sprites
+          ? this.spritePanel(item, "Custom sprite", spec.spriteSize ?? 16, () => this.renderTab())
+          : el("span", {}),
         el("div", { className: "pp-btnrow" },
           el("button", {
             className: "pp-btn pp-primary",
@@ -308,6 +392,152 @@ class EditorShell {
       panel.append(el("p", { className: "pp-hint" }, "Nothing here yet — add one."));
     }
     this.bodyEl.append(el("div", { className: "pp-cols" }, listEl, panel));
+  }
+
+  /** Upload / pixel-edit / clear custom art on any SpriteFields carrier. */
+  private spritePanel(
+    target: Record<string, unknown>,
+    title: string,
+    size: number,
+    onChanged: () => void
+  ): HTMLElement {
+    const preview = el("canvas", { width: 48, height: 48, className: "pp-spritepreview" });
+    const drawPreview = () => {
+      const ctx = preview.getContext("2d")!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, 48, 48);
+      const uri = currentFrame(target as { sprite?: string; spriteFrames?: string[] });
+      if (!uri) return;
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, 48, 48);
+      img.src = uri;
+    };
+    drawPreview();
+    const frames = (target.spriteFrames as string[] | undefined)
+      ?? (target.sprite ? [target.sprite as string] : []);
+    const apply = (newFrames: string[], fps: number) => {
+      if (newFrames.length > 1) {
+        target.spriteFrames = newFrames;
+        target.spriteFps = fps;
+        delete target.sprite;
+      } else {
+        target.sprite = newFrames[0];
+        delete target.spriteFrames;
+        delete target.spriteFps;
+      }
+      onChanged();
+    };
+    return el(
+      "div", { className: "pp-spritepanel" },
+      preview,
+      el("span", { className: "pp-hint" },
+        `${title} — ${frames.length > 1 ? frames.length + " frames" : frames.length === 1 ? "1 image" : "procedural (none set)"}`),
+      el("button", {
+        className: "pp-btn",
+        onclick: () => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/png,image/gif,image/webp";
+          input.onchange = () => {
+            const f = input.files?.[0];
+            if (!f) return;
+            const r = new FileReader();
+            r.onload = () => apply([r.result as string], 6);
+            r.readAsDataURL(f);
+          };
+          input.click();
+        },
+      }, "Upload PNG"),
+      el("button", {
+        className: "pp-btn",
+        onclick: () =>
+          openPixelEditor({
+            title: `${title} (${size}x${size})`,
+            size,
+            frames,
+            fps: (target.spriteFps as number) ?? 6,
+            multiFrame: true,
+            onSave: apply,
+          }),
+      }, "Pixel editor"),
+      el("button", {
+        className: "pp-btn pp-danger",
+        onclick: () => {
+          delete target.sprite;
+          delete target.spriteFrames;
+          delete target.spriteFps;
+          onChanged();
+        },
+      }, "Clear")
+    );
+  }
+
+  /** Per-emotion Warden portrait manager (game tab). */
+  private portraitGrid(): HTMLElement {
+    const c = this.store.content;
+    const ant = c.game.antagonist;
+    const grid = el("div", { className: "pp-portraitgrid" });
+    for (const emotion of EMOTIONS) {
+      const cv = el("canvas", { width: 64, height: 64 });
+      const draw = () => {
+        const ctx = cv.getContext("2d")!;
+        ctx.clearRect(0, 0, 64, 64);
+        drawWardenPortrait(ctx, emotion, ant.color, 0, 0, 64, ant.portraits?.[emotion]);
+      };
+      draw();
+      grid.append(
+        el("div", { className: "pp-portraitcell" },
+          cv,
+          el("span", { className: "pp-hint" }, emotion),
+          el("div", { className: "pp-btnrow", style: "margin-top:0" },
+            el("button", {
+              className: "pp-btn",
+              onclick: () =>
+                openPixelEditor({
+                  title: `Warden — ${emotion} (32x32)`,
+                  size: 32,
+                  frames: ant.portraits?.[emotion] ? [ant.portraits[emotion]!] : [],
+                  fps: 6,
+                  multiFrame: false,
+                  onSave: (frames) => {
+                    ant.portraits = ant.portraits ?? {};
+                    ant.portraits[emotion] = frames[0];
+                    this.renderTab();
+                  },
+                }),
+            }, "edit"),
+            el("button", {
+              className: "pp-btn",
+              onclick: () => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/png,image/gif,image/webp";
+                input.onchange = () => {
+                  const f = input.files?.[0];
+                  if (!f) return;
+                  const r = new FileReader();
+                  r.onload = () => {
+                    ant.portraits = ant.portraits ?? {};
+                    ant.portraits[emotion] = r.result as string;
+                    this.renderTab();
+                  };
+                  r.readAsDataURL(f);
+                };
+                input.click();
+              },
+            }, "png"),
+            el("button", {
+              className: "pp-btn pp-danger",
+              onclick: () => {
+                if (ant.portraits) delete ant.portraits[emotion];
+                this.renderTab();
+              },
+            }, "✕")
+          )
+        )
+      );
+    }
+    return grid;
   }
 
   private renderCampaignTab(): void {

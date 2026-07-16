@@ -109,6 +109,22 @@ export class RunState {
     return out;
   }
 
+  /** Hotbar items: consumables plus reusable tools with an active use (swing). */
+  usableItems(): ItemDef[] {
+    const out: ItemDef[] = [];
+    for (const [id, n] of this.inventory) {
+      if (n <= 0) continue;
+      const def = this.item(id);
+      if (!def) continue;
+      if (def.kind === "consumable") out.push(def);
+      else if (def.kind === "tool" && def.capabilities?.some((c) => c.startsWith("break:"))) {
+        out.push(def);
+      }
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }
+
   ownedTools(): ItemDef[] {
     const out: ItemDef[] = [];
     for (const [id, n] of this.inventory) {

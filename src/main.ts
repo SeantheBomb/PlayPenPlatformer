@@ -6,22 +6,26 @@ import { Game } from "./game/game";
 async function boot() {
   const canvas = document.getElementById("game") as HTMLCanvasElement;
   const ctx = canvas.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
-
-  // Integer-ish scale the 640x360 canvas to the window.
-  const fit = () => {
-    const scale = Math.max(
-      1,
-      Math.min(window.innerWidth / 640, window.innerHeight / 360)
-    );
-    canvas.style.width = `${640 * scale}px`;
-    canvas.style.height = `${360 * scale}px`;
-  };
-  window.addEventListener("resize", fit);
-  fit();
 
   const content = await store.load();
   const game = new Game(ctx, content);
+
+  // Render at native resolution: the backing store matches the window (x DPR)
+  // and the 640x360 logical view is scaled up with a transform, so text and
+  // shapes stay crisp at any window size. Art is procedural, so this is free.
+  const fit = () => {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    const scale = Math.min((w * dpr) / 640, (h * dpr) / 360);
+    const ox = (w * dpr - 640 * scale) / 2;
+    const oy = (h * dpr - 360 * scale) / 2;
+    game.setViewport(scale, ox, oy);
+  };
+  window.addEventListener("resize", fit);
+  fit();
   game.start();
   canvas.focus();
 

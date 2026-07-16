@@ -24,18 +24,25 @@ npm run build      # production bundle in dist/ (deployable to Cloudflare Pages 
 | S / ↓ | drop through one-way platforms |
 | E | interact: read notes, talk, hide in lockers, doors |
 | Tab | crafting (combine any two items) |
-| Q / F | cycle / use consumable |
-| Esc | pause |
+| Q / F | cycle / use hotbar item (hammer swings, bombs throw, traps place) |
+| Esc | pause (full control listing lives here) |
 
 ## The Editor
 
 The Player and the Editor ship in the same executable. The editor is deliberately
 low-key: press **Ctrl+Shift+E** in-game, or open the app with `?editor` in the URL.
 
-- **rooms** — tile painter, entity placement + inspector, room properties, test-play
-- **tiles / items / recipes / enemies / taunts** — full CRUD over every content type
-- **game** — every tunable: player physics, camera, juice, rules, audio
+- **rooms** — tile painter, entity placement + inspector, room properties, test-play,
+  undo/redo (Ctrl+Z / Ctrl+Y)
+- **tiles / items / recipes / enemies / taunts** — full CRUD with live thumbnails
+- **game** — every tunable, plus the player sprite and the Warden's portrait set
 - **campaign** — room order
+
+**Custom art**: every tile, item, enemy, the player, and each Warden emotion accepts a
+custom sprite — upload a PNG or draw one in the built-in pixel editor (multi-frame
+animation supported). Sprites are stored as data-URIs inside the content JSON, so an
+exported bundle carries its art with it. Anything without a sprite falls back to the
+procedural primitives.
 
 Saving in **Electron writes straight to `content/` on disk**. In a browser it writes to a
 localStorage overlay (bundled files stay untouched) — use **Export JSON / Import JSON** to

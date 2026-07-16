@@ -65,7 +65,8 @@ escape the wing → (future) descend to the next facility layer.
   bounce pads, goo (slow zones). All numbers in `game.json`.
 - **Crafting**: combine-two, unordered. Journal records known recipes. Recipes learned
   from notes, NPCs, or blind discovery. 6 recipes, 15 items.
-- **Tools (passive)**: hammer (`break:cracked`), spring boots (`jump:boost`).
+- **Tools**: hammer (`break:cracked`) — reusable hotbar tool, F swings a short-range
+  arc that smashes cracked tiles; spring boots (`jump:boost`) — passive.
 - **Consumables**: lockpick (`unlock`), smoke bomb (`stun`), sticky trap (`trap`).
 - **Curio**: sock puppet. Does nothing. The Warden adores him.
 - **Enemies**: Crawler (patrol), Spotter (line-of-sight chase, returns home). Stunnable,
@@ -76,6 +77,14 @@ escape the wing → (future) descend to the next facility layer.
 - **NPCs**: fetch-quest prisoners (give item → receive items + recipes + dialog).
 - **Taunts**: trigger-driven (game_start, room_enter, death, first_death, craft_fail,
   first_craft, craft_item, idle, hide_enter, npc_help, win) with cooldown + chance.
+  Each taunt carries an `emotion`; the banner shows the Warden's portrait making that
+  face (procedural set: smug / gleeful / annoyed / bored / shocked / proud, each
+  overridable with custom art).
+- **Hints**: `hint` entities render faint tutorial text in-world; placed like any
+  other entity in the editor.
+- **Custom sprites**: tiles, items, enemies, the player, and Warden portraits accept
+  data-URI sprite overrides (single image or animated frames) via editor upload or the
+  built-in pixel editor; procedural art is the fallback.
 - **Rooms**: authored char-map grids, authored order (campaign.json), gate doors,
   locked doors, exit.
 

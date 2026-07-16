@@ -28,6 +28,7 @@ export class Player {
   hiddenIn: number | null = null; // entity index of locker
   invulnUntil = 0;
 
+  swingUntil = 0; // swing-tool animation window
   private coyoteUntil = 0;
   private jumpBufferedUntil = 0;
   private jumpHeld = false;
@@ -124,7 +125,7 @@ export class Player {
     const res = map.move(
       this.x, this.y, this.w, this.h,
       clamp(this.vx, -speedCap, speedCap), this.vy, dt,
-      { breakCaps: state.breakCaps(), dropThrough: input.downHeld }
+      { dropThrough: input.downHeld }
     );
 
     for (const hit of res.overlapping) {
@@ -177,6 +178,13 @@ export class Player {
     return ev;
   }
 
+  /** Kick off the swing-tool visual (breaking logic lives in Game). */
+  swing(): void {
+    this.swingUntil = performance.now() + 160;
+    this.squashX = 1.18;
+    this.squashY = 0.88;
+  }
+
   draw(ctx: CanvasRenderingContext2D): void {
     if (this.hiddenIn !== null) return;
     const flicker = this.invulnerable && Math.floor(performance.now() / 80) % 2 === 0;
@@ -184,8 +192,22 @@ export class Player {
     drawBlob(
       ctx, this.x, this.y, this.w, this.h,
       this.cfg.color, this.cfg.eyeColor, this.facing,
-      { squashX: this.squashX, squashY: this.squashY, blink: this.blinking }
+      { squashX: this.squashX, squashY: this.squashY, blink: this.blinking, sprite: this.cfg }
     );
+    // Swing swoosh arc in front of the player
+    const swingLeft = this.swingUntil - performance.now();
+    if (swingLeft > 0) {
+      const t = 1 - swingLeft / 160; // 0..1 through the swing
+      ctx.save();
+      ctx.translate(this.centerX, this.centerY);
+      ctx.scale(this.facing >= 0 ? 1 : -1, 1);
+      ctx.strokeStyle = `rgba(255,255,255,${0.8 - t * 0.7})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(4, 0, 14 + t * 4, -Math.PI / 2 + t * 0.8, 0.6 + t * 0.8);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.globalAlpha = 1;
   }
 }

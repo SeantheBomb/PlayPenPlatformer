@@ -1,5 +1,5 @@
 // Game orchestrator: scenes, room flow, interactions, death loop, win.
-import type { Content } from "../data/types";
+import type { Content, ItemDef } from "../data/types";
 import { Input } from "../engine/input";
 import { Loop } from "../engine/loop";
 import { Camera } from "../engine/camera";
@@ -41,6 +41,9 @@ export class Game {
   currentRoomId = "";
 
   private animT = 0;
+  private viewScale = 1;
+  private viewOx = 0;
+  private viewOy = 0;
   private floaties: Floaty[] = [];
   private overlayEntity: EntityInstance | null = null;
   private overlayText = "";
@@ -94,6 +97,13 @@ export class Game {
 
   start(): void {
     this.loop.start();
+  }
+
+  /** Native-resolution viewport: logical 640x360 scaled/centered by main.ts. */
+  setViewport(scale: number, ox: number, oy: number): void {
+    this.viewScale = scale;
+    this.viewOx = ox;
+    this.viewOy = oy;
   }
 
   newRun(startRoomId?: string): void {
@@ -231,18 +241,7 @@ export class Game {
         count: 10, color: ev.bounced.def.color, speed: 80, upBias: 60, life: 0.4,
       });
     }
-    for (const b of ev.broke) {
-      sfx.play("break");
-      this.camera.shake(3, 0.2);
-      this.loop.hitStop(g.juice.hitStopMs * 0.6);
-      this.particles.burst({
-        x: b.tx * TILE + 8, y: b.ty * TILE + 8,
-        count: 14, color: b.def.color, speed: 120, life: 0.55,
-      });
-      this.state.mutations(this.currentRoomId).brokenTiles.push(
-        b.ty * this.roomRt.map.width + b.tx
-      );
-    }
+    void ev.broke; // contact-breaking retired: breaking is an active swing now
     if (ev.spikeDamage > 0) {
       this.damagePlayer(ev.spikeDamage, this.player.centerX, "spikes");
     }
@@ -320,15 +319,15 @@ export class Game {
     // ---- Interact (E) ----
     if (this.input.interactPressed) this.tryInteract();
 
-    // ---- Consumables (Q cycle, F use) ----
-    const cons = this.state.ownedConsumables();
-    if (cons.length > 0) {
+    // ---- Usable items (Q cycle, F use) ----
+    const usable = this.state.usableItems();
+    if (usable.length > 0) {
       if (this.input.cyclePressed) {
-        this.state.selectedConsumable = (this.state.selectedConsumable + 1) % cons.length;
+        this.state.selectedConsumable = (this.state.selectedConsumable + 1) % usable.length;
         sfx.play("uiMove");
       }
       if (this.input.usePressed && this.player.hiddenIn === null) {
-        this.useConsumable(cons[Math.min(this.state.selectedConsumable, cons.length - 1)].id);
+        this.useItem(usable[Math.min(this.state.selectedConsumable, usable.length - 1)]);
       }
     }
 
@@ -457,6 +456,58 @@ export class Game {
     }
   }
 
+  private lastSwingAt = 0;
+
+  /** Reusable swing tools (hammer): break matching tiles in a short arc ahead. */
+  private trySwing(item: ItemDef): void {
+    const now = performance.now();
+    if (now - this.lastSwingAt < 320) return;
+    this.lastSwingAt = now;
+    this.player.swing();
+    sfx.play("swing");
+    const caps = new Set(
+      (item.capabilities ?? []).filter((c) => c.startsWith("break:"))
+    );
+    const p = this.player;
+    const front = p.facing >= 0 ? p.x + p.w : p.x;
+    const reach = p.facing * 22;
+    const x0 = Math.min(front, front + reach);
+    const x1 = Math.max(front, front + reach);
+    const y0 = p.y - 16;
+    const y1 = p.feetY + 10;
+    const map = this.roomRt.map;
+    for (let ty = Math.floor(y0 / TILE); ty <= Math.floor(y1 / TILE); ty++) {
+      for (let tx = Math.floor(x0 / TILE); tx <= Math.floor(x1 / TILE); tx++) {
+        const def = map.at(tx, ty);
+        if (def?.breakBy && caps.has(def.breakBy)) {
+          map.breakTile(tx, ty);
+          this.smashTileFX(tx, ty, def.color);
+        }
+      }
+    }
+  }
+
+  private smashTileFX(tx: number, ty: number, color: string): void {
+    sfx.play("break");
+    this.camera.shake(3, 0.2);
+    this.loop.hitStop(this.content.game.juice.hitStopMs * 0.6);
+    this.particles.burst({
+      x: tx * TILE + 8, y: ty * TILE + 8,
+      count: 14, color, speed: 120, life: 0.55,
+    });
+    this.state.mutations(this.currentRoomId).brokenTiles.push(
+      ty * this.roomRt.map.width + tx
+    );
+  }
+
+  private useItem(item: ItemDef): void {
+    if (item.kind === "tool") {
+      if (item.capabilities?.some((c) => c.startsWith("break:"))) this.trySwing(item);
+      return;
+    }
+    this.useConsumable(item.id);
+  }
+
   private useConsumable(id: string): void {
     const item = this.state.item(id);
     if (!item) return;
@@ -549,7 +600,22 @@ export class Game {
   private render(): void {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#0d0b14"; // letterbox
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.setTransform(this.viewScale, 0, 0, this.viewScale, this.viewOx, this.viewOy);
+    // Clip to the logical view so nothing bleeds into the letterbox
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, VIEW_W, VIEW_H);
+    ctx.clip();
+    this.renderScene(ctx);
+    ctx.restore();
+  }
+
+  private renderScene(ctx: CanvasRenderingContext2D): void {
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillStyle = "#0d0b14";
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     if (this.scene === "menu") {
       this.renderMenu(ctx);
@@ -615,12 +681,25 @@ export class Game {
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.fillStyle = "#e8e2f4";
       ctx.font = "bold 16px monospace";
-      ctx.fillText("PAUSED", VIEW_W / 2 - 30, 150);
+      ctx.fillText("PAUSED", VIEW_W / 2 - 30, 110);
       ctx.font = "10px monospace";
       ctx.fillStyle = "#bbb3d6";
-      ctx.fillText("Esc — resume", VIEW_W / 2 - 40, 180);
-      ctx.fillText(`M — sound ${sfx.muted ? "ON" : "OFF"}`, VIEW_W / 2 - 40, 196);
-      ctx.fillText("Q — quit to menu", VIEW_W / 2 - 40, 212);
+      ctx.fillText("Esc — resume", VIEW_W / 2 - 70, 140);
+      ctx.fillText(`M — sound ${sfx.muted ? "ON" : "OFF"}`, VIEW_W / 2 - 70, 156);
+      ctx.fillText("Q — quit to menu", VIEW_W / 2 - 70, 172);
+      ctx.fillStyle = "#8f87ad";
+      ctx.fillText("CONTROLS", VIEW_W / 2 - 70, 204);
+      const controls = [
+        "A/D or ←/→ ... move",
+        "SPACE / W ... jump (hold = higher)",
+        "S / ↓ ....... drop through platforms",
+        "E ........... interact / hide / doors",
+        "TAB ......... crafting",
+        "Q / F ....... cycle / use item",
+      ];
+      controls.forEach((l, i) =>
+        ctx.fillText(l, VIEW_W / 2 - 70, 220 + i * 14)
+      );
     }
   }
 

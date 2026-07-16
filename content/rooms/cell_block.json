@@ -72,6 +72,12 @@
       "y": 20
     },
     {
+      "type": "hint",
+      "x": 18,
+      "y": 18,
+      "text": "this floor looks... cracked"
+    },
+    {
       "type": "note",
       "x": 18,
       "y": 22,

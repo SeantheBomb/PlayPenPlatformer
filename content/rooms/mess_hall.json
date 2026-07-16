@@ -48,6 +48,12 @@
       "y": 20
     },
     {
+      "type": "hint",
+      "x": 30,
+      "y": 15,
+      "text": "Q — cycle items · F — use"
+    },
+    {
       "type": "pickup",
       "item": "plank",
       "x": 9,

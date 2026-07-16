@@ -69,7 +69,7 @@
     "kind": "tool",
     "shape": "tool",
     "color": "#e8b04b",
-    "description": "Breaks cracked walls on contact. Percussive problem solving.",
+    "description": "Swing with F to break cracked tiles. Reusable. Percussive problem solving.",
     "capabilities": ["break:cracked"]
   },
   {

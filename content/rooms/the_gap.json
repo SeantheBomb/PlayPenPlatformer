@@ -46,6 +46,12 @@
       "y": 24
     },
     {
+      "type": "hint",
+      "x": 9,
+      "y": 20,
+      "text": "bounce pads launch you upward"
+    },
+    {
       "type": "pickup",
       "item": "spring_coil",
       "x": 6,

@@ -13,8 +13,11 @@ type Tool =
   | { kind: "entity"; type: RoomEntity["type"] };
 
 const ENTITY_TYPES: RoomEntity["type"][] = [
-  "spawn", "checkpoint", "pickup", "note", "door", "locker", "enemy", "npc", "exit",
+  "spawn", "checkpoint", "pickup", "note", "door", "locker", "enemy", "npc",
+  "exit", "hint",
 ];
+
+const UNDO_CAP = 50;
 
 export class RoomEditor {
   private roomId: string | null = null;
@@ -24,6 +27,21 @@ export class RoomEditor {
   private painting = false;
   private draggingEntity = false;
   private dirty = false;
+  private undoStack: { roomId: string; data: string }[] = [];
+  private redoStack: { roomId: string; data: string }[] = [];
+  private lastFormUndoAt = 0;
+  private keyHandler = (e: KeyboardEvent) => {
+    if (!document.body.contains(this.rootEl)) return;
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return; // native undo in fields
+    if (e.ctrlKey && !e.shiftKey && e.code === "KeyZ") {
+      e.preventDefault();
+      this.undo();
+    } else if ((e.ctrlKey && e.code === "KeyY") || (e.ctrlKey && e.shiftKey && e.code === "KeyZ")) {
+      e.preventDefault();
+      this.redo();
+    }
+  };
 
   private rootEl!: HTMLElement;
   private canvas!: HTMLCanvasElement;
@@ -80,8 +98,58 @@ export class RoomEditor {
     );
 
     this.roomId = this.content.campaign.rooms[0] ?? Object.keys(this.content.rooms)[0] ?? null;
+    window.removeEventListener("keydown", this.keyHandler);
+    window.addEventListener("keydown", this.keyHandler);
     this.refreshAll();
     return this.rootEl;
+  }
+
+  dispose(): void {
+    window.removeEventListener("keydown", this.keyHandler);
+  }
+
+  // ---------- Undo / redo (snapshot-based) ----------
+
+  /** Snapshot the current room before a mutating operation. */
+  private pushUndo(): void {
+    const room = this.room;
+    if (!room) return;
+    this.undoStack.push({ roomId: room.id, data: JSON.stringify(room) });
+    if (this.undoStack.length > UNDO_CAP) this.undoStack.shift();
+    this.redoStack.length = 0;
+  }
+
+  /** Debounced variant for rapid-fire form edits (one snapshot per burst). */
+  private pushUndoDebounced(): void {
+    const now = performance.now();
+    if (now - this.lastFormUndoAt > 900) this.pushUndo();
+    this.lastFormUndoAt = now;
+  }
+
+  private applySnapshot(
+    snap: { roomId: string; data: string },
+    intoStack: { roomId: string; data: string }[]
+  ): void {
+    const current = this.content.rooms[snap.roomId];
+    if (current) {
+      intoStack.push({ roomId: snap.roomId, data: JSON.stringify(current) });
+      if (intoStack.length > UNDO_CAP) intoStack.shift();
+    }
+    this.content.rooms[snap.roomId] = JSON.parse(snap.data);
+    this.roomId = snap.roomId;
+    this.selected = null;
+    this.markDirty();
+    this.refreshAll();
+  }
+
+  undo(): void {
+    const snap = this.undoStack.pop();
+    if (snap) this.applySnapshot(snap, this.redoStack);
+  }
+
+  redo(): void {
+    const snap = this.redoStack.pop();
+    if (snap) this.applySnapshot(snap, this.undoStack);
   }
 
   private refreshAll(): void {
@@ -121,7 +189,7 @@ export class RoomEditor {
         this.markDirty();
         this.normalizeTiles();
         this.renderCanvas();
-      }, ["tiles", "entities", "id"]),
+      }, ["tiles", "entities", "id"], () => this.pushUndoDebounced()),
       el("div", { className: "pp-btnrow" },
         el("button", { className: "pp-btn pp-primary", onclick: () => this.save() }, "Save room"),
         el("button", { className: "pp-btn", onclick: () => this.onTestRoom(room.id) }, "▶ Test"),
@@ -169,12 +237,14 @@ export class RoomEditor {
     this.canvas.addEventListener("mousedown", (e) => {
       const { tx, ty, wx, wy } = this.mousePos(e);
       if (this.tool.kind === "tile" || this.tool.kind === "erase") {
+        this.pushUndo(); // one snapshot per paint stroke
         this.painting = true;
         this.paintAt(tx, ty);
       } else if (this.tool.kind === "entity") {
         this.placeEntity(this.tool.type, tx, ty);
       } else {
         this.selected = this.entityAt(wx, wy);
+        if (this.selected) this.pushUndo(); // pre-drag position
         this.draggingEntity = !!this.selected;
         this.renderInspector();
         this.renderCanvas();
@@ -239,6 +309,7 @@ export class RoomEditor {
     const defaults: Record<string, Partial<RoomEntity>> = {
       pickup: { item: firstMaterial, count: 1 },
       note: { text: "A note.", recipe: "" },
+      hint: { text: "hint text here" },
       door: { to: "next" },
       enemy: { enemy: firstEnemy, patrolMinX: tx - 3, patrolMaxX: tx + 3 },
       npc: {
@@ -248,6 +319,7 @@ export class RoomEditor {
         dialogAsk: "Hey.", dialogDone: "Thanks!", dialogAfter: "Good luck.",
       },
     };
+    this.pushUndo();
     const entity: RoomEntity = { type, x: tx, y: ty, ...(defaults[type] ?? {}) } as RoomEntity;
     room.entities.push(entity);
     this.selected = entity;
@@ -263,7 +335,8 @@ export class RoomEditor {
     if (!this.selected) {
       this.inspectorEl.append(
         el("p", { className: "pp-hint" },
-          "Select tool + click an entity to edit it. Entity tools place new ones. Drag to move.")
+          "Select tool + click an entity to edit it. Entity tools place new ones. " +
+          "Drag to move. Ctrl+Z / Ctrl+Y — undo / redo.")
       );
       return;
     }
@@ -273,11 +346,12 @@ export class RoomEditor {
       autoForm(sel as unknown as Record<string, unknown>, () => {
         this.markDirty();
         this.renderCanvas();
-      }),
+      }, [], () => this.pushUndoDebounced()),
       el("div", { className: "pp-btnrow" },
         el("button", {
           className: "pp-btn pp-danger",
           onclick: () => {
+            this.pushUndo();
             room.entities = room.entities.filter((e) => e !== sel);
             this.selected = null;
             this.markDirty();

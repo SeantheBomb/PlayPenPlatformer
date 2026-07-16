@@ -37,9 +37,16 @@ const isColor = (v: unknown): v is string =>
 export function autoForm(
   obj: Record<string, unknown>,
   onChange: () => void,
-  skipKeys: string[] = []
+  skipKeys: string[] = [],
+  onBefore?: () => void
 ): HTMLElement {
   const wrap = el("div", { className: "pp-form" });
+  if (onBefore) {
+    // Capture phase: runs before the field handlers mutate `obj`,
+    // so undo snapshots capture the pre-edit state.
+    wrap.addEventListener("input", () => onBefore(), true);
+    wrap.addEventListener("change", () => onBefore(), true);
+  }
   for (const key of Object.keys(obj)) {
     if (skipKeys.includes(key)) continue;
     const val = obj[key];
@@ -111,7 +118,7 @@ export function autoForm(
       );
     } else if (val !== null && typeof val === "object" && !Array.isArray(val)) {
       const fs = el("fieldset", {}, el("legend", {}, key));
-      fs.append(autoForm(val as Record<string, unknown>, onChange));
+      fs.append(autoForm(val as Record<string, unknown>, onChange, [], onBefore));
       wrap.append(fs);
       continue;
     } else {

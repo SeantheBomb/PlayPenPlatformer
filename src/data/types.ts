@@ -4,8 +4,13 @@
 export interface GameConfig {
   title: string;
   subtitle: string;
-  antagonist: { name: string; color: string };
-  player: {
+  antagonist: {
+    name: string;
+    color: string;
+    // Custom portrait override per emotion (data-URI images)
+    portraits?: Partial<Record<WardenEmotion, string>>;
+  };
+  player: SpriteFields & {
     color: string;
     eyeColor: string;
     width: number;
@@ -47,7 +52,18 @@ export interface GameConfig {
 
 export type TileStyle = "block" | "platform" | "spikes" | "cracked" | "spring" | "goo";
 
-export interface TileDef {
+/**
+ * Optional custom art, available on tiles, items, enemies, the player, and
+ * Warden portraits. `sprite` is a single data-URI image; `spriteFrames` (+
+ * `spriteFps`) animates. When absent, procedural drawing is used.
+ */
+export interface SpriteFields {
+  sprite?: string;
+  spriteFrames?: string[];
+  spriteFps?: number;
+}
+
+export interface TileDef extends SpriteFields {
   id: string;
   char: string;
   name: string;
@@ -66,7 +82,7 @@ export type ItemShape =
   | "shard" | "plank" | "ring" | "cloth" | "ball" | "mushroom"
   | "cog" | "spring" | "tool" | "bottle";
 
-export interface ItemDef {
+export interface ItemDef extends SpriteFields {
   id: string;
   name: string;
   kind: ItemKind;
@@ -86,7 +102,7 @@ export interface RecipeDef {
 
 export type EnemyBehavior = "patrol" | "chase";
 
-export interface EnemyDef {
+export interface EnemyDef extends SpriteFields {
   id: string;
   name: string;
   behavior: EnemyBehavior;
@@ -111,12 +127,16 @@ export type TauntTrigger =
   | "craft_fail" | "first_craft" | "craft_item" | "idle"
   | "hide_enter" | "npc_help" | "win";
 
+export type WardenEmotion =
+  | "smug" | "gleeful" | "annoyed" | "bored" | "shocked" | "proud";
+
 export interface TauntDef {
   id: string;
   trigger: TauntTrigger;
   lines: string[];
   cooldownMs: number;
   chance: number;
+  emotion?: WardenEmotion; // portrait face shown with the banner (default smug)
   roomId?: string; // filter for room_enter
   itemId?: string; // filter for craft_item
 }
@@ -125,7 +145,7 @@ export interface TauntDef {
 
 export type EntityType =
   | "spawn" | "checkpoint" | "pickup" | "note" | "door"
-  | "locker" | "enemy" | "npc" | "exit";
+  | "locker" | "enemy" | "npc" | "exit" | "hint";
 
 export interface RoomEntity {
   type: EntityType;

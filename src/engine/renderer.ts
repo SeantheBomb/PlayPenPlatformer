@@ -1,7 +1,54 @@
 // Canvas drawing helpers shared by the game and the editor's room preview.
 // All art is procedural primitives — no image assets.
-import type { ItemDef, TileDef } from "../data/types";
+import type { ItemDef, SpriteFields, TileDef, WardenEmotion } from "../data/types";
 import { TILE, TileMap } from "./tilemap";
+
+// ---- Custom sprite support (data-URI images stored in content) ----
+
+const imgCache = new Map<string, HTMLImageElement>();
+
+function getImage(uri: string): HTMLImageElement | null {
+  let img = imgCache.get(uri);
+  if (!img) {
+    img = new Image();
+    img.src = uri;
+    imgCache.set(uri, img);
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+export function currentFrame(s: SpriteFields): string | null {
+  if (s.spriteFrames && s.spriteFrames.length > 0) {
+    const fps = s.spriteFps || 6;
+    const i = Math.floor((performance.now() / 1000) * fps) % s.spriteFrames.length;
+    return s.spriteFrames[i];
+  }
+  return s.sprite ?? null;
+}
+
+/** Draw a custom sprite if one is set and loaded. Returns true if drawn. */
+export function drawSprite(
+  ctx: CanvasRenderingContext2D,
+  s: SpriteFields,
+  x: number, y: number, w: number, h: number,
+  facing = 1
+): boolean {
+  const uri = currentFrame(s);
+  if (!uri) return false;
+  const img = getImage(uri);
+  if (!img) return false; // still loading — procedural fallback this frame
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (facing < 0) {
+    ctx.translate(x + w, y);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0, w, h);
+  } else {
+    ctx.drawImage(img, x, y, w, h);
+  }
+  ctx.restore();
+  return true;
+}
 
 export function shade(hex: string, amt: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -30,6 +77,7 @@ export function drawTile(
   px: number, py: number,
   animT = 0
 ): void {
+  if (drawSprite(ctx, def, px, py, TILE, TILE)) return;
   const c = def.color;
   switch (def.style) {
     case "block": {
@@ -159,7 +207,11 @@ export function drawBlob(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number,
   color: string, eyeColor: string, facing: number,
-  opts: { squashX?: number; squashY?: number; eyeStyle?: "dot" | "wide" | "sleepy"; blink?: boolean } = {}
+  opts: {
+    squashX?: number; squashY?: number;
+    eyeStyle?: "dot" | "wide" | "sleepy"; blink?: boolean;
+    sprite?: SpriteFields;
+  } = {}
 ): void {
   const sx = opts.squashX ?? 1;
   const sy = opts.squashY ?? 1;
@@ -167,6 +219,7 @@ export function drawBlob(
   const dh = h * sy;
   const dx = x + (w - dw) / 2;
   const dy = y + (h - dh); // keep feet planted when squashing
+  if (opts.sprite && drawSprite(ctx, opts.sprite, dx, dy, dw, dh, facing)) return;
   ctx.fillStyle = color;
   roundRect(ctx, dx, dy, dw, dh, Math.min(5, dw / 3));
   ctx.fill();
@@ -197,6 +250,95 @@ export function drawBlob(
   }
 }
 
+/**
+ * The Warden's portrait: a single lidded eye with emotion-specific brow,
+ * lid, and mouth. Custom per-emotion overrides (data-URI) win when present.
+ */
+export function drawWardenPortrait(
+  ctx: CanvasRenderingContext2D,
+  emotion: WardenEmotion,
+  color: string,
+  x: number, y: number, size: number,
+  override?: string
+): void {
+  if (override && drawSprite(ctx, { sprite: override }, x, y, size, size)) return;
+  const s = size / 32; // designed on a 32px grid
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  // Frame
+  ctx.fillStyle = "#1a1020";
+  roundRect(ctx, 0, 0, 32, 32, 5);
+  ctx.fill();
+  ctx.strokeStyle = shade(color, -60);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  const t = performance.now() / 1000;
+  // The eye
+  const eyeY = 15;
+  const wide = emotion === "shocked" ? 1.35 : emotion === "gleeful" ? 1.15 : 1;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(16, eyeY, 10, 6.5 * wide, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Pupil (drifts, hunting)
+  ctx.fillStyle = "#0d0b14";
+  const px = 16 + Math.sin(t * 0.9) * (emotion === "bored" ? 1 : 3);
+  ctx.beginPath();
+  ctx.arc(px, eyeY, emotion === "shocked" ? 2 : 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Lid (how much the eye is closed)
+  const lid =
+    emotion === "bored" ? 0.55 :
+    emotion === "smug" ? 0.4 :
+    emotion === "proud" ? 0.85 :
+    emotion === "annoyed" ? 0.3 : 0;
+  if (lid > 0) {
+    ctx.fillStyle = "#1a1020";
+    ctx.fillRect(5, eyeY - 8, 22, 8 * lid + (8 - 8 * wide));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(6, eyeY - 8 + 8 * lid);
+    ctx.lineTo(26, eyeY - 8 + 8 * lid);
+    ctx.stroke();
+  }
+  // Brow
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (emotion === "annoyed") {
+    ctx.moveTo(7, 4); ctx.lineTo(25, 8);
+  } else if (emotion === "shocked") {
+    ctx.moveTo(8, 3); ctx.quadraticCurveTo(16, 0, 24, 3);
+  } else if (emotion === "smug" || emotion === "proud") {
+    ctx.moveTo(8, 6); ctx.quadraticCurveTo(16, 3.5, 24, 6);
+  } else if (emotion === "bored") {
+    ctx.moveTo(8, 7); ctx.lineTo(24, 7);
+  } else { // gleeful
+    ctx.moveTo(8, 4); ctx.quadraticCurveTo(16, 1, 24, 4);
+  }
+  ctx.stroke();
+  // Mouth
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  if (emotion === "gleeful") {
+    ctx.moveTo(10, 25); ctx.quadraticCurveTo(16, 30, 22, 25);
+  } else if (emotion === "smug") {
+    ctx.moveTo(12, 26); ctx.quadraticCurveTo(18, 28, 22, 25);
+  } else if (emotion === "proud") {
+    ctx.moveTo(11, 26); ctx.quadraticCurveTo(16, 29, 21, 26);
+  } else if (emotion === "annoyed") {
+    ctx.moveTo(11, 27); ctx.lineTo(21, 27);
+  } else if (emotion === "shocked") {
+    ctx.arc(16, 26, 3, 0, Math.PI * 2);
+  } else { // bored
+    ctx.moveTo(12, 27); ctx.lineTo(20, 27.8);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Draw an item icon centered at (cx, cy). Shape comes from item data. */
 export function drawItemIcon(
   ctx: CanvasRenderingContext2D,
@@ -204,6 +346,7 @@ export function drawItemIcon(
   cx: number, cy: number,
   scale = 1
 ): void {
+  if (drawSprite(ctx, item, cx - 8 * scale, cy - 8 * scale, 16 * scale, 16 * scale)) return;
   const c = item.color;
   ctx.save();
   ctx.translate(cx, cy);

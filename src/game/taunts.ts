@@ -1,17 +1,18 @@
 // The Warden's taunt system. Fully data-driven from content/taunts.json.
-import type { TauntDef, TauntTrigger } from "../data/types";
+import type { TauntDef, TauntTrigger, WardenEmotion } from "../data/types";
 import { randPick } from "../engine/math";
 import { sfx } from "../engine/audio";
 
 export interface ActiveTaunt {
   line: string;
+  emotion: WardenEmotion;
   shownAt: number;
   duration: number;
 }
 
 export class TauntManager {
   private lastFired = new Map<string, number>();
-  private queue: string[] = [];
+  private queue: { line: string; emotion: WardenEmotion }[] = [];
   active: ActiveTaunt | null = null;
   onTauntShown?: () => void;
 
@@ -31,7 +32,7 @@ export class TauntManager {
       if (now - last < t.cooldownMs) continue;
       if (Math.random() > (t.chance ?? 1)) continue;
       this.lastFired.set(t.id, now);
-      this.queue.push(randPick(t.lines));
+      this.queue.push({ line: randPick(t.lines), emotion: t.emotion ?? "smug" });
     }
   }
 
@@ -41,11 +42,12 @@ export class TauntManager {
       this.active = null;
     }
     if (!this.active && this.queue.length > 0) {
-      const line = this.queue.shift()!;
+      const next = this.queue.shift()!;
       this.active = {
-        line,
+        line: next.line,
+        emotion: next.emotion,
         shownAt: now,
-        duration: 2600 + line.length * 34, // linger long enough to read
+        duration: 2600 + next.line.length * 34, // linger long enough to read
       };
       sfx.play("taunt");
       this.onTauntShown?.();

@@ -37,6 +37,30 @@
       "y": 20
     },
     {
+      "type": "hint",
+      "x": 6,
+      "y": 17,
+      "text": "A / D — move · SPACE — jump"
+    },
+    {
+      "type": "hint",
+      "x": 18,
+      "y": 14,
+      "text": "hold SPACE to jump higher"
+    },
+    {
+      "type": "hint",
+      "x": 32,
+      "y": 15,
+      "text": "TAB — craft what you find"
+    },
+    {
+      "type": "hint",
+      "x": 37,
+      "y": 14,
+      "text": "F — swing the hammer at cracks"
+    },
+    {
       "type": "pickup",
       "item": "scrap_metal",
       "x": 9,

@@ -1,6 +1,6 @@
 // In-game HUD and simple overlays. Pure drawing — state lives in Game.
-import type { Content } from "../data/types";
-import { drawItemIcon, roundRect } from "../engine/renderer";
+import type { Content, WardenEmotion } from "../data/types";
+import { drawItemIcon, drawWardenPortrait, roundRect } from "../engine/renderer";
 import type { RunState } from "./state";
 import type { TauntManager } from "./taunts";
 import { wrapText } from "./craftui";
@@ -34,7 +34,10 @@ export function drawHearts(ctx: CanvasRenderingContext2D, health: number, max: n
 export function drawToolbelt(
   ctx: CanvasRenderingContext2D, state: RunState, viewW: number
 ): void {
-  const tools = state.ownedTools();
+  // Passive tools only — active tools (swing) live in the hotbar instead.
+  const tools = state.ownedTools().filter(
+    (t) => !t.capabilities?.some((c) => c.startsWith("break:"))
+  );
   tools.forEach((t, i) => {
     const x = viewW - 24 - i * 22;
     ctx.fillStyle = "rgba(28,24,40,0.85)";
@@ -47,7 +50,7 @@ export function drawToolbelt(
 export function drawHotbar(
   ctx: CanvasRenderingContext2D, state: RunState, viewH: number
 ): void {
-  const cons = state.ownedConsumables();
+  const cons = state.usableItems();
   if (cons.length === 0) return;
   const sel = Math.min(state.selectedConsumable, cons.length - 1);
   cons.forEach((c, i) => {
@@ -62,9 +65,11 @@ export function drawHotbar(
       ctx.stroke();
     }
     drawItemIcon(ctx, c, x + 11, y + 10, 1.1);
-    ctx.fillStyle = "#ffd166";
-    ctx.font = "8px monospace";
-    ctx.fillText(String(state.count(c.id)), x + 14, y + 20);
+    if (c.kind === "consumable") {
+      ctx.fillStyle = "#ffd166";
+      ctx.font = "8px monospace";
+      ctx.fillText(String(state.count(c.id)), x + 14, y + 20);
+    }
   });
   ctx.fillStyle = "#8f87ad";
   ctx.font = "8px monospace";
@@ -74,36 +79,37 @@ export function drawHotbar(
 export function drawTauntBanner(
   ctx: CanvasRenderingContext2D,
   taunts: TauntManager,
-  antagonist: { name: string; color: string },
+  antagonist: {
+    name: string;
+    color: string;
+    portraits?: Partial<Record<WardenEmotion, string>>;
+  },
   viewW: number
 ): void {
   if (!taunts.active) return;
   const text = taunts.visibleText();
+  const emotion = taunts.active.emotion;
   ctx.font = "10px monospace";
-  const w = Math.min(viewW - 40, Math.max(220, ctx.measureText(taunts.active.line).width + 60));
+  const w = Math.min(viewW - 40, Math.max(240, ctx.measureText(taunts.active.line).width + 78));
   const x = (viewW - w) / 2;
   const y = 8;
   ctx.fillStyle = "rgba(16,12,24,0.92)";
-  roundRect(ctx, x, y, w, 40, 6);
+  roundRect(ctx, x, y, w, 44, 6);
   ctx.fill();
   ctx.strokeStyle = antagonist.color;
   ctx.lineWidth = 1;
   ctx.stroke();
-  // The Warden's "eye"
-  ctx.fillStyle = antagonist.color;
-  ctx.beginPath();
-  ctx.ellipse(x + 16, y + 20, 8, 5.5, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#0d0b14";
-  ctx.beginPath();
-  ctx.arc(x + 16 + Math.sin(performance.now() / 400) * 2.5, y + 20, 2.4, 0, Math.PI * 2);
-  ctx.fill();
+  drawWardenPortrait(
+    ctx, emotion, antagonist.color,
+    x + 6, y + 6, 32,
+    antagonist.portraits?.[emotion]
+  );
   ctx.fillStyle = antagonist.color;
   ctx.font = "bold 8px monospace";
-  ctx.fillText(antagonist.name.toUpperCase(), x + 30, y + 13);
+  ctx.fillText(antagonist.name.toUpperCase(), x + 46, y + 15);
   ctx.fillStyle = "#e8e2f4";
   ctx.font = "10px monospace";
-  wrapText(ctx, text, x + 30, y + 25, w - 44, 11);
+  wrapText(ctx, text, x + 46, y + 27, w - 58, 11);
 }
 
 export function drawFloaties(ctx: CanvasRenderingContext2D, floaties: Floaty[]): void {
