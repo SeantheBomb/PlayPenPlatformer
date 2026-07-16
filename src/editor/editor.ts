@@ -119,6 +119,17 @@ interface ListSpec {
   /** Show the custom-sprite panel (upload / pixel editor / clear). */
   sprites?: boolean;
   spriteSize?: number;
+  /** Draw the procedural art at `size` — used to seed the pixel editor. */
+  procedural?: (item: Record<string, unknown>, ctx: CanvasRenderingContext2D, size: number) => void;
+}
+
+/** Rasterize a procedural draw call into a data-URI (pixel editor seed). */
+function rasterize(size: number, draw: (ctx: CanvasRenderingContext2D) => void): string {
+  const cv = document.createElement("canvas");
+  cv.width = size;
+  cv.height = size;
+  draw(cv.getContext("2d")!);
+  return cv.toDataURL("image/png");
 }
 
 let styleEl: HTMLStyleElement | null = null;
@@ -217,6 +228,10 @@ class EditorShell {
           },
           sprites: true,
           spriteSize: 16,
+          procedural: (t, ctx, size) => {
+            ctx.scale(size / 16, size / 16);
+            drawTile(ctx, { ...(t as unknown as TileDef), sprite: undefined, spriteFrames: undefined }, 0, 0, 0);
+          },
         });
         break;
       case "items":
@@ -232,6 +247,12 @@ class EditorShell {
           thumb: (t, ctx) => drawItemIcon(ctx, t as unknown as ItemDef, 12, 12, 1.3),
           sprites: true,
           spriteSize: 16,
+          procedural: (t, ctx, size) =>
+            drawItemIcon(
+              ctx,
+              { ...(t as unknown as ItemDef), sprite: undefined, spriteFrames: undefined },
+              size / 2, size / 2, size / 14
+            ),
         });
         break;
       case "recipes":
@@ -266,6 +287,15 @@ class EditorShell {
           },
           sprites: true,
           spriteSize: 16,
+          procedural: (t, ctx, size) => {
+            const d = t as unknown as EnemyDef;
+            const w = d.width || 16;
+            const h = d.height || 16;
+            const s = size / Math.max(w, h);
+            ctx.translate((size - w * s) / 2, size - h * s);
+            ctx.scale(s, s);
+            drawBlob(ctx, 0, 0, w, h, d.color || "#888", d.eyeColor || "#000", 1);
+          },
         });
         break;
       case "taunts":
@@ -289,7 +319,14 @@ class EditorShell {
           el("div", { className: "pp-sidehead", style: "margin-top:14px" }, "Player sprite"),
           this.spritePanel(
             c.game.player as unknown as Record<string, unknown>,
-            "Player", 16, () => this.renderTab()
+            "Player", 16, () => this.renderTab(),
+            (ctx, size) => {
+              const p = c.game.player;
+              const s = size / Math.max(p.width, p.height);
+              ctx.translate((size - p.width * s) / 2, size - p.height * s);
+              ctx.scale(s, s);
+              drawBlob(ctx, 0, 0, p.width, p.height, p.color, p.eyeColor, 1);
+            }
           ),
           el("div", { className: "pp-sidehead", style: "margin-top:14px" }, "Warden portraits"),
           el("p", { className: "pp-hint" },
@@ -356,7 +393,10 @@ class EditorShell {
       panel.append(
         autoForm(item, () => {}, SPRITE_KEYS),
         spec.sprites
-          ? this.spritePanel(item, "Custom sprite", spec.spriteSize ?? 16, () => this.renderTab())
+          ? this.spritePanel(
+              item, "Custom sprite", spec.spriteSize ?? 16, () => this.renderTab(),
+              spec.procedural ? (ctx, size) => spec.procedural!(item, ctx, size) : undefined
+            )
           : el("span", {}),
         el("div", { className: "pp-btnrow" },
           el("button", {
@@ -399,7 +439,8 @@ class EditorShell {
     target: Record<string, unknown>,
     title: string,
     size: number,
-    onChanged: () => void
+    onChanged: () => void,
+    procedural?: (ctx: CanvasRenderingContext2D, size: number) => void
   ): HTMLElement {
     const preview = el("canvas", { width: 48, height: 48, className: "pp-spritepreview" });
     const drawPreview = () => {
@@ -450,15 +491,21 @@ class EditorShell {
       }, "Upload PNG"),
       el("button", {
         className: "pp-btn",
-        onclick: () =>
+        onclick: () => {
+          // No custom art yet? Start from the procedural sprite, not a blank.
+          const seed =
+            frames.length === 0 && procedural
+              ? [rasterize(size, (ctx) => procedural(ctx, size))]
+              : frames;
           openPixelEditor({
             title: `${title} (${size}x${size})`,
             size,
-            frames,
+            frames: seed,
             fps: (target.spriteFps as number) ?? 6,
             multiFrame: true,
             onSave: apply,
-          }),
+          });
+        },
       }, "Pixel editor"),
       el("button", {
         className: "pp-btn pp-danger",
@@ -496,7 +543,10 @@ class EditorShell {
                 openPixelEditor({
                   title: `Warden — ${emotion} (32x32)`,
                   size: 32,
-                  frames: ant.portraits?.[emotion] ? [ant.portraits[emotion]!] : [],
+                  frames: [
+                    ant.portraits?.[emotion] ??
+                      rasterize(32, (ctx) => drawWardenPortrait(ctx, emotion, ant.color, 0, 0, 32)),
+                  ],
                   fps: 6,
                   multiFrame: false,
                   onSave: (frames) => {
