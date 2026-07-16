@@ -1,0 +1,38 @@
+[
+  {
+    "id": "recipe_hammer",
+    "inputs": ["scrap_metal", "plank"],
+    "output": "hammer",
+    "flavor": "Metal + wood = the oldest idea in the world. Still works."
+  },
+  {
+    "id": "recipe_spring_boots",
+    "inputs": ["spring_coil", "cloth"],
+    "output": "spring_boots",
+    "flavor": "Strap the bounce directly to your feet. What could go wrong."
+  },
+  {
+    "id": "recipe_lockpick",
+    "inputs": ["scrap_metal", "cog"],
+    "output": "lockpick",
+    "flavor": "Teeth of a cog, patience of a desperate person."
+  },
+  {
+    "id": "recipe_smoke_bomb",
+    "inputs": ["goo_blob", "glow_mushroom"],
+    "output": "smoke_bomb",
+    "flavor": "The mushroom does something to the goo. Don't ask what."
+  },
+  {
+    "id": "recipe_sticky_trap",
+    "inputs": ["goo_blob", "plank"],
+    "output": "sticky_trap",
+    "flavor": "Goo on a board. Engineering peaked here."
+  },
+  {
+    "id": "recipe_sock_puppet",
+    "inputs": ["cloth", "rope"],
+    "output": "sock_puppet",
+    "flavor": "You had materials. You made a friend instead."
+  }
+]

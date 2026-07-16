@@ -1,0 +1,11 @@
+{
+  "rooms": [
+    "orientation",
+    "storage",
+    "vents",
+    "cell_block",
+    "the_gap",
+    "mess_hall",
+    "exit_wing"
+  ]
+}

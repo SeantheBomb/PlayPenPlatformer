@@ -1,0 +1,132 @@
+[
+  {
+    "id": "welcome",
+    "trigger": "game_start",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Good morning, Subject #47! Welcome to the PlayPen. Snack time is never.",
+      "Ah, you're awake. Orientation is self-guided. Mostly because the guide quit."
+    ]
+  },
+  {
+    "id": "room_orientation",
+    "trigger": "room_enter",
+    "roomId": "orientation",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "Left, right, jump. Even the sock puppet figured that out eventually."
+    ]
+  },
+  {
+    "id": "room_vents",
+    "trigger": "room_enter",
+    "roomId": "vents",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Spotter is nocturnal, diurnal, and extremely motivated. Do wave hello."
+    ]
+  },
+  {
+    "id": "room_exit_wing",
+    "trigger": "room_enter",
+    "roomId": "exit_wing",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Exit Wing! Named ironically, of course. No one exits. It's more of a theme."
+    ]
+  },
+  {
+    "id": "first_death",
+    "trigger": "first_death",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Oh no. Anyway — you respawn. We recycle subjects here. Very eco-friendly."
+    ]
+  },
+  {
+    "id": "death",
+    "trigger": "death",
+    "cooldownMs": 8000,
+    "chance": 0.9,
+    "lines": [
+      "You dropped your things back there. Litterbug.",
+      "That's coming out of your snack privileges. Which are zero. So.",
+      "I've seen worse. I'm legally required to say that.",
+      "The floor is not your friend. Nothing here is your friend.",
+      "Subject #46 lasted longer. And #46 was a mop."
+    ]
+  },
+  {
+    "id": "craft_fail",
+    "trigger": "craft_fail",
+    "cooldownMs": 12000,
+    "chance": 0.6,
+    "lines": [
+      "Fascinating combination. Truly. Write that down and then throw it away.",
+      "That's not a recipe, that's a cry for help.",
+      "I love watching you do science."
+    ]
+  },
+  {
+    "id": "first_craft",
+    "trigger": "first_craft",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "You MADE something? Hm. Noting 'exhibits tool use' on your chart. Concerning."
+    ]
+  },
+  {
+    "id": "craft_sock_puppet",
+    "trigger": "craft_item",
+    "itemId": "sock_puppet",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "You made a SOCK PUPPET? Oh, this is the best day of my career. He stays. Forever."
+    ]
+  },
+  {
+    "id": "idle",
+    "trigger": "idle",
+    "cooldownMs": 45000,
+    "chance": 1,
+    "lines": [
+      "Standing still is technically an escape strategy. A bad one, but technically.",
+      "I can see you, you know. That's my whole job."
+    ]
+  },
+  {
+    "id": "hide",
+    "trigger": "hide_enter",
+    "cooldownMs": 20000,
+    "chance": 0.7,
+    "lines": [
+      "Hiding in the locker. Classic. The locker union thanks you for your business.",
+      "I'll pretend I don't know where you are. It's more fun for both of us."
+    ]
+  },
+  {
+    "id": "npc_help",
+    "trigger": "npc_help",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Fraternizing with the other subjects? Fine. Friendship is just a slower escape."
+    ]
+  },
+  {
+    "id": "win",
+    "trigger": "win",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Wait. WAIT. Who left the Exit Wing exit-able?! ...Enjoy the parking lot, #47. There's a second facility under it."
+    ]
+  }
+]

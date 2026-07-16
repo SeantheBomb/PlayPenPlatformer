@@ -1,0 +1,53 @@
+{
+  "title": "PlayPen",
+  "subtitle": "You are Subject #47. Please enjoy your stay.",
+  "antagonist": {
+    "name": "The Warden",
+    "color": "#ff5470"
+  },
+  "player": {
+    "color": "#ffd166",
+    "eyeColor": "#241f31",
+    "width": 12,
+    "height": 14,
+    "runSpeed": 150,
+    "acceleration": 1500,
+    "friction": 1900,
+    "airControl": 0.72,
+    "gravity": 1400,
+    "jumpVelocity": 400,
+    "jumpCutMultiplier": 0.45,
+    "maxFallSpeed": 460,
+    "coyoteTimeMs": 100,
+    "jumpBufferMs": 120,
+    "maxHealth": 3,
+    "invulnMs": 1200,
+    "knockbackX": 160,
+    "knockbackY": 220
+  },
+  "camera": {
+    "lerp": 0.14,
+    "lookaheadX": 28,
+    "lookaheadY": 10
+  },
+  "juice": {
+    "screenShake": true,
+    "shakeIntensity": 1.0,
+    "particles": true,
+    "squashStretch": true,
+    "hitStopMs": 70,
+    "landDustAtFallSpeed": 220
+  },
+  "rules": {
+    "dropMaterialsOnDeath": true,
+    "respawnInvulnMs": 1500,
+    "healAtCheckpoints": true,
+    "stunDurationMs": 4000,
+    "smokeBombRadius": 96,
+    "idleTauntSeconds": 45
+  },
+  "audio": {
+    "sfxVolume": 0.5,
+    "muted": false
+  }
+}

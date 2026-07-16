@@ -1,0 +1,120 @@
+[
+  {
+    "id": "scrap_metal",
+    "name": "Scrap Metal",
+    "kind": "material",
+    "shape": "shard",
+    "color": "#9aa7b8",
+    "description": "A jagged bit of the facility that fell off. The Warden calls this 'decor'."
+  },
+  {
+    "id": "plank",
+    "name": "Plank",
+    "kind": "material",
+    "shape": "plank",
+    "color": "#b08757",
+    "description": "Certified 30% splinter by volume."
+  },
+  {
+    "id": "rope",
+    "name": "Rope",
+    "kind": "material",
+    "shape": "ring",
+    "color": "#c9a86a",
+    "description": "Standard-issue escape prevention rope. Ironic."
+  },
+  {
+    "id": "cloth",
+    "name": "Cloth",
+    "kind": "material",
+    "shape": "cloth",
+    "color": "#d98fb0",
+    "description": "Torn from a previous subject's jumpsuit. They won't need it."
+  },
+  {
+    "id": "goo_blob",
+    "name": "Goo Blob",
+    "kind": "material",
+    "shape": "ball",
+    "color": "#8bd44f",
+    "description": "It's warm. Nobody knows why it's warm."
+  },
+  {
+    "id": "glow_mushroom",
+    "name": "Glow Mushroom",
+    "kind": "material",
+    "shape": "mushroom",
+    "color": "#7fd8e8",
+    "description": "Grows in the vents. Smells like regret and blueberries."
+  },
+  {
+    "id": "cog",
+    "name": "Cog",
+    "kind": "material",
+    "shape": "cog",
+    "color": "#c2b280",
+    "description": "Every facility runs on these. This one runs slightly worse now."
+  },
+  {
+    "id": "spring_coil",
+    "name": "Spring Coil",
+    "kind": "material",
+    "shape": "spring",
+    "color": "#5ad1a5",
+    "description": "Boing potential: considerable."
+  },
+  {
+    "id": "hammer",
+    "name": "Hammer",
+    "kind": "tool",
+    "shape": "tool",
+    "color": "#e8b04b",
+    "description": "Breaks cracked walls on contact. Percussive problem solving.",
+    "capabilities": ["break:cracked"]
+  },
+  {
+    "id": "spring_boots",
+    "name": "Spring Boots",
+    "kind": "tool",
+    "shape": "tool",
+    "color": "#5ad1a5",
+    "description": "Jump ~35% higher. Warranty void if used for escaping.",
+    "capabilities": ["jump:boost"],
+    "params": { "jumpMultiplier": 1.35 }
+  },
+  {
+    "id": "lockpick",
+    "name": "Lockpick",
+    "kind": "consumable",
+    "shape": "tool",
+    "color": "#b8c4d0",
+    "description": "Opens one locked door, then retires forever. Single-use.",
+    "capabilities": ["unlock"]
+  },
+  {
+    "id": "smoke_bomb",
+    "name": "Smoke Bomb",
+    "kind": "consumable",
+    "shape": "bottle",
+    "color": "#8f9bb3",
+    "description": "Stuns nearby enemies. Also great at parties.",
+    "capabilities": ["stun"]
+  },
+  {
+    "id": "sticky_trap",
+    "name": "Sticky Trap",
+    "kind": "consumable",
+    "shape": "plank",
+    "color": "#8bd44f",
+    "description": "Place it down. Enemies that touch it are done having a good time.",
+    "capabilities": ["trap"]
+  },
+  {
+    "id": "sock_puppet",
+    "name": "Sock Puppet",
+    "kind": "curio",
+    "shape": "cloth",
+    "color": "#d98fb0",
+    "description": "It does nothing. It judges you. The Warden loves him."
+  }
+]

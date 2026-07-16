@@ -1,0 +1,52 @@
+[
+  {
+    "id": "wall",
+    "char": "#",
+    "name": "Wall",
+    "style": "block",
+    "solid": true,
+    "color": "#3d3a52"
+  },
+  {
+    "id": "platform",
+    "char": "=",
+    "name": "One-Way Platform",
+    "style": "platform",
+    "oneWay": true,
+    "color": "#7a6f9b"
+  },
+  {
+    "id": "spikes",
+    "char": "^",
+    "name": "Spikes",
+    "style": "spikes",
+    "damage": 1,
+    "color": "#c84b6a"
+  },
+  {
+    "id": "cracked",
+    "char": "C",
+    "name": "Cracked Wall",
+    "style": "cracked",
+    "solid": true,
+    "breakBy": "break:cracked",
+    "color": "#57536e"
+  },
+  {
+    "id": "spring",
+    "char": "S",
+    "name": "Bounce Pad",
+    "style": "spring",
+    "solid": true,
+    "bounce": 620,
+    "color": "#5ad1a5"
+  },
+  {
+    "id": "goo",
+    "char": "G",
+    "name": "Goo",
+    "style": "goo",
+    "slow": 0.45,
+    "color": "#8bd44f"
+  }
+]

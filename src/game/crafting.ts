@@ -1,0 +1,35 @@
+// Combine-two crafting, Little Alchemy style. Order never matters.
+import type { Content, RecipeDef } from "../data/types";
+import type { RunState } from "./state";
+
+export interface CraftResult {
+  ok: boolean;
+  recipe?: RecipeDef;
+  outputId?: string;
+  firstTime?: boolean;
+}
+
+export function findRecipe(content: Content, a: string, b: string): RecipeDef | undefined {
+  return content.recipes.find((r) => {
+    const [x, y] = r.inputs;
+    return (x === a && y === b) || (x === b && y === a);
+  });
+}
+
+export function tryCraft(content: Content, state: RunState, a: string, b: string): CraftResult {
+  const recipe = findRecipe(content, a, b);
+  if (!recipe) return { ok: false };
+  if (!state.has(a) || !state.has(b)) return { ok: false };
+  if (a === b && state.count(a) < 2) return { ok: false };
+  state.remove(a);
+  state.remove(b);
+  state.add(recipe.output);
+  const firstTime = !state.craftedRecipes.has(recipe.id);
+  state.craftedRecipes.add(recipe.id);
+  if (!state.knownRecipes.has(recipe.id)) {
+    state.knownRecipes.add(recipe.id);
+    state.stats.discoveries++;
+  }
+  state.stats.crafts++;
+  return { ok: true, recipe, outputId: recipe.output, firstTime };
+}
