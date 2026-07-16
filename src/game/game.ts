@@ -533,6 +533,7 @@ export class Game {
     this.player.placeFeetAt(cp.x, cp.y);
     this.player.invulnUntil = performance.now() + g.rules.respawnInvulnMs;
     this.player.hiddenIn = null;
+    this.roomRt.resetEnemies();
   }
 
   private winGame(): void {

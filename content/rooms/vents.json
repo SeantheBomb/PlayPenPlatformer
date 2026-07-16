@@ -56,7 +56,7 @@
     {
       "type": "locker",
       "x": 22,
-      "y": 19
+      "y": 20
     },
     {
       "type": "pickup",
@@ -79,7 +79,7 @@
     {
       "type": "locker",
       "x": 38,
-      "y": 19
+      "y": 20
     },
     {
       "type": "pickup",
@@ -90,7 +90,7 @@
     {
       "type": "door",
       "x": 47,
-      "y": 15,
+      "y": 16,
       "to": "next"
     }
   ]

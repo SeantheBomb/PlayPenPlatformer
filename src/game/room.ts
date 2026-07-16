@@ -105,13 +105,17 @@ export class RoomRuntime {
   }
 
   /** Nearest interactable entity within reach of the player center. */
-  interactableNear(px: number, py: number, range = 26): EntityInstance | null {
+  interactableNear(px: number, py: number, range = 22): EntityInstance | null {
     let best: EntityInstance | null = null;
     let bestD = range;
     for (const e of this.entities) {
       if (e.collected) continue;
       if (!["note", "door", "locker", "npc", "exit"].includes(e.kind)) continue;
-      const d = dist(px, py, e.x + e.w / 2, e.y + e.h / 2);
+      // Distance to the entity's rect, not its center — tall doors/lockers
+      // should be reachable while standing at their base.
+      const nx = Math.max(e.x, Math.min(px, e.x + e.w));
+      const ny = Math.max(e.y, Math.min(py, e.y + e.h));
+      const d = dist(px, py, nx, ny);
       if (d < bestD) {
         bestD = d;
         best = e;
@@ -132,6 +136,18 @@ export class RoomRuntime {
     this.muts.bundles = this.muts.bundles.filter(
       (m) => !(m.x === b.x && m.y === b.y)
     );
+  }
+
+  /** Send every enemy back to its post (called on player respawn). */
+  resetEnemies(): void {
+    for (const en of this.enemies) {
+      if (en.state === "trapped") continue;
+      en.x = en.homeX - en.def.width / 2;
+      en.vx = 0;
+      en.vy = 0;
+      en.state = en.def.behavior === "patrol" ? "patrol" : "return";
+      en.lastSawPlayerAt = 0;
+    }
   }
 
   stunEnemiesNear(x: number, y: number, radius: number, durationMs: number): number {
