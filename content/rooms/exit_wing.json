@@ -54,6 +54,18 @@
     },
     {
       "type": "pickup",
+      "item": "scrap_metal",
+      "x": 7,
+      "y": 17
+    },
+    {
+      "type": "pickup",
+      "item": "rope",
+      "x": 8,
+      "y": 20
+    },
+    {
+      "type": "pickup",
       "item": "cloth",
       "x": 9,
       "y": 20

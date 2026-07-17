@@ -1,6 +1,6 @@
 {
   "title": "PlayPen",
-  "subtitle": "You are Subject #47. Please enjoy your stay.",
+  "subtitle": "You are Subject #67. Please enjoy your stay.",
   "antagonist": {
     "name": "The Warden",
     "color": "#ff5470"
@@ -39,6 +39,7 @@
     "landDustAtFallSpeed": 220
   },
   "rules": {
+    "resetInventoryBetweenRooms": true,
     "dropMaterialsOnDeath": true,
     "respawnInvulnMs": 1500,
     "healAtCheckpoints": true,

@@ -43,6 +43,18 @@
     },
     {
       "type": "pickup",
+      "item": "scrap_metal",
+      "x": 4,
+      "y": 20
+    },
+    {
+      "type": "pickup",
+      "item": "rope",
+      "x": 6,
+      "y": 20
+    },
+    {
+      "type": "pickup",
       "item": "goo_blob",
       "x": 13,
       "y": 20

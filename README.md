@@ -1,7 +1,7 @@
 # PlayPen
 
 A comedic-menace escape platformer with a systemic **element engine**. You are Subject
-#47, locked in a facility run by **The Warden**, who watches everything you do and has
+#67, locked in a facility run by **The Warden**, who watches everything you do and has
 opinions about it. Everything is made of an element — fire burns wood and spreads,
 water douses and dissolves, cold freezes pools into bridges, charge floods through
 metal, and your tools carry elements instead of following one-off rules. Learn the

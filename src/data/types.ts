@@ -40,6 +40,7 @@ export interface GameConfig {
     landDustAtFallSpeed: number;
   };
   rules: {
+    resetInventoryBetweenRooms: boolean;
     dropMaterialsOnDeath: boolean;
     respawnInvulnMs: number;
     healAtCheckpoints: boolean;
@@ -182,7 +183,7 @@ export interface EnemyDef extends SpriteFields {
 export type TauntTrigger =
   | "game_start" | "room_enter" | "first_death" | "death"
   | "craft_fail" | "first_craft" | "craft_item" | "idle"
-  | "hide_enter" | "npc_help" | "win";
+  | "hide_enter" | "npc_help" | "confiscate" | "win";
 
 export type WardenEmotion =
   | "smug" | "gleeful" | "annoyed" | "bored" | "shocked" | "proud";

@@ -54,6 +54,18 @@
       "y": 17
     },
     {
+      "type": "pickup",
+      "item": "scrap_metal",
+      "x": 11,
+      "y": 17
+    },
+    {
+      "type": "pickup",
+      "item": "rope",
+      "x": 14,
+      "y": 20
+    },
+    {
       "type": "enemy",
       "enemy": "crawler",
       "x": 13,

@@ -5,7 +5,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Good morning, Subject #47! Welcome to the PlayPen. Snack time is never.",
+      "Good morning, Subject #67! Welcome to the PlayPen. Snack time is never.",
       "Ah, you're awake. Orientation is self-guided. Mostly because the guide quit."
     ],
     "emotion": "smug"
@@ -133,12 +133,24 @@
     "emotion": "annoyed"
   },
   {
+    "id": "confiscate",
+    "trigger": "confiscate",
+    "cooldownMs": 15000,
+    "chance": 0.8,
+    "lines": [
+      "Your belongings have been confiscated and donated to the incinerator. You're welcome.",
+      "New room, new you. The old you's things are facility property now.",
+      "We have a strict no-outside-tools policy between wings. The policy is me."
+    ],
+    "emotion": "smug"
+  },
+  {
     "id": "win",
     "trigger": "win",
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Wait. WAIT. Who left the Exit Wing exit-able?! ...Enjoy the parking lot, #47. There's a second facility under it."
+      "Wait. WAIT. Who left the Exit Wing exit-able?! ...Enjoy the parking lot, #67. There's a second facility under it."
     ],
     "emotion": "shocked"
   }

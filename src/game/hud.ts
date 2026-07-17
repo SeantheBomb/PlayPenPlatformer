@@ -34,10 +34,8 @@ export function drawHearts(ctx: CanvasRenderingContext2D, health: number, max: n
 export function drawToolbelt(
   ctx: CanvasRenderingContext2D, state: RunState, viewW: number
 ): void {
-  // Passive tools only — active tools (swing) live in the hotbar instead.
-  const tools = state.ownedTools().filter(
-    (t) => !t.capabilities?.some((c) => c.startsWith("break:"))
-  );
+  // Passive tools only — anything usable lives in the hotbar instead.
+  const tools = state.ownedTools().filter((t) => !t.useMode);
   tools.forEach((t, i) => {
     const x = viewW - 24 - i * 22;
     ctx.fillStyle = "rgba(28,24,40,0.85)";

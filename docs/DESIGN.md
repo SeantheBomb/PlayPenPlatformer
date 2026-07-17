@@ -44,7 +44,7 @@ of discomfort — the player should grin, not shrink.
 
 Writing rules:
 - Punchline last. Short lines land harder on a banner.
-- He addresses you as "Subject #47" or "#47", never by anything warm.
+- He addresses you as "Subject #67" or "#67", never by anything warm.
 - He lies about small things and is honest about big ones (the reverse of helpful).
 
 ## Core loop
@@ -83,6 +83,10 @@ escape the wing → (future) descend to the next facility layer.
 - **Stealth**: lockers break line of sight and chase aggro.
 - **Death**: drop carried *materials* as a recoverable bundle; tools/consumables kept;
   respawn at checkpoint with heal; enemies reset.
+- **Confiscation**: the Warden takes your entire inventory between rooms
+  (`rules.resetInventoryBetweenRooms`). Recipes/knowledge persist — knowing how to
+  make a torch IS the progression. Every room supplies everything its own gates need,
+  and the held tool is visible in the player's hand (matching its state, lit/unlit).
 - **NPCs**: fetch-quest prisoners (give item → receive items + recipes + dialog).
 - **Taunts**: trigger-driven (game_start, room_enter, death, first_death, craft_fail,
   first_craft, craft_item, idle, hide_enter, npc_help, win) with cooldown + chance.

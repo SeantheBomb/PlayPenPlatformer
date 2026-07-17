@@ -6,7 +6,7 @@ import { Camera } from "../engine/camera";
 import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
 import { TILE } from "../engine/tilemap";
-import { drawBackdrop, drawMap, roundRect } from "../engine/renderer";
+import { drawBackdrop, drawItemIcon, drawMap, roundRect } from "../engine/renderer";
 import { rectsOverlap } from "../engine/math";
 import { RunState } from "./state";
 import { Player } from "./player";
@@ -525,10 +525,22 @@ export class Game {
     const target = e.def.to === "next" || !e.def.to ? this.nextRoomId() : e.def.to;
     if (target) {
       sfx.play("door");
+      // The Warden confiscates your belongings between wings. Knowledge stays.
+      if (
+        this.content.game.rules.resetInventoryBetweenRooms &&
+        this.state.inventory.size > 0
+      ) {
+        this.state.inventory.clear();
+        this.state.selectedConsumable = 0;
+        this.taunts.fire("confiscate");
+      }
       this.loadRoom(target);
       this.state.checkpoint = {
         roomId: target, x: this.roomRt.spawnX, y: this.roomRt.spawnY,
       };
+      if (this.content.game.rules.resetInventoryBetweenRooms) {
+        this.floaty("Belongings confiscated.", this.player.centerX, this.player.y - 12, "#e8a2b4");
+      }
     }
   }
 
@@ -818,6 +830,7 @@ export class Game {
     drawMap(ctx, this.roomRt.map, camX, camY, VIEW_W, VIEW_H, this.animT);
     this.roomRt.draw(ctx, this.animT);
     this.player.draw(ctx);
+    this.drawHeldItem(ctx);
     this.particles.draw(ctx);
     drawFloaties(ctx, this.floaties);
     // Interaction prompt
@@ -947,6 +960,27 @@ export class Game {
     ctx.fillStyle = "rgba(143,135,173,0.4)";
     ctx.fillText("v0.2.0", VIEW_W - 46, VIEW_H - 8);
     this.drawTip(ctx);
+  }
+
+  /** The selected hotbar item rides in the player's hand, state and all. */
+  private drawHeldItem(ctx: CanvasRenderingContext2D): void {
+    if (this.player.hiddenIn !== null) return;
+    const usable = this.state.usableItems();
+    if (usable.length === 0) return;
+    const item = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
+    const p = this.player;
+    const swingLeft = p.swingUntil - performance.now();
+    const swinging = swingLeft > 0;
+    const t = swinging ? 1 - swingLeft / 160 : 0;
+    // Resting: at the hip on the facing side. Swinging: sweeps up and forward.
+    const hx = p.centerX + p.facing * (5 + (swinging ? 6 + t * 4 : 0));
+    const hy = p.centerY + 2 - (swinging ? 7 - t * 3 : 0);
+    ctx.save();
+    ctx.translate(hx, hy);
+    if (swinging) ctx.rotate(p.facing * (-0.9 + t * 1.4));
+    if (p.facing < 0) ctx.scale(-1, 1);
+    drawItemIcon(ctx, item, 0, 0, 0.9);
+    ctx.restore();
   }
 
   private drawTip(ctx: CanvasRenderingContext2D): void {

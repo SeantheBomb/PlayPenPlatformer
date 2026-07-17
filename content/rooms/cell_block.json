@@ -61,9 +61,15 @@
       "rewardRecipes": [
         "recipe_smoke_bomb"
       ],
-      "dialogAsk": "Psst. #47! Marla. #12. Got a GLOW MUSHROOM from the vents? I'll trade you something good. The Warden hates trades. Do it out of spite.",
+      "dialogAsk": "Psst. #67! Marla. #12. There's a GLOW MUSHROOM sealed under the ice over there — I've been staring at it for a month. Get it out, bring it here, I'll make it worth your while.",
       "dialogDone": "Beautiful. Here — cloth I've been hoarding, and a recipe: mushroom spores in a sock. Shake it and everything nearby takes a nap. Poof.",
       "dialogAfter": "Go. GO. Wave at the parking lot for me."
+    },
+    {
+      "type": "pickup",
+      "item": "scrap_metal",
+      "x": 10,
+      "y": 20
     },
     {
       "type": "pickup",
@@ -72,10 +78,22 @@
       "y": 20
     },
     {
+      "type": "pickup",
+      "item": "plank",
+      "x": 15,
+      "y": 20
+    },
+    {
       "type": "hint",
       "x": 14,
       "y": 17,
-      "text": "ice melts. ice shatters. the note is under it"
+      "text": "ice melts. ice shatters. treasure underneath"
+    },
+    {
+      "type": "pickup",
+      "item": "glow_mushroom",
+      "x": 17,
+      "y": 22
     },
     {
       "type": "note",
