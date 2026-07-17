@@ -48,7 +48,8 @@ export function drawToolbelt(
 }
 
 export function drawHotbar(
-  ctx: CanvasRenderingContext2D, state: RunState, viewH: number
+  ctx: CanvasRenderingContext2D, state: RunState, viewH: number,
+  hint = "Q cycle · F use"
 ): void {
   const cons = state.usableItems();
   if (cons.length === 0) return;
@@ -73,7 +74,7 @@ export function drawHotbar(
   });
   ctx.fillStyle = "#8f87ad";
   ctx.font = "8px monospace";
-  ctx.fillText("Q cycle · F use", 14, viewH - 38);
+  ctx.fillText(hint, 14, viewH - 38);
 }
 
 export function drawTauntBanner(

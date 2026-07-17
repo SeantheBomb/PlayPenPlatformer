@@ -10,26 +10,33 @@ kernel once, invent your own solutions everywhere. Every rule lives in editable 
 
 ## Running it
 
+**Play it now: https://playpen.pages.dev** — works with keyboard, touch (phones/tablets,
+landscape), and gamepads. The control scheme is auto-detected from whatever you use.
+
 ```bash
 npm install
 npm run dev        # browser dev server at http://localhost:5173
 npm run app        # build + launch the Electron app
 npm run app:dev    # Electron pointed at the running dev server (run `npm run dev` first)
 npm run typecheck  # tsc --noEmit
-npm run build      # production bundle in dist/ (deployable to Cloudflare Pages as-is)
+npm run build      # production bundle in dist/
+npm run deploy     # build + publish to Cloudflare Pages (playpen.pages.dev)
 ```
 
 ## Controls
 
-| Key | Action |
-| --- | --- |
-| A/D or ←/→ | move |
-| Space / W / ↑ | jump (hold for higher, tap for shorter) |
-| S / ↓ | drop through one-way platforms |
-| E | interact: read notes, talk, hide in lockers, doors |
-| Tab | crafting (combine any two items) |
-| Q / F | cycle / use hotbar item (hammer swings, bombs throw, traps place) |
-| Esc | pause (full control listing lives here) |
+| Action | Keyboard | Gamepad | Touch |
+| --- | --- | --- | --- |
+| move | A/D or ←/→ | left stick / d-pad | ◀ ▶ buttons |
+| jump (hold = higher) | Space / W / ↑ | A | A button |
+| drop through platforms | S / ↓ | stick down / d-pad | ▼ button |
+| interact | E | X | E button |
+| crafting | Tab | Y | ⚒ button (tap slots) |
+| use hotbar item | F | B | F button |
+| cycle hotbar | Q | LB / RB | tap the slot |
+| pause | Esc | Start | ❚❚ button |
+
+Prompts and hints re-label themselves for whichever scheme you used last.
 
 ## The Editor
 

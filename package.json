@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "app": "npm run build && electron .",
-    "app:dev": "electron . --dev"
+    "app:dev": "electron . --dev",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name=playpen --branch=master"
   },
   "devDependencies": {
     "electron": "^33.0.0",

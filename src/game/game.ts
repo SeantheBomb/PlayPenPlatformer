@@ -13,6 +13,7 @@ import { Player } from "./player";
 import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
 import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
+import { TouchControls } from "./touch";
 import {
   drawFloaties, drawHearts, drawHotbar, drawPrompt,
   drawTauntBanner, drawTextOverlay, drawToolbelt, type Floaty,
@@ -40,10 +41,13 @@ export class Game {
   roomRt!: RoomRuntime;
   currentRoomId = "";
 
+  touch: TouchControls;
   private animT = 0;
   private viewScale = 1;
   private viewOx = 0;
   private viewOy = 0;
+  private tipText = "";
+  private tipUntil = 0;
   private floaties: Floaty[] = [];
   private overlayEntity: EntityInstance | null = null;
   private overlayText = "";
@@ -71,7 +75,73 @@ export class Game {
       (dt) => this.update(dt),
       () => this.render()
     );
+    this.touch = new TouchControls(
+      ctx.canvas as HTMLCanvasElement,
+      this.input,
+      (cx, cy) => this.screenToLogical(cx, cy)
+    );
+    this.touch.onTap = (x, y) => this.handleTap(x, y);
+    this.input.onSchemeChange = (s) => {
+      if (s === "gamepad") this.tip("controller detected");
+    };
     this.applyConfig();
+  }
+
+  private tip(text: string): void {
+    this.tipText = text;
+    this.tipUntil = performance.now() + 2500;
+  }
+
+  screenToLogical(clientX: number, clientY: number): { x: number; y: number } {
+    const canvas = this.ctx.canvas as HTMLCanvasElement;
+    const rect = canvas.getBoundingClientRect();
+    const px = (clientX - rect.left) * (canvas.width / rect.width);
+    const py = (clientY - rect.top) * (canvas.height / rect.height);
+    return {
+      x: (px - this.viewOx) / this.viewScale,
+      y: (py - this.viewOy) / this.viewScale,
+    };
+  }
+
+  /** Taps that didn't land on a touch button: UI navigation. */
+  handleTap(x: number, y: number): void {
+    if (this.scene === "menu") {
+      sfx.play("uiSelect");
+      this.newRun();
+      return;
+    }
+    if (this.scene === "win") {
+      if (performance.now() - this.winShownAt > 1200) this.scene = "menu";
+      return;
+    }
+    switch (this.overlay) {
+      case "note":
+      case "dialog":
+      case "pause":
+        this.overlay = "none";
+        break;
+      case "craft": {
+        if (this.craftUI.handleTap(x, y, this.state) === "close") {
+          this.craftUI.hide();
+          this.overlay = "none";
+        }
+        break;
+      }
+      case "none": {
+        // Hotbar slot tap selects that item
+        const usable = this.state.usableItems();
+        for (let i = 0; i < usable.length; i++) {
+          const sx = 14 + i * 26;
+          const sy = VIEW_H - 34;
+          if (x >= sx && x <= sx + 22 && y >= sy && y <= sy + 22) {
+            this.state.selectedConsumable = i;
+            sfx.play("uiMove");
+            return;
+          }
+        }
+        break;
+      }
+    }
   }
 
   /** Re-read tunables from content (called on load and after editor saves). */
@@ -154,6 +224,7 @@ export class Game {
   // ================= UPDATE =================
 
   private update(dt: number): void {
+    this.input.pollGamepads();
     this.animT += dt;
     this.camera.update(dt);
     this.particles.update(dt);
@@ -168,7 +239,7 @@ export class Game {
   }
 
   private updateMenu(): void {
-    if (this.input.justPressed("Enter", "Space")) {
+    if (this.input.confirmPressed) {
       sfx.play("uiSelect");
       this.newRun();
     }
@@ -176,7 +247,7 @@ export class Game {
 
   private updateWin(): void {
     this.taunts.update();
-    if (performance.now() - this.winShownAt > 1200 && this.input.justPressed("Enter", "Space")) {
+    if (performance.now() - this.winShownAt > 1200 && this.input.confirmPressed) {
       this.scene = "menu";
     }
   }
@@ -717,6 +788,10 @@ export class Game {
     ctx.rect(0, 0, VIEW_W, VIEW_H);
     ctx.clip();
     this.renderScene(ctx);
+    // Portrait phone? The game is landscape — say so.
+    if (ctx.canvas.height > ctx.canvas.width) {
+      TouchControls.drawRotateHint(ctx, VIEW_W, VIEW_H);
+    }
     ctx.restore();
   }
 
@@ -747,8 +822,9 @@ export class Game {
     drawFloaties(ctx, this.floaties);
     // Interaction prompt
     if (this.overlay === "none") {
+      const iKey = this.input.label("interact");
       if (this.player.hiddenIn !== null) {
-        drawPrompt(ctx, "E — leave locker", this.player.centerX, this.player.y - 26);
+        drawPrompt(ctx, `${iKey} — leave locker`, this.player.centerX, this.player.y - 26);
       } else {
         const near = this.roomRt.interactableNear(this.player.centerX, this.player.centerY);
         if (near) {
@@ -756,11 +832,11 @@ export class Game {
             note: "read", door: near.def.gate && !near.open ? "inspect" : "open",
             locker: "hide", npc: "talk", exit: "ESCAPE",
           };
-          drawPrompt(ctx, `E — ${verbs[near.kind] ?? "use"}`, near.x + near.w / 2, near.y - 6);
+          drawPrompt(ctx, `${iKey} — ${verbs[near.kind] ?? "use"}`, near.x + near.w / 2, near.y - 6);
         } else {
           const spring = this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY);
           if (spring) {
-            drawPrompt(ctx, "E — take spring", spring.x + spring.w / 2, spring.y - 10);
+            drawPrompt(ctx, `${iKey} — take spring`, spring.x + spring.w / 2, spring.y - 10);
           }
         }
       }
@@ -775,8 +851,16 @@ export class Game {
     // HUD
     drawHearts(ctx, this.state.health, this.state.maxHealth);
     drawToolbelt(ctx, this.state, VIEW_W);
-    drawHotbar(ctx, this.state, VIEW_H);
+    const hotbarHint =
+      this.input.scheme === "gamepad" ? "LB/RB cycle · B use" :
+      this.input.scheme === "touch" ? "tap to select · F to use" :
+      "Q cycle · F use";
+    drawHotbar(ctx, this.state, VIEW_H, hotbarHint);
     drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W);
+    if (this.input.scheme === "touch" && this.overlay === "none") {
+      this.touch.draw(ctx);
+    }
+    this.drawTip(ctx);
 
     // Overlays
     if (this.overlay === "craft") {
@@ -840,19 +924,40 @@ export class Game {
 
     const blink = Math.floor(this.animT * 1.4) % 2 === 0;
     if (blink) {
+      const startMsg =
+        this.input.scheme === "gamepad" ? "PRESS START" :
+        this.input.scheme === "touch" ? "TAP TO BEGIN" :
+        "PRESS ENTER";
       ctx.fillStyle = "#e8e2f4";
       ctx.font = "bold 12px monospace";
-      const pw = ctx.measureText("PRESS ENTER").width;
-      ctx.fillText("PRESS ENTER", (VIEW_W - pw) / 2, 210);
+      const pw = ctx.measureText(startMsg).width;
+      ctx.fillText(startMsg, (VIEW_W - pw) / 2, 210);
     }
 
     ctx.fillStyle = "#8f87ad";
     ctx.font = "9px monospace";
-    const controls = "move A/D · jump SPACE · interact E · craft TAB · use F · cycle Q";
+    const controls =
+      this.input.scheme === "gamepad"
+        ? "move STICK · jump A · interact X · craft Y · use B · cycle LB/RB"
+        : this.input.scheme === "touch"
+          ? "on-screen controls appear in the game"
+          : "move A/D · jump SPACE · interact E · craft TAB · use F · cycle Q";
     const cw = ctx.measureText(controls).width;
     ctx.fillText(controls, (VIEW_W - cw) / 2, 250);
     ctx.fillStyle = "rgba(143,135,173,0.4)";
-    ctx.fillText("v0.1.0", VIEW_W - 46, VIEW_H - 8);
+    ctx.fillText("v0.2.0", VIEW_W - 46, VIEW_H - 8);
+    this.drawTip(ctx);
+  }
+
+  private drawTip(ctx: CanvasRenderingContext2D): void {
+    if (performance.now() > this.tipUntil) return;
+    ctx.font = "10px monospace";
+    const w = ctx.measureText(this.tipText).width + 20;
+    ctx.fillStyle = "rgba(16,12,24,0.85)";
+    roundRect(ctx, (VIEW_W - w) / 2, VIEW_H - 26, w, 18, 4);
+    ctx.fill();
+    ctx.fillStyle = "#9be8b0";
+    ctx.fillText(this.tipText, (VIEW_W - w) / 2 + 10, VIEW_H - 13);
   }
 
   private renderWin(ctx: CanvasRenderingContext2D): void {
@@ -881,7 +986,10 @@ export class Game {
 
     ctx.fillStyle = "#bbb3d6";
     ctx.font = "10px monospace";
-    const p = "Enter — back to menu";
+    const p =
+      this.input.scheme === "gamepad" ? "A — back to menu" :
+      this.input.scheme === "touch" ? "tap — back to menu" :
+      "Enter — back to menu";
     ctx.fillText(p, (VIEW_W - ctx.measureText(p).width) / 2, 300);
   }
 }

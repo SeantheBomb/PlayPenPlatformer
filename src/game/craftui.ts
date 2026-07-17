@@ -58,35 +58,55 @@ export class CraftUI {
     const slots = this.slots(state);
     const n = slots.length;
     if (n > 0) {
-      const row = Math.floor(this.cursor / COLS);
-      if (input.justPressed("ArrowRight", "KeyD")) { this.cursor = Math.min(n - 1, this.cursor + 1); sfx.play("uiMove"); }
-      if (input.justPressed("ArrowLeft", "KeyA")) { this.cursor = Math.max(0, this.cursor - 1); sfx.play("uiMove"); }
-      if (input.justPressed("ArrowDown", "KeyS")) { this.cursor = Math.min(n - 1, this.cursor + COLS); sfx.play("uiMove"); }
-      if (input.justPressed("ArrowUp", "KeyW")) { this.cursor = Math.max(0, this.cursor - COLS); sfx.play("uiMove"); }
-      void row;
+      if (input.navRight) { this.cursor = Math.min(n - 1, this.cursor + 1); sfx.play("uiMove"); }
+      if (input.navLeft) { this.cursor = Math.max(0, this.cursor - 1); sfx.play("uiMove"); }
+      if (input.navDown) { this.cursor = Math.min(n - 1, this.cursor + COLS); sfx.play("uiMove"); }
+      if (input.navUp) { this.cursor = Math.max(0, this.cursor - COLS); sfx.play("uiMove"); }
 
-      if (input.justPressed("Enter", "Space", "KeyE")) {
-        const pick = slots[this.cursor];
-        if (pick) {
-          if (this.firstPick === null) {
-            this.firstPick = this.cursor;
-            this.message = `${pick.item.name} + ...?`;
-            this.messageColor = "#bbb3d6";
-            this.resultItem = null;
-            sfx.play("uiSelect");
-          } else {
-            const a = slots[this.firstPick]?.item.id;
-            const b = pick.item.id;
-            this.firstPick = null;
-            if (a) this.combine(state, a, b);
-          }
-        }
-      }
-      if (input.justPressed("Backspace") && this.firstPick !== null) {
+      if (input.confirmPressed) this.pickAt(this.cursor, state);
+      if (input.justPressed("Backspace", "GpUse") && this.firstPick !== null) {
         this.firstPick = null;
         this.message = "Pick two things.";
       }
     }
+  }
+
+  /** Select a slot (keyboard/pad confirm or a direct tap). */
+  private pickAt(index: number, state: RunState): void {
+    const slots = this.slots(state);
+    const pick = slots[index];
+    if (!pick) return;
+    this.cursor = index;
+    if (this.firstPick === null) {
+      this.firstPick = index;
+      this.message = `${pick.item.name} + ...?`;
+      this.messageColor = "#bbb3d6";
+      this.resultItem = null;
+      sfx.play("uiSelect");
+    } else {
+      const a = slots[this.firstPick]?.item.id;
+      const b = pick.item.id;
+      this.firstPick = null;
+      if (a) this.combine(state, a, b);
+    }
+  }
+
+  /** Touch: taps pick slots; taps outside the panel close. */
+  handleTap(x: number, y: number, state: RunState): "close" | "handled" {
+    const panelW = 560;
+    const panelH = 308;
+    const px = (640 - panelW) / 2;
+    const py = (360 - panelH) / 2;
+    if (x < px || x > px + panelW || y < py || y > py + panelH) return "close";
+    const gridX = px + 14;
+    const gridY = py + 46;
+    const col = Math.floor((x - gridX) / (SLOT + 4));
+    const row = Math.floor((y - gridY) / (SLOT + 4));
+    if (col >= 0 && col < COLS && row >= 0 && row >= 0 && y >= gridY) {
+      const index = row * COLS + col;
+      if (index < this.slots(state).length) this.pickAt(index, state);
+    }
+    return "handled";
   }
 
   private combine(state: RunState, a: string, b: string): void {
