@@ -7,6 +7,19 @@
 const MAX_EVENTS = 500;
 const TTL_SECONDS = 90 * 24 * 60 * 60;
 
+// The Electron build posts here cross-origin (from a file:// window), which
+// makes this a CORS request needing a preflight response and an
+// Access-Control-Allow-Origin header on the real one.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type",
+};
+
+export async function onRequestOptions() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
   try {
@@ -39,6 +52,6 @@ export async function onRequestPost(context) {
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...CORS_HEADERS },
   });
 }

@@ -16,8 +16,21 @@ interface TelemetryEvent {
 const FLUSH_MS = 20_000;
 const MAX_BATCH = 200;
 
+// crypto.randomUUID() requires a secure context; Electron's file:// origin
+// doesn't reliably qualify, and telemetry must never be able to throw during
+// module init (a throw here would break the entire import chain, taking the
+// game down with it). Fall back to a plain random id instead.
+function safeId(): string {
+  try {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+  } catch {
+    // fall through to the manual generator below
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export class Telemetry {
-  private sessionId = crypto.randomUUID();
+  private sessionId = safeId();
   private startedAt = Date.now();
   private queue: TelemetryEvent[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -25,21 +38,29 @@ export class Telemetry {
   enabled = true;
 
   constructor() {
-    // file:// (Electron dev) posts to the live site; browser posts same-origin.
-    if (location.protocol === "file:") {
-      this.endpoint = "https://playpen.pages.dev/api/telemetry";
+    try {
+      // file:// (Electron dev) posts to the live site; browser posts same-origin.
+      if (location.protocol === "file:") {
+        this.endpoint = "https://playpen.pages.dev/api/telemetry";
+      }
+      this.timer = setInterval(() => this.flush(), FLUSH_MS);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") this.flush(true);
+      });
+      window.addEventListener("pagehide", () => this.flush(true));
+    } catch {
+      this.enabled = false;
     }
-    this.timer = setInterval(() => this.flush(), FLUSH_MS);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") this.flush(true);
-    });
-    window.addEventListener("pagehide", () => this.flush(true));
   }
 
   event(t: string, fields: Omit<TelemetryEvent, "t" | "at"> = {}): void {
     if (!this.enabled) return;
-    this.queue.push({ t, at: Date.now() - this.startedAt, ...fields });
-    if (this.queue.length >= MAX_BATCH) this.flush();
+    try {
+      this.queue.push({ t, at: Date.now() - this.startedAt, ...fields });
+      if (this.queue.length >= MAX_BATCH) this.flush();
+    } catch {
+      // Telemetry is best-effort only — never let it interrupt gameplay.
+    }
   }
 
   roomEnter(room: string): void {
