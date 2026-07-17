@@ -94,7 +94,15 @@ escape the wing → (future) descend to the next facility layer.
   (`room.wardenChase`) is a full chase gauntlet where touch = death and every needed
   tool is pre-crafted along the route — no menus while running.
 - **Waterfalls + dousing**: waterfall tiles are walk-through but douse carried flames
-  (`dousedBy`/`dousesTo` on items); fire cannot cross falling water.
+  (`dousedBy`/`dousesTo` on items); fire cannot cross falling water. Torches also
+  **auto-ignite** just by being held near any flame (no button press), and
+  **auto-extinguish** when deselected from the hotbar (`douseOnDeselect`) — F is only
+  needed to apply fire to something else in the world.
+- **Water flow** (`rules.waterFlowEnabled`): water falls into open shafts and spreads
+  sideways along floors up to a short falloff distance, Minecraft-style. Only ever
+  fills genuinely empty tiles, so existing pools stay put unless there's real open
+  space to move into. Submerged/capped water tiles (a solid or more water directly
+  above) render without the surface wave — see the vault's swim-under passage.
 - **Achievements**: `content/achievements.json` — visible + hidden, trigger/counter
   driven, each with a Warden reaction; win screen lists what you earned and counts
   (but never names) what you missed.

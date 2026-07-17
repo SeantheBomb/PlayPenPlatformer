@@ -75,7 +75,8 @@ export function drawTile(
   ctx: CanvasRenderingContext2D,
   def: TileDef,
   px: number, py: number,
-  animT = 0
+  animT = 0,
+  capped = false
 ): void {
   if (drawSprite(ctx, def, px, py, TILE, TILE)) return;
   const c = def.color;
@@ -196,6 +197,19 @@ export function drawTile(
       break;
     }
     case "water": {
+      if (capped) {
+        // Fully submerged (a solid or another water tile sits above) — no
+        // "surface" to speak of, so skip the wavy top and just show depth.
+        ctx.fillStyle = "rgba(45,140,190,0.5)";
+        ctx.fillRect(px, py, TILE, TILE);
+        const bob = Math.sin(animT * 1.6 + px * 0.5) * 1.2;
+        ctx.fillStyle = "rgba(200,235,255,0.35)";
+        ctx.beginPath();
+        ctx.arc(px + 5, py + 10 + bob, 1, 0, Math.PI * 2);
+        ctx.arc(px + 11, py + 5 - bob, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
       const wave = Math.sin(animT * 2.4 + px * 0.35) * 1.6;
       ctx.fillStyle = "rgba(79,195,247,0.55)";
       ctx.beginPath();
@@ -276,7 +290,13 @@ export function drawMap(
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
       const def = map.at(tx, ty);
-      if (def) drawTile(ctx, def, tx * TILE, ty * TILE, animT);
+      if (!def) continue;
+      let capped = false;
+      if (def.style === "water") {
+        const above = map.at(tx, ty - 1);
+        capped = !!above && (above.solid || above.style === "water");
+      }
+      drawTile(ctx, def, tx * TILE, ty * TILE, animT, capped);
     }
   }
 }
@@ -526,18 +546,34 @@ export function drawItemIcon(
       ctx.fillRect(-1.5, -6, 3, 3);
       break;
     case "torch": {
+      // Handle, always
       ctx.fillStyle = "#8a6d47";
       ctx.fillRect(-1.2, -2, 2.4, 8);
-      ctx.fillStyle = c;
-      ctx.beginPath();
-      ctx.moveTo(-3, -2);
-      ctx.quadraticCurveTo(0, -9, 3, -2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = shade(c, 45);
-      ctx.beginPath();
-      ctx.arc(0, -3.5, 1.4, 0, Math.PI * 2);
-      ctx.fill();
+      if (item.element === "fire") {
+        // Lit: a flame licking up off the tip
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(-3, -2);
+        ctx.quadraticCurveTo(0, -9, 3, -2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = shade(c, 45);
+        ctx.beginPath();
+        ctx.arc(0, -3.5, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Unlit: a wrapped cloth bundle, no flame — visually distinct from the hammer
+        ctx.fillStyle = shade(c, -15);
+        ctx.beginPath();
+        ctx.ellipse(0, -3.5, 3.4, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = shade(c, -45);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-2.8, -4.5); ctx.lineTo(2.8, -2.5);
+        ctx.moveTo(-2.8, -2.5); ctx.lineTo(2.8, -4.5);
+        ctx.stroke();
+      }
       break;
     }
     case "bucket": {

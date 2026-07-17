@@ -1,38 +1,59 @@
-// On-screen touch controls. Buttons feed virtual codes into Input; taps that
-// miss every button surface as UI taps (menu start, closing overlays, hotbar).
+// On-screen touch controls. Buttons live in the letterbox margins (screen-
+// pixel space) when the device has room for them, so gameplay isn't covered;
+// they fall back to overlaying the bottom of the game view on narrow
+// devices. Any modal overlay (craft, dialogs, pause...) takes over touch
+// input entirely instead of it being swallowed by invisible button hitboxes.
 import type { Input } from "../engine/input";
-import { roundRect } from "../engine/renderer";
+
+export type OverlayMode = "none" | "craft" | "other";
 
 interface TouchButton {
   code: string;
   label: string;
-  x: number; // logical 640x360 coords, center
+  x: number; // screen-pixel (canvas) coords, center
   y: number;
   r: number;
 }
 
-const BUTTONS: TouchButton[] = [
-  { code: "TouchLeft", label: "◀", x: 36, y: 314, r: 26 },
-  { code: "TouchRight", label: "▶", x: 102, y: 314, r: 26 },
-  { code: "TouchDown", label: "▼", x: 69, y: 268, r: 15 },
-  { code: "TouchJump", label: "A", x: 602, y: 314, r: 30 },
-  { code: "TouchUse", label: "F", x: 542, y: 330, r: 20 },
-  { code: "TouchInteract", label: "E", x: 556, y: 272, r: 20 },
-  { code: "TouchCraft", label: "⚒", x: 618, y: 96, r: 14 },
-  { code: "TouchPause", label: "❚❚", x: 618, y: 56, r: 14 },
+interface Viewport {
+  scale: number;
+  ox: number;
+  oy: number;
+  cw: number;
+  ch: number;
+}
+
+// Fallback layout, defined in logical 640x360 units (original design),
+// converted to screen-pixel space when there's no room in the margins.
+const FALLBACK: [code: string, label: string, lx: number, ly: number, lr: number][] = [
+  ["TouchLeft", "◀", 36, 314, 26],
+  ["TouchRight", "▶", 102, 314, 26],
+  ["TouchDown", "▼", 69, 268, 15],
+  ["TouchJump", "A", 602, 314, 30],
+  ["TouchUse", "F", 542, 330, 20],
+  ["TouchInteract", "E", 556, 272, 20],
+  ["TouchCraft", "⚒", 618, 96, 14],
+  ["TouchPause", "❚❚", 618, 56, 14],
 ];
+
+const MARGIN_THRESHOLD = 90; // screen px; below this, fall back to overlay layout
 
 export class TouchControls {
   /** Called with a logical-space tap that didn't hit any button. */
   onTap?: (x: number, y: number) => void;
+  /** Called while the craft workbench owns touch input. Coords are logical. */
+  onCraftPointer?: (phase: "down" | "move" | "up", x: number, y: number) => void;
+
   private touchToCode = new Map<number, string>();
   private tapStart = new Map<number, { x: number; y: number; at: number }>();
+  private viewport: Viewport = { scale: 1, ox: 0, oy: 0, cw: 640, ch: 360 };
 
   constructor(
     private canvas: HTMLCanvasElement,
     private input: Input,
     private toLogical: (clientX: number, clientY: number) => { x: number; y: number },
-    private isCaptured: () => boolean = () => false
+    private toCanvasPixel: (clientX: number, clientY: number) => { x: number; y: number },
+    private overlayMode: () => OverlayMode = () => "none"
   ) {
     const opts = { passive: false } as AddEventListenerOptions;
     canvas.addEventListener("touchstart", (e) => this.onStart(e), opts);
@@ -41,10 +62,42 @@ export class TouchControls {
     canvas.addEventListener("touchcancel", (e) => this.onEnd(e), opts);
   }
 
+  setViewport(scale: number, ox: number, oy: number, cw: number, ch: number): void {
+    this.viewport = { scale, ox, oy, cw, ch };
+  }
+
+  private buttons(): TouchButton[] {
+    const { scale, ox, oy, cw, ch } = this.viewport;
+    const leftMargin = ox;
+    const rightMargin = cw - (ox + 640 * scale);
+
+    if (leftMargin >= MARGIN_THRESHOLD && rightMargin >= MARGIN_THRESHOLD) {
+      const midY = oy + (360 * scale) / 2;
+      const lr = Math.min(34, leftMargin * 0.3);
+      const rr = Math.min(36, rightMargin * 0.28);
+      return [
+        { code: "TouchLeft", label: "◀", x: leftMargin * 0.32, y: midY - lr * 1.3, r: lr },
+        { code: "TouchRight", label: "▶", x: leftMargin * 0.68, y: midY - lr * 1.3, r: lr },
+        { code: "TouchDown", label: "▼", x: leftMargin * 0.5, y: midY + lr * 1.4, r: lr * 0.6 },
+        { code: "TouchJump", label: "A", x: cw - rightMargin * 0.32, y: midY, r: rr },
+        { code: "TouchUse", label: "F", x: cw - rightMargin * 0.68, y: midY + rr * 1.3, r: rr * 0.7 },
+        { code: "TouchInteract", label: "E", x: cw - rightMargin * 0.68, y: midY - rr * 1.3, r: rr * 0.7 },
+        { code: "TouchCraft", label: "⚒", x: cw - rightMargin * 0.5, y: oy + 26, r: Math.min(16, rightMargin * 0.14) },
+        { code: "TouchPause", label: "❚❚", x: cw - rightMargin * 0.5, y: oy + 62, r: Math.min(16, rightMargin * 0.14) },
+      ];
+    }
+
+    // Fallback: original overlay-on-game-view layout, scaled into screen space.
+    return FALLBACK.map(([code, label, lx, ly, lr]) => ({
+      code, label,
+      x: lx * scale + ox, y: ly * scale + oy, r: lr * scale,
+    }));
+  }
+
   private buttonAt(x: number, y: number): TouchButton | null {
-    for (const b of BUTTONS) {
+    for (const b of this.buttons()) {
       const d = Math.hypot(x - b.x, y - b.y);
-      if (d <= b.r * 1.35) return b; // generous hit area
+      if (d <= b.r * 1.35) return b;
     }
     return null;
   }
@@ -58,7 +111,6 @@ export class TouchControls {
   private release(id: number): void {
     const code = this.touchToCode.get(id);
     if (code) {
-      // Only release if no other finger holds the same button
       this.touchToCode.delete(id);
       if (![...this.touchToCode.values()].includes(code)) {
         this.input.setVirtual(code, false);
@@ -68,26 +120,44 @@ export class TouchControls {
 
   private onStart(e: TouchEvent): void {
     e.preventDefault();
-    if (this.isCaptured()) return; // another surface (craft UI) owns input
+    const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
-      const p = this.toLogical(t.clientX, t.clientY);
-      const btn = this.buttonAt(p.x, p.y);
+      if (mode === "craft") {
+        const p = this.toLogical(t.clientX, t.clientY);
+        this.onCraftPointer?.("down", p.x, p.y);
+        continue;
+      }
+      if (mode === "other") {
+        // A modal overlay owns the screen — never let it double as a button
+        // press just because a (now-hidden) button hitbox happens to be there.
+        const p = this.toLogical(t.clientX, t.clientY);
+        this.tapStart.set(t.identifier, { x: p.x, y: p.y, at: performance.now() });
+        continue;
+      }
+      const sp = this.toCanvasPixel(t.clientX, t.clientY);
+      const btn = this.buttonAt(sp.x, sp.y);
       if (btn) {
         this.press(t.identifier, btn.code);
       } else {
+        const p = this.toLogical(t.clientX, t.clientY);
         this.tapStart.set(t.identifier, { x: p.x, y: p.y, at: performance.now() });
       }
-      this.input.setVirtual("TouchAny", true);
-      this.input.setVirtual("TouchAny", false);
     }
   }
 
   private onMove(e: TouchEvent): void {
     e.preventDefault();
+    const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
+      if (mode === "craft") {
+        const p = this.toLogical(t.clientX, t.clientY);
+        this.onCraftPointer?.("move", p.x, p.y);
+        continue;
+      }
+      if (mode === "other") continue; // taps don't drag in modal overlays
       if (!this.touchToCode.has(t.identifier)) continue; // taps don't drag
-      const p = this.toLogical(t.clientX, t.clientY);
-      const btn = this.buttonAt(p.x, p.y);
+      const sp = this.toCanvasPixel(t.clientX, t.clientY);
+      const btn = this.buttonAt(sp.x, sp.y);
       const current = this.touchToCode.get(t.identifier);
       if (btn?.code !== current) {
         this.release(t.identifier);
@@ -98,7 +168,13 @@ export class TouchControls {
 
   private onEnd(e: TouchEvent): void {
     e.preventDefault();
+    const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
+      if (mode === "craft") {
+        const p = this.toLogical(t.clientX, t.clientY);
+        this.onCraftPointer?.("up", p.x, p.y);
+        continue;
+      }
       this.release(t.identifier);
       const start = this.tapStart.get(t.identifier);
       this.tapStart.delete(t.identifier);
@@ -108,9 +184,10 @@ export class TouchControls {
     }
   }
 
-  /** Draw the control overlay (call while playing, touch scheme active). */
+  /** Draw the control overlay in raw screen-pixel space (call outside any
+   * logical-view transform, only while playing with no overlay active). */
   draw(ctx: CanvasRenderingContext2D): void {
-    for (const b of BUTTONS) {
+    for (const b of this.buttons()) {
       const held = [...this.touchToCode.values()].includes(b.code);
       ctx.globalAlpha = held ? 0.55 : 0.28;
       ctx.fillStyle = "#e8e2f4";

@@ -47,6 +47,7 @@ function save(id, name, g, background, entities, extra = {}) {
   g.rect(27, 21, 29, 21, ".");
   g.rect(27, 22, 29, 22, "^");
   g.rect(36, 17, 36, 20, "W");
+  g.rect(10, 18, 12, 18, "=");         // small ledge — first "look up" moment
   save("orientation", "Orientation", g, "#17131f", [
     { type: "spawn", x: 3, y: 20 },
     { type: "hint", x: 6, y: 17, text: "A / D — move · SPACE — jump" },
@@ -54,7 +55,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "hint", x: 30, y: 15, text: "TAB — craft what you find" },
     { type: "hint", x: 33, y: 13, text: "light it, then burn what burns" },
     { type: "pickup", item: "plank", x: 9, y: 20 },
-    { type: "pickup", item: "cloth", x: 12, y: 20 },
+    { type: "hint", x: 11, y: 14, text: "a glint on the ledge above" },
+    { type: "pickup", item: "cloth", x: 11, y: 17 },
     { type: "pickup", item: "cloth", x: 21, y: 17 },
     { type: "pickup", item: "plank", x: 25, y: 20 },
     { type: "brazier", x: 31, y: 20 },
@@ -74,16 +76,20 @@ function save(id, name, g, background, entities, extra = {}) {
   g.rect(34, 12, 47, 23, "#");
   g.rect(18, 21, 22, 21, "w");
   g.rect(40, 11, 42, 11, "f");
+  g.rect(4, 18, 6, 18, "=");           // scrap tucked onto a shelf above the crates
+  g.rect(29, 19, 31, 19, "=");
   save("storage", "Storage", g, "#151a24", [
     { type: "spawn", x: 3, y: 20 },
-    { type: "pickup", item: "scrap_metal", x: 5, y: 20 },
+    { type: "hint", x: 4, y: 15, text: "the shelves rattle when you walk under them" },
+    { type: "pickup", item: "scrap_metal", x: 5, y: 17 },
     { type: "note", x: 12, y: 20, recipe: "recipe_bucket",
       text: "Bend the scrap into a bowl, rope for a handle. The pools refill it forever. Fire hates it. — Subject #22" },
     { type: "pickup", item: "rope", x: 9, y: 17 },
     { type: "hint", x: 20, y: 16, text: "F — scoop water · F — throw it" },
     { type: "note", x: 16, y: 20, recipe: "recipe_hammer",
       text: "Metal on a stick shatters what's brittle. Cracks in stone. Ice. Keep one around. — Subject #31" },
-    { type: "pickup", item: "scrap_metal", x: 30, y: 20 },
+    { type: "hint", x: 29, y: 16, text: "rust doesn't rest on bare ground" },
+    { type: "pickup", item: "scrap_metal", x: 30, y: 18 },
     { type: "pickup", item: "rope", x: 26, y: 11 },
     { type: "pickup", item: "plank", x: 28, y: 11 },
     { type: "pickup", item: "scrap_metal", x: 37, y: 11 },
@@ -105,11 +111,14 @@ function save(id, name, g, background, entities, extra = {}) {
   g.set(37, 21, "G");                 // it comes up here...
   g.set(37, 20, "G");                 // ...right next to the wood barrier
   g.rect(38, 18, 38, 20, "W");        // barrier gating the door side
+  g.rect(11, 18, 13, 18, "=");
+  g.rect(44, 18, 46, 18, "=");
   save("vents", "The Vents", g, "#101a17", [
     { type: "spawn", x: 2, y: 20 },
     { type: "checkpoint", x: 4, y: 20 },
     { type: "pickup", item: "plank", x: 10, y: 20 },
-    { type: "pickup", item: "cloth", x: 12, y: 20 },
+    { type: "hint", x: 11, y: 15, text: "mildew loves a high shelf" },
+    { type: "pickup", item: "cloth", x: 12, y: 17 },
     { type: "pickup", item: "plank", x: 14, y: 20 },
     { type: "brazier", x: 17, y: 20 },
     { type: "hint", x: 15, y: 16, text: "goo carries fire. light one end, mind the other" },
@@ -117,7 +126,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "pickup", item: "goo_blob", x: 24, y: 20 },
     { type: "hint", x: 26, y: 17, text: "the duct goes under. so would a flame" },
     { type: "brazier", x: 43, y: 20 },
-    { type: "pickup", item: "cloth", x: 45, y: 20 },
+    { type: "hint", x: 44, y: 15, text: "dust settles where it's still" },
+    { type: "pickup", item: "cloth", x: 45, y: 17 },
     { type: "door", x: 49, y: 20, to: "next" },
   ]);
 }
@@ -131,6 +141,8 @@ function save(id, name, g, background, entities, extra = {}) {
   g.rect(18, 21, 19, 21, "I");
   g.rect(20, 21, 28, 21, "M");
   g.rect(24, 1, 24, 18, "#");
+  g.rect(11, 18, 13, 18, "=");
+  g.rect(42, 18, 44, 18, "=");
   save("cell_block", "Cell Block B", g, "#1a1420", [
     { type: "spawn", x: 2, y: 20 },
     { type: "pickup", item: "scrap_metal", x: 4, y: 20 },
@@ -143,7 +155,8 @@ function save(id, name, g, background, entities, extra = {}) {
       dialogDone: "Beautiful. Here — cloth I've been hoarding, and the recipe: mushroom spores in a sock. Shake it and everything nearby takes a nap. Poof.",
       dialogAfter: "Go. GO. Wave at the parking lot for me." },
     { type: "pickup", item: "scrap_metal", x: 10, y: 20 },
-    { type: "pickup", item: "cog", x: 12, y: 20 },
+    { type: "hint", x: 11, y: 15, text: "a cog doesn't roll uphill on its own" },
+    { type: "pickup", item: "cog", x: 12, y: 17 },
     { type: "pickup", item: "plank", x: 15, y: 20 },
     { type: "hint", x: 14, y: 17, text: "ice melts. ice shatters. treasure underneath" },
     { type: "pickup", item: "glow_mushroom", x: 17, y: 22 },
@@ -154,7 +167,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "fusebox", x: 27, y: 19, fuseId: "A" },
     { type: "checkpoint", x: 30, y: 20 },
     { type: "pickup", item: "cog", x: 33, y: 20 },
-    { type: "pickup", item: "scrap_metal", x: 43, y: 20 },
+    { type: "hint", x: 42, y: 15, text: "something shines near the exit" },
+    { type: "pickup", item: "scrap_metal", x: 43, y: 17 },
     { type: "door", x: 45, y: 20, to: "next" },
   ]);
 }
@@ -195,6 +209,8 @@ function save(id, name, g, background, entities, extra = {}) {
   g.set(32, 23, "C");
   g.rect(36, 1, 36, 22, "V");         // THE WATERFALL — no flame passes
   g.rect(44, 19, 44, 22, "I");        // ice wall past the falls (4 tall)
+  g.rect(12, 20, 14, 20, "=");
+  g.rect(54, 20, 56, 20, "=");
   save("greenhouse", "The Greenhouse", g, "#12201a", [
     { type: "spawn", x: 2, y: 22 },
     { type: "checkpoint", x: 4, y: 22 },
@@ -203,7 +219,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "brazier", x: 8, y: 22 },
     { type: "hint", x: 9, y: 19, text: "scoop before you burn" },
     { type: "pickup", item: "scrap_metal", x: 11, y: 22 },
-    { type: "pickup", item: "rope", x: 13, y: 22 },
+    { type: "hint", x: 12, y: 17, text: "rope hangs. it doesn't just sit around" },
+    { type: "pickup", item: "rope", x: 13, y: 19 },
     { type: "checkpoint", x: 17, y: 22 },
     { type: "note", x: 18, y: 22, recipe: "recipe_frost_vial",
       text: "Mushroom cold + goo = winter in a bottle. Water freezes hard enough to walk on. Slick, though. — Subject #28" },
@@ -220,7 +237,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "hint", x: 46, y: 16, text: "over it, or through it" },
     { type: "checkpoint", x: 49, y: 22 },
     { type: "pickup", item: "glow_mushroom", x: 53, y: 22 },
-    { type: "pickup", item: "goo_blob", x: 55, y: 22 },
+    { type: "hint", x: 54, y: 17, text: "moss climbs before it spreads" },
+    { type: "pickup", item: "goo_blob", x: 55, y: 19 },
     { type: "door", x: 61, y: 22, to: "next" },
   ]);
 }
@@ -234,6 +252,8 @@ function save(id, name, g, background, entities, extra = {}) {
   g.rect(22, 21, 29, 21, "w");        // pool — the drones won't follow
   g.rect(34, 17, 40, 17, "=");
   g.rect(36, 20, 38, 20, "f");
+  g.rect(11, 18, 13, 18, "=");
+  g.rect(50, 18, 52, 18, "=");
   save("mess_hall", "Mess Hall", g, "#1c1712", [
     { type: "spawn", x: 2, y: 20 },
     { type: "checkpoint", x: 3, y: 20 },
@@ -241,7 +261,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "pickup", item: "glow_mushroom", x: 5, y: 20 },
     { type: "pickup", item: "goo_blob", x: 7, y: 20 },
     { type: "pickup", item: "scrap_metal", x: 9, y: 17 },
-    { type: "pickup", item: "rope", x: 12, y: 20 },
+    { type: "hint", x: 11, y: 15, text: "coiled rope, up out of reach of the floor" },
+    { type: "pickup", item: "rope", x: 12, y: 17 },
     { type: "enemy", enemy: "crawler", x: 14, y: 20, patrolMinX: 12, patrolMaxX: 20 },
     { type: "pickup", item: "plank", x: 17, y: 17 },
     { type: "pickup", item: "cloth", x: 19, y: 17 },
@@ -250,7 +271,8 @@ function save(id, name, g, background, entities, extra = {}) {
     { type: "hint", x: 32, y: 15, text: "E — lockers break line of sight" },
     { type: "checkpoint", x: 33, y: 20 },
     { type: "enemy", enemy: "spotter", x: 44, y: 20, patrolMinX: 41, patrolMaxX: 49 },
-    { type: "pickup", item: "goo_blob", x: 51, y: 20 },
+    { type: "hint", x: 50, y: 15, text: "warm goo never pools on its own" },
+    { type: "pickup", item: "goo_blob", x: 51, y: 17 },
     { type: "pickup", item: "plank", x: 52, y: 20 },
     { type: "door", x: 54, y: 20, to: "next" },
   ]);
@@ -268,8 +290,10 @@ function save(id, name, g, background, entities, extra = {}) {
   g.rect(26, 22, 26, 22, "G");
   g.rect(27, 22, 39, 22, "G");
   g.rect(40, 18, 40, 22, "W");        // wood wall — only fire opens it, and fire can't swim
-  g.rect(44, 23, 52, 23, "w");        // the pool that carries the charge
-  g.rect(53, 16, 53, 23, "M");        // metal column: pool -> fuse box
+  g.rect(44, 22, 53, 23, "w");        // the pool that carries the charge — 2 tall,
+                                       // deep enough to duck under the column
+  g.rect(53, 16, 53, 21, "M");        // metal column: pool -> fuse box (stops short —
+                                       // swim under it as an alternate to conducting)
   save("the_vault", "The Vault", g, "#161226", [
     { type: "spawn", x: 2, y: 22 },
     { type: "checkpoint", x: 4, y: 22 },

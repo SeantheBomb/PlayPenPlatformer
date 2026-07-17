@@ -47,10 +47,27 @@
     "smokeBombRadius": 96,
     "idleTauntSeconds": 45,
     "idleChaseSeconds": 75,
-    "wardenIdleSpeed": 70
+    "wardenIdleSpeed": 70,
+    "waterFlowEnabled": true
   },
   "audio": {
     "sfxVolume": 0.5,
     "muted": false
+  },
+  "hud": {
+    "heartsX": 12,
+    "heartsY": 12,
+    "heartSpacing": 16,
+    "heartColor": "#ff5470",
+    "heartEmptyColor": "#3a3049",
+    "toolbeltRightOffset": 24,
+    "toolbeltTopOffset": 8,
+    "toolbeltSpacing": 22,
+    "hotbarLeftOffset": 14,
+    "hotbarBottomOffset": 34,
+    "hotbarSlotSize": 22,
+    "hotbarSpacing": 4,
+    "hotbarSelectedColor": "#ffd166",
+    "bannerTopOffset": 8
   }
 }

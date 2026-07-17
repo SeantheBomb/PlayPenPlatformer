@@ -17,7 +17,7 @@ import { TouchControls } from "./touch";
 import { Warden } from "./warden";
 import {
   drawFloaties, drawHearts, drawHotbar, drawPrompt,
-  drawTauntBanner, drawTextOverlay, drawToolbelt,
+  drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
   type Floaty, type OverlayButton,
 } from "./hud";
 
@@ -25,7 +25,7 @@ export const VIEW_W = 640;
 export const VIEW_H = 360;
 
 type Scene = "menu" | "play" | "win";
-type Overlay = "none" | "note" | "dialog" | "npcConfirm" | "craft" | "pause";
+type Overlay = "none" | "note" | "dialog" | "npcConfirm" | "craft" | "pause" | "report";
 
 export class Game {
   content: Content;
@@ -60,6 +60,7 @@ export class Game {
   private confirmButtons: OverlayButton[] = [];
   private winShownAt = 0;
   private finishedInMs = 0;
+  private reportUI: import("./report").ReportUI | null = null;
 
   constructor(private ctx: CanvasRenderingContext2D, content: Content) {
     this.content = content;
@@ -92,26 +93,40 @@ export class Game {
       ctx.canvas as HTMLCanvasElement,
       this.input,
       (cx, cy) => this.screenToLogical(cx, cy),
-      () => this.overlay === "craft" // craft overlay owns its own pointer input
+      (cx, cy) => this.screenToCanvasPixel(cx, cy),
+      () => (this.overlay === "craft" ? "craft" : this.overlay === "none" ? "none" : "other")
     );
     this.touch.onTap = (x, y) => this.handleTap(x, y);
-    // Pointer events: mouse parity everywhere + drag-and-drop in the workbench
+    this.touch.onCraftPointer = (phase, x, y) => {
+      if (phase === "down") this.craftUI.pointerDown(x, y, this.state);
+      else if (phase === "move") this.craftUI.pointerMove(x, y);
+      else if (this.craftUI.pointerUp(x, y, this.state) === "close") {
+        this.craftUI.hide();
+        this.overlay = "none";
+      }
+    };
+    // Pointer events: mouse parity everywhere + drag-and-drop in the workbench.
+    // Touch is handled entirely through TouchControls above (avoids double-firing
+    // from synthesized pointer events, and survives preventDefault suppressing them).
     const canvas = ctx.canvas as HTMLCanvasElement;
     canvas.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") return;
       const p = this.screenToLogical(e.clientX, e.clientY);
       if (this.scene === "play" && this.overlay === "craft") {
         this.craftUI.pointerDown(p.x, p.y, this.state);
-      } else if (e.pointerType === "mouse") {
+      } else {
         this.handleTap(p.x, p.y);
       }
     });
     canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch") return;
       if (this.scene === "play" && this.overlay === "craft") {
         const p = this.screenToLogical(e.clientX, e.clientY);
         this.craftUI.pointerMove(p.x, p.y);
       }
     });
     canvas.addEventListener("pointerup", (e) => {
+      if (e.pointerType === "touch") return;
       if (this.scene === "play" && this.overlay === "craft") {
         const p = this.screenToLogical(e.clientX, e.clientY);
         if (this.craftUI.pointerUp(p.x, p.y, this.state) === "close") {
@@ -162,19 +177,36 @@ export class Game {
     };
   }
 
+  private async openReportUI(): Promise<void> {
+    if (!this.reportUI) {
+      const mod = await import("./report");
+      this.reportUI = new mod.ReportUI(this, () => {
+        this.overlay = "none";
+      });
+    }
+    this.reportUI.open();
+  }
+
   private tip(text: string): void {
     this.tipText = text;
     this.tipUntil = performance.now() + 2500;
   }
 
-  screenToLogical(clientX: number, clientY: number): { x: number; y: number } {
+  /** Client (CSS) coords -> raw canvas backing-store pixel coords. */
+  screenToCanvasPixel(clientX: number, clientY: number): { x: number; y: number } {
     const canvas = this.ctx.canvas as HTMLCanvasElement;
     const rect = canvas.getBoundingClientRect();
-    const px = (clientX - rect.left) * (canvas.width / rect.width);
-    const py = (clientY - rect.top) * (canvas.height / rect.height);
     return {
-      x: (px - this.viewOx) / this.viewScale,
-      y: (py - this.viewOy) / this.viewScale,
+      x: (clientX - rect.left) * (canvas.width / rect.width),
+      y: (clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  screenToLogical(clientX: number, clientY: number): { x: number; y: number } {
+    const p = this.screenToCanvasPixel(clientX, clientY);
+    return {
+      x: (p.x - this.viewOx) / this.viewScale,
+      y: (p.y - this.viewOy) / this.viewScale,
     };
   }
 
@@ -192,9 +224,19 @@ export class Game {
     switch (this.overlay) {
       case "note":
       case "dialog":
-      case "pause":
         this.overlay = "none";
         break;
+      case "pause": {
+        // "R — report an issue" line's tap zone
+        const rx = VIEW_W / 2 - 70, ry = 188 - 10;
+        if (x >= rx && x <= rx + 160 && y >= ry && y <= ry + 14) {
+          this.overlay = "report";
+          this.openReportUI();
+        } else {
+          this.overlay = "none";
+        }
+        break;
+      }
       case "npcConfirm": {
         for (const b of this.confirmButtons) {
           if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
@@ -209,11 +251,11 @@ export class Game {
       case "none": {
         // Hotbar slot tap selects that item
         const usable = this.state.usableItems();
+        const hud = this.content.game.hud;
         for (let i = 0; i < usable.length; i++) {
-          const sx = 14 + i * 26;
-          const sy = VIEW_H - 34;
-          if (x >= sx && x <= sx + 22 && y >= sy && y <= sy + 22) {
-            this.state.selectedConsumable = i;
+          const r = hotbarSlotRect(hud, VIEW_H, i);
+          if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+            this.switchHotbarSelection(usable[i].id);
             sfx.play("uiMove");
             return;
           }
@@ -253,6 +295,7 @@ export class Game {
     this.viewScale = scale;
     this.viewOx = ox;
     this.viewOy = oy;
+    this.touch.setViewport(scale, ox, oy, this.ctx.canvas.width, this.ctx.canvas.height);
   }
 
   newRun(startRoomId?: string): void {
@@ -363,7 +406,15 @@ export class Game {
       }
       return;
     }
+    if (this.overlay === "report") {
+      return; // the DOM overlay owns input while it's open
+    }
     if (this.overlay === "pause") {
+      if (this.input.justPressed("KeyR", "GpCraft")) {
+        this.overlay = "report";
+        this.openReportUI();
+        return;
+      }
       if (this.input.pausePressed) this.overlay = "none";
       if (this.input.justPressed("KeyM")) {
         sfx.muted = !sfx.muted;
@@ -440,6 +491,23 @@ export class Game {
             this.state.transform(id, def.dousesTo);
             sfx.play("splash");
             this.floaty("Torch doused!", this.player.centerX, this.player.y - 10, "#4fc3f7");
+          }
+        }
+      }
+      // Passive lighting: just holding an unlit torch up to a flame lights it —
+      // no button press needed. (Applying fire to the WORLD still needs F.)
+      {
+        const usable = this.state.usableItems();
+        const held = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
+        if (held?.igniteTo) {
+          const box = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
+          if (this.roomRt.boxTouchesFire(box)) {
+            this.state.transform(held.id, held.igniteTo);
+            sfx.play("ignite");
+            this.floaty("Lit!", this.player.centerX, this.player.y - 8, "#ff7043");
+            const after = this.state.usableItems();
+            const idx = after.findIndex((i) => i.id === held.igniteTo);
+            if (idx >= 0) this.state.selectedConsumable = idx;
           }
         }
       }
@@ -557,7 +625,8 @@ export class Game {
     const usable = this.state.usableItems();
     if (usable.length > 0) {
       if (this.input.cyclePressed) {
-        this.state.selectedConsumable = (this.state.selectedConsumable + 1) % usable.length;
+        const next = usable[(this.state.selectedConsumable + 1) % usable.length];
+        this.switchHotbarSelection(next.id);
         sfx.play("uiMove");
       }
       if (this.input.usePressed && this.player.hiddenIn === null) {
@@ -779,6 +848,20 @@ export class Game {
 
   private lastSwingAt = 0;
 
+  /** Switch the held hotbar item, snuffing out anything that only stays lit while held. */
+  private switchHotbarSelection(targetId: string): void {
+    const usable = this.state.usableItems();
+    const current = usable[this.state.selectedConsumable];
+    if (current && current.id !== targetId && current.douseOnDeselect && current.dousesTo) {
+      this.state.transform(current.id, current.dousesTo);
+      sfx.play("splash");
+      this.floaty("Torch snuffed out.", this.player.centerX, this.player.y - 8, "#8f87ad");
+    }
+    const after = this.state.usableItems();
+    const idx = after.findIndex((i) => i.id === targetId);
+    this.state.selectedConsumable = idx >= 0 ? idx : 0;
+  }
+
   // ================= ACHIEVEMENTS =================
 
   /** Evaluate achievement triggers against the current run state. */
@@ -870,6 +953,9 @@ export class Game {
           break;
         case "burnout":
           this.particles.burst({ x: ev.x, y: ev.y, count: 6, color: "#5a5470", speed: 40, upBias: 30, life: 0.6, gravity: -40 });
+          break;
+        case "flow":
+          this.particles.burst({ x: ev.x, y: ev.y, count: 3, color: "#4fc3f7", speed: 25, life: 0.35, gravity: 20 });
           break;
       }
     }
@@ -1048,6 +1134,14 @@ export class Game {
       TouchControls.drawRotateHint(ctx, VIEW_W, VIEW_H);
     }
     ctx.restore();
+    // Touch buttons live in raw screen-pixel space (may sit in the letterbox
+    // margins outside the logical 640x360 view), so draw them post-restore.
+    if (
+      this.scene === "play" && this.overlay === "none" &&
+      this.input.scheme === "touch"
+    ) {
+      this.touch.draw(ctx);
+    }
   }
 
   private renderScene(ctx: CanvasRenderingContext2D): void {
@@ -1106,22 +1200,20 @@ export class Game {
     ctx.fillText(this.roomRt.room.name.toUpperCase(), 12, VIEW_H - 8);
 
     // HUD
-    drawHearts(ctx, this.state.health, this.state.maxHealth);
-    drawToolbelt(ctx, this.state, VIEW_W);
+    const hud = this.content.game.hud;
+    drawHearts(ctx, this.state.health, this.state.maxHealth, hud);
+    drawToolbelt(ctx, this.state, VIEW_W, hud);
     const hotbarHint =
       this.input.scheme === "gamepad" ? "LB/RB cycle · B use" :
       this.input.scheme === "touch" ? "tap to select · F to use" :
       "Q cycle · F use";
-    drawHotbar(ctx, this.state, VIEW_H, hotbarHint);
-    drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W);
+    drawHotbar(ctx, this.state, VIEW_H, hud, hotbarHint);
+    drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W, hud.bannerTopOffset);
     if (this.warden.active) {
       this.warden.drawVignette(
         ctx, VIEW_W, VIEW_H,
         this.warden.distanceTo(this.player.centerX, this.player.centerY)
       );
-    }
-    if (this.input.scheme === "touch" && this.overlay === "none") {
-      this.touch.draw(ctx);
     }
     this.drawTip(ctx);
 
@@ -1159,6 +1251,8 @@ export class Game {
       ctx.fillText("Esc — resume", VIEW_W / 2 - 70, 140);
       ctx.fillText(`M — sound ${sfx.muted ? "ON" : "OFF"}`, VIEW_W / 2 - 70, 156);
       ctx.fillText("Q — quit to menu", VIEW_W / 2 - 70, 172);
+      ctx.fillStyle = "#9be8b0";
+      ctx.fillText("R — report an issue", VIEW_W / 2 - 70, 188);
       ctx.fillStyle = "#8f87ad";
       ctx.fillText("CONTROLS", VIEW_W / 2 - 70, 204);
       const controls = [

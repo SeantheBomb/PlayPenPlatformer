@@ -86,12 +86,12 @@
     "id": "torch",
     "name": "Torch (unlit)",
     "kind": "tool",
-    "shape": "tool",
+    "shape": "torch",
     "color": "#b08757",
     "element": "wood",
     "useMode": "swing",
     "igniteTo": "torch_lit",
-    "description": "Cloth on a stick. Touch it to something burning and it becomes a very good stick."
+    "description": "Cloth on a stick. Walk it up to any flame and it lights itself — no need to swing."
   },
   {
     "id": "torch_lit",
@@ -103,7 +103,8 @@
     "useMode": "swing",
     "dousedBy": "water",
     "dousesTo": "torch",
-    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out."
+    "douseOnDeselect": true,
+    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out — so does putting it away."
   },
   {
     "id": "bucket",

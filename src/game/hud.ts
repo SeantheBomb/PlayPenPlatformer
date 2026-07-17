@@ -1,9 +1,14 @@
 // In-game HUD and simple overlays. Pure drawing — state lives in Game.
-import type { Content, WardenEmotion } from "../data/types";
+// Layout numbers come from content/game.json's `hud` block (editable live
+// in the editor's "game" tab) so Sean can rearrange/restyle the HUD without
+// touching code.
+import type { GameConfig, WardenEmotion } from "../data/types";
 import { drawItemIcon, drawWardenPortrait, roundRect } from "../engine/renderer";
 import type { RunState } from "./state";
 import type { TauntManager } from "./taunts";
 import { wrapText } from "./craftui";
+
+export type HudLayout = GameConfig["hud"];
 
 export interface Floaty {
   text: string;
@@ -13,11 +18,13 @@ export interface Floaty {
   color: string;
 }
 
-export function drawHearts(ctx: CanvasRenderingContext2D, health: number, max: number): void {
+export function drawHearts(
+  ctx: CanvasRenderingContext2D, health: number, max: number, hud: HudLayout
+): void {
   for (let i = 0; i < max; i++) {
-    const x = 12 + i * 16;
-    const y = 12;
-    ctx.fillStyle = i < health ? "#ff5470" : "#3a3049";
+    const x = hud.heartsX + i * hud.heartSpacing;
+    const y = hud.heartsY;
+    ctx.fillStyle = i < health ? hud.heartColor : hud.heartEmptyColor;
     ctx.beginPath();
     ctx.arc(x + 3, y + 3, 3.4, 0, Math.PI * 2);
     ctx.arc(x + 9, y + 3, 3.4, 0, Math.PI * 2);
@@ -32,47 +39,59 @@ export function drawHearts(ctx: CanvasRenderingContext2D, health: number, max: n
 }
 
 export function drawToolbelt(
-  ctx: CanvasRenderingContext2D, state: RunState, viewW: number
+  ctx: CanvasRenderingContext2D, state: RunState, viewW: number, hud: HudLayout
 ): void {
   // Passive tools only — anything usable lives in the hotbar instead.
   const tools = state.ownedTools().filter((t) => !t.useMode);
   tools.forEach((t, i) => {
-    const x = viewW - 24 - i * 22;
+    const x = viewW - hud.toolbeltRightOffset - i * hud.toolbeltSpacing;
+    const y = hud.toolbeltTopOffset;
     ctx.fillStyle = "rgba(28,24,40,0.85)";
-    roundRect(ctx, x - 10, 8, 20, 20, 4);
+    roundRect(ctx, x - 10, y, 20, 20, 4);
     ctx.fill();
-    drawItemIcon(ctx, t, x, 18, 1.1);
+    drawItemIcon(ctx, t, x, y + 10, 1.1);
   });
 }
 
+/** Screen-space rect for hotbar slot `i` — shared by drawing and tap hit-testing. */
+export function hotbarSlotRect(
+  hud: HudLayout, viewH: number, i: number
+): { x: number; y: number; w: number; h: number } {
+  const size = hud.hotbarSlotSize;
+  return {
+    x: hud.hotbarLeftOffset + i * (size + hud.hotbarSpacing),
+    y: viewH - hud.hotbarBottomOffset,
+    w: size, h: size,
+  };
+}
+
 export function drawHotbar(
-  ctx: CanvasRenderingContext2D, state: RunState, viewH: number,
+  ctx: CanvasRenderingContext2D, state: RunState, viewH: number, hud: HudLayout,
   hint = "Q cycle · F use"
 ): void {
   const cons = state.usableItems();
   if (cons.length === 0) return;
   const sel = Math.min(state.selectedConsumable, cons.length - 1);
   cons.forEach((c, i) => {
-    const x = 14 + i * 26;
-    const y = viewH - 34;
+    const r = hotbarSlotRect(hud, viewH, i);
     ctx.fillStyle = i === sel ? "rgba(61,53,86,0.95)" : "rgba(28,24,40,0.85)";
-    roundRect(ctx, x, y, 22, 22, 4);
+    roundRect(ctx, r.x, r.y, r.w, r.h, 4);
     ctx.fill();
     if (i === sel) {
-      ctx.strokeStyle = "#ffd166";
+      ctx.strokeStyle = hud.hotbarSelectedColor;
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-    drawItemIcon(ctx, c, x + 11, y + 10, 1.1);
+    drawItemIcon(ctx, c, r.x + r.w / 2, r.y + r.h / 2 - 1, 1.1);
     if (c.kind === "consumable") {
-      ctx.fillStyle = "#ffd166";
+      ctx.fillStyle = hud.hotbarSelectedColor;
       ctx.font = "8px monospace";
-      ctx.fillText(String(state.count(c.id)), x + 14, y + 20);
+      ctx.fillText(String(state.count(c.id)), r.x + r.w - 8, r.y + r.h - 2);
     }
   });
   ctx.fillStyle = "#8f87ad";
   ctx.font = "8px monospace";
-  ctx.fillText(hint, 14, viewH - 38);
+  ctx.fillText(hint, hud.hotbarLeftOffset, viewH - hud.hotbarBottomOffset - 4);
 }
 
 export function drawTauntBanner(
@@ -83,7 +102,8 @@ export function drawTauntBanner(
     color: string;
     portraits?: Partial<Record<WardenEmotion, string>>;
   },
-  viewW: number
+  viewW: number,
+  bannerTopOffset = 8
 ): void {
   if (!taunts.active) return;
   const text = taunts.visibleText();
@@ -91,7 +111,7 @@ export function drawTauntBanner(
   ctx.font = "10px monospace";
   const w = Math.min(viewW - 40, Math.max(240, ctx.measureText(taunts.active.line).width + 78));
   const x = (viewW - w) / 2;
-  const y = 8;
+  const y = bannerTopOffset;
   ctx.fillStyle = "rgba(16,12,24,0.92)";
   roundRect(ctx, x, y, w, 44, 6);
   ctx.fill();

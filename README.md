@@ -21,7 +21,17 @@ npm run app:dev    # Electron pointed at the running dev server (run `npm run de
 npm run typecheck  # tsc --noEmit
 npm run build      # production bundle in dist/
 npm run deploy     # build + publish to Cloudflare Pages (playpen.pages.dev)
+npm run reports    # pull player-submitted bug/feedback reports into ./reports/
 ```
+
+## Player reports
+
+Press **Esc** then **R** in-game to report a bug, get unstuck, or leave feedback —
+it captures a screenshot and your current room/inventory/achievements automatically.
+Reports go to a Cloudflare KV store via a Pages Function (`functions/api/report.js`);
+there's no public read endpoint. Run `npm run reports` (uses your own authenticated
+`wrangler` session) to pull them all into `./reports/*.json` + `*.png` for review;
+pass `--clear` to remove them from KV after saving locally.
 
 ## Controls
 

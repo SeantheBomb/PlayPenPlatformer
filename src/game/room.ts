@@ -69,6 +69,8 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
 const SPREAD_INTERVAL = 0.7; // seconds between fire spread ticks
 const ENERGIZE_MS = 1500;
 const HAZARD_COOLDOWN_MS = 500;
+const WATER_FLOW_INTERVAL = 0.5; // seconds between water flow ticks
+const WATER_FLOW_MAX_DIST = 4;   // max tiles a flow can spread sideways from a source
 
 export class RoomRuntime {
   map: TileMap;
@@ -83,7 +85,11 @@ export class RoomRuntime {
   burning = new Map<number, number>();
   /** tile index -> performance.now() timestamp when charge dissipates */
   energized = new Map<number, number>();
+  /** tile index -> tiles-from-source, for water tiles actively able to spread */
+  private waterFlowDist = new Map<number, number>();
+  private waterFlowEnabled: boolean;
   private spreadClock = 0;
+  private waterFlowClock = 0;
   private tilesById = new Map<string, TileDef>();
 
   constructor(
@@ -95,6 +101,17 @@ export class RoomRuntime {
     for (const t of content.tiles) this.tilesById.set(t.id, t);
     for (const [idx, tileId] of muts.tileOverrides) {
       this.map.overrides.set(idx, tileId ? this.tilesById.get(tileId) ?? null : null);
+    }
+
+    this.waterFlowEnabled = content.game.rules.waterFlowEnabled ?? true;
+    if (this.waterFlowEnabled) {
+      for (let ty = 0; ty < this.map.height; ty++) {
+        for (let tx = 0; tx < this.map.width; tx++) {
+          if (this.map.at(tx, ty)?.style === "water") {
+            this.waterFlowDist.set(this.map.index(tx, ty), 0);
+          }
+        }
+      }
     }
 
     room.entities.forEach((def, index) => {
@@ -236,6 +253,44 @@ export class RoomRuntime {
       }
     }
     return events;
+  }
+
+  /**
+   * Lightweight water physics: water falls into open shafts below it, and
+   * spreads sideways along floors up to a limited distance from any source
+   * (Minecraft-style falloff). Only ever fills genuinely empty tiles — never
+   * overwrites goo/wood/fire/etc — so existing rooms are unaffected unless
+   * they have real open space for water to move into.
+   */
+  private tickWaterFlow(events: ElementEvent[]): void {
+    if (!this.waterFlowEnabled) return;
+    for (const [idx, distance] of [...this.waterFlowDist]) {
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      const def = this.map.at(tx, ty);
+      if (!def || def.style !== "water") {
+        this.waterFlowDist.delete(idx);
+        continue;
+      }
+      // Fall first: an open tile directly below always wins over spreading.
+      if (ty + 1 < this.map.height && this.map.at(tx, ty + 1) === null) {
+        const belowIdx = this.map.index(tx, ty + 1);
+        this.setTileById(tx, ty + 1, "water");
+        this.waterFlowDist.set(belowIdx, 0);
+        events.push({ effect: "flow", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: "#4fc3f7" });
+        continue;
+      }
+      // Resting on something solid (or more water): spread sideways, falling off.
+      if (distance >= WATER_FLOW_MAX_DIST) continue;
+      for (const nx of [tx - 1, tx + 1]) {
+        if (nx < 0 || nx >= this.map.width) continue;
+        if (this.map.at(nx, ty) !== null) continue; // occupied — nothing to flow into
+        const nIdx = this.map.index(nx, ty);
+        this.setTileById(nx, ty, "water");
+        this.waterFlowDist.set(nIdx, distance + 1);
+        events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: "#4fc3f7" });
+      }
+    }
   }
 
   /** Cold propagates across a connected body of water: one vial, one bridge. */
@@ -561,6 +616,12 @@ export class RoomRuntime {
           }
         }
       }
+    }
+
+    this.waterFlowClock += dt;
+    if (this.waterFlowClock >= WATER_FLOW_INTERVAL) {
+      this.waterFlowClock = 0;
+      this.tickWaterFlow(events);
     }
 
     // ---- Enemies ----

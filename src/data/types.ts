@@ -49,8 +49,18 @@ export interface GameConfig {
     idleTauntSeconds: number;
     idleChaseSeconds: number;   // idle this long and the Warden comes for you
     wardenIdleSpeed: number;    // px/s while punishing idlers
+    waterFlowEnabled: boolean;  // water falls into open shafts, spreads along floors
   };
   audio: { sfxVolume: number; muted: boolean };
+  /** HUD layout — editable in the editor's "game" tab, no code changes needed. */
+  hud: {
+    heartsX: number; heartsY: number; heartSpacing: number;
+    heartColor: string; heartEmptyColor: string;
+    toolbeltRightOffset: number; toolbeltTopOffset: number; toolbeltSpacing: number;
+    hotbarLeftOffset: number; hotbarBottomOffset: number;
+    hotbarSlotSize: number; hotbarSpacing: number; hotbarSelectedColor: string;
+    bannerTopOffset: number;
+  };
 }
 
 // ---- Elemental system ----
@@ -145,7 +155,8 @@ export interface ItemDef extends SpriteFields {
   useMode?: ItemUseMode; // present = appears in the hotbar
   dousedBy?: string;     // element that reverts this item while overlapped (lit torch in water)
   dousesTo?: string;     // item id it reverts to when doused
-  igniteTo?: string;     // item id this becomes when touched to fire (torch)
+  douseOnDeselect?: boolean; // also revert to dousesTo when no longer the held/selected item
+  igniteTo?: string;     // item id this becomes automatically near a fire source while held
   fillsTo?: string;      // item id this becomes when swung at water (bucket)
   emptiesTo?: string;    // item id this reverts to after a splash
   placeType?: "spring" | "trap";

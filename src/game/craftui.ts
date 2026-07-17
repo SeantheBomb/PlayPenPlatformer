@@ -20,6 +20,7 @@ const GRID_Y = PY + 56;
 const EQUIP_Y = GRID_Y + 3 * STEP + 20;
 const MSG_Y = EQUIP_Y + 46;
 const JOURNAL_X = PX + PANEL_W - 190;
+const CLOSE_BTN = { x: PX + PANEL_W - 28, y: PY + 8, w: 20, h: 20 };
 
 interface Slot {
   item: ItemDef;
@@ -159,6 +160,13 @@ export class CraftUI {
   }
 
   pointerUp(x: number, y: number, state: RunState): "close" | "handled" {
+    if (
+      this.dragIdx === null && this.downIdx === null &&
+      x >= CLOSE_BTN.x && x <= CLOSE_BTN.x + CLOSE_BTN.w &&
+      y >= CLOSE_BTN.y && y <= CLOSE_BTN.y + CLOSE_BTN.h
+    ) {
+      return "close";
+    }
     const wasDrag = this.dragIdx !== null;
     const dragFrom = this.dragIdx;
     this.dragIdx = null;
@@ -241,6 +249,13 @@ export class CraftUI {
     ctx.font = "9px monospace";
     ctx.fillStyle = "#8f87ad";
     ctx.fillText("drag one material onto another · or pick two · tab/esc closes", PX + 14, PY + 33);
+
+    ctx.fillStyle = "#3a3345";
+    roundRect(ctx, CLOSE_BTN.x, CLOSE_BTN.y, CLOSE_BTN.w, CLOSE_BTN.h, 4);
+    ctx.fill();
+    ctx.fillStyle = "#e8a2b4";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText("✕", CLOSE_BTN.x + 6, CLOSE_BTN.y + 14);
 
     // Materials
     const mats = this.materials(state);
