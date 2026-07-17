@@ -1135,11 +1135,13 @@ export class Game {
     }
     ctx.restore();
     // Touch buttons live in raw screen-pixel space (may sit in the letterbox
-    // margins outside the logical 640x360 view), so draw them post-restore.
+    // margins outside the logical 640x360 view) — reset to identity first,
+    // since restore() only rewinds to the post-viewTransform save point.
     if (
       this.scene === "play" && this.overlay === "none" &&
       this.input.scheme === "touch"
     ) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.touch.draw(ctx);
     }
   }

@@ -120,6 +120,10 @@ export class TouchControls {
 
   private onStart(e: TouchEvent): void {
     e.preventDefault();
+    // Any touch at all marks the scheme as touch (so the controls appear),
+    // even when the touch itself is just a tap on empty space.
+    this.input.setVirtual("TouchAny", true);
+    this.input.setVirtual("TouchAny", false);
     const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
       if (mode === "craft") {
