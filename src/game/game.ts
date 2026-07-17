@@ -13,7 +13,7 @@ import { Player } from "./player";
 import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
 import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
-import { TouchControls } from "./touch";
+import { TouchControls, type SmartContext } from "./touch";
 import { Warden } from "./warden";
 import {
   drawFloaties, drawHearts, drawHotbar, drawPrompt,
@@ -51,6 +51,8 @@ export class Game {
   private viewScale = 1;
   private viewOx = 0;
   private viewOy = 0;
+  private compact = false;  // small (phone-sized) screen
+  private worldZoom = 1;    // world magnification on compact screens
   private tipText = "";
   private tipUntil = 0;
   private floaties: Floaty[] = [];
@@ -187,6 +189,11 @@ export class Game {
     this.reportUI.open();
   }
 
+  /** Touch-critical UI grows on small touch screens. */
+  private uiScale(): number {
+    return this.compact && this.input.scheme === "touch" ? 1.4 : 1;
+  }
+
   private tip(text: string): void {
     this.tipText = text;
     this.tipUntil = performance.now() + 2500;
@@ -253,7 +260,7 @@ export class Game {
         const usable = this.state.usableItems();
         const hud = this.content.game.hud;
         for (let i = 0; i < usable.length; i++) {
-          const r = hotbarSlotRect(hud, VIEW_H, i);
+          const r = hotbarSlotRect(hud, VIEW_H, i, this.uiScale());
           if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
             this.switchHotbarSelection(usable[i].id);
             sfx.play("uiMove");
@@ -291,10 +298,13 @@ export class Game {
   }
 
   /** Native-resolution viewport: logical 640x360 scaled/centered by main.ts. */
-  setViewport(scale: number, ox: number, oy: number): void {
+  setViewport(scale: number, ox: number, oy: number, compact = false): void {
     this.viewScale = scale;
     this.viewOx = ox;
     this.viewOy = oy;
+    this.compact = compact;
+    // Phones see a tighter slice of the world so everything reads larger.
+    this.worldZoom = compact ? 4 / 3 : 1;
     this.touch.setViewport(scale, ox, oy, this.ctx.canvas.width, this.ctx.canvas.height);
   }
 
@@ -332,7 +342,8 @@ export class Game {
       : Infinity;
     this.camera.snapTo(
       this.player.centerX, this.player.centerY,
-      VIEW_W, VIEW_H, this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
+      VIEW_W / this.worldZoom, VIEW_H / this.worldZoom,
+      this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
     );
     this.particles.clear();
     this.taunts.fire("room_enter", { roomId });
@@ -697,11 +708,47 @@ export class Game {
       this.killPlayer();
     }
 
-    // ---- Camera ----
+    // ---- Camera (zoomed view on phones; bias the action up-screen so the
+    // player's thumbs cover mostly-floor, not gameplay) ----
     this.camera.follow(
-      this.player.centerX, this.player.centerY, this.player.facing,
-      VIEW_W, VIEW_H, this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
+      this.player.centerX,
+      this.player.centerY + (this.compact ? 16 : 0),
+      this.player.facing,
+      VIEW_W / this.worldZoom, VIEW_H / this.worldZoom,
+      this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
     );
+
+    // ---- Smart action context (mobile) + its press ----
+    this.touch.smartContext = this.computeSmartContext();
+    if (this.input.justPressed("TouchSmart")) {
+      if (this.touch.smartContext.kind === "interact") {
+        this.tryInteract();
+      } else if (this.touch.smartContext.kind === "use" && this.player.hiddenIn === null) {
+        const items = this.state.usableItems();
+        const held = items[Math.min(this.state.selectedConsumable, items.length - 1)];
+        if (held) this.useItem(held);
+      }
+    }
+  }
+
+  /** What would the smart button do right now? */
+  private computeSmartContext(): SmartContext {
+    if (this.player.hiddenIn !== null) return { kind: "interact", label: "exit" };
+    const near = this.roomRt.interactableNear(this.player.centerX, this.player.centerY);
+    if (near) {
+      const verbs: Record<string, string> = {
+        note: "read", door: near.def.gate && !near.open ? "look" : "go",
+        locker: "hide", npc: "talk", exit: "EXIT",
+      };
+      return { kind: "interact", label: verbs[near.kind] ?? "use" };
+    }
+    if (this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY)) {
+      return { kind: "interact", label: "take" };
+    }
+    const items = this.state.usableItems();
+    const held = items[Math.min(this.state.selectedConsumable, items.length - 1)];
+    if (held) return { kind: "use", label: "use", item: held };
+    return { kind: "none", label: "" };
   }
 
   private tryInteract(): void {
@@ -1160,13 +1207,17 @@ export class Game {
       return;
     }
 
-    // World
+    // World (magnified on compact screens)
+    const zoom = this.worldZoom;
+    const vw = VIEW_W / zoom;
+    const vh = VIEW_H / zoom;
     const camX = Math.round(this.camera.x + this.camera.offsetX);
     const camY = Math.round(this.camera.y + this.camera.offsetY);
     ctx.save();
+    ctx.scale(zoom, zoom);
     ctx.translate(-camX, -camY);
-    drawBackdrop(ctx, this.roomRt.room.background, camX, camY, VIEW_W, VIEW_H);
-    drawMap(ctx, this.roomRt.map, camX, camY, VIEW_W, VIEW_H, this.animT);
+    drawBackdrop(ctx, this.roomRt.room.background, camX, camY, vw, vh);
+    drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
     this.roomRt.draw(ctx, this.animT);
     this.player.draw(ctx);
     this.drawHeldItem(ctx);
@@ -1201,15 +1252,16 @@ export class Game {
     ctx.font = "bold 9px monospace";
     ctx.fillText(this.roomRt.room.name.toUpperCase(), 12, VIEW_H - 8);
 
-    // HUD
+    // HUD (touch-critical elements scale up on compact touch screens)
     const hud = this.content.game.hud;
-    drawHearts(ctx, this.state.health, this.state.maxHealth, hud);
+    const uiScale = this.uiScale();
+    drawHearts(ctx, this.state.health, this.state.maxHealth, hud, uiScale);
     drawToolbelt(ctx, this.state, VIEW_W, hud);
     const hotbarHint =
       this.input.scheme === "gamepad" ? "LB/RB cycle · B use" :
-      this.input.scheme === "touch" ? "tap to select · F to use" :
+      this.input.scheme === "touch" ? "tap a slot to hold it" :
       "Q cycle · F use";
-    drawHotbar(ctx, this.state, VIEW_H, hud, hotbarHint);
+    drawHotbar(ctx, this.state, VIEW_H, hud, hotbarHint, uiScale);
     drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W, hud.bannerTopOffset);
     if (this.warden.active) {
       this.warden.drawVignette(

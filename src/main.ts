@@ -22,7 +22,10 @@ async function boot() {
     const scale = Math.min((w * dpr) / 640, (h * dpr) / 360);
     const ox = (w * dpr - 640 * scale) / 2;
     const oy = (h * dpr - 360 * scale) / 2;
-    game.setViewport(scale, ox, oy);
+    // "Compact" = phone-sized: the shorter CSS dimension is small. Drives the
+    // zoomed-in world view and larger touch targets.
+    const compact = Math.min(w, h) < 500;
+    game.setViewport(scale, ox, oy, compact);
   };
   window.addEventListener("resize", fit);
   fit();

@@ -19,23 +19,27 @@ export interface Floaty {
 }
 
 export function drawHearts(
-  ctx: CanvasRenderingContext2D, health: number, max: number, hud: HudLayout
+  ctx: CanvasRenderingContext2D, health: number, max: number, hud: HudLayout,
+  uiScale = 1
 ): void {
+  ctx.save();
+  ctx.translate(hud.heartsX, hud.heartsY);
+  ctx.scale(uiScale, uiScale);
   for (let i = 0; i < max; i++) {
-    const x = hud.heartsX + i * hud.heartSpacing;
-    const y = hud.heartsY;
+    const x = i * hud.heartSpacing;
     ctx.fillStyle = i < health ? hud.heartColor : hud.heartEmptyColor;
     ctx.beginPath();
-    ctx.arc(x + 3, y + 3, 3.4, 0, Math.PI * 2);
-    ctx.arc(x + 9, y + 3, 3.4, 0, Math.PI * 2);
+    ctx.arc(x + 3, 3, 3.4, 0, Math.PI * 2);
+    ctx.arc(x + 9, 3, 3.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(x - 0.5, y + 4.5);
-    ctx.lineTo(x + 6, y + 12);
-    ctx.lineTo(x + 12.5, y + 4.5);
+    ctx.moveTo(x - 0.5, 4.5);
+    ctx.lineTo(x + 6, 12);
+    ctx.lineTo(x + 12.5, 4.5);
     ctx.closePath();
     ctx.fill();
   }
+  ctx.restore();
 }
 
 export function drawToolbelt(
@@ -55,43 +59,44 @@ export function drawToolbelt(
 
 /** Screen-space rect for hotbar slot `i` — shared by drawing and tap hit-testing. */
 export function hotbarSlotRect(
-  hud: HudLayout, viewH: number, i: number
+  hud: HudLayout, viewH: number, i: number, uiScale = 1
 ): { x: number; y: number; w: number; h: number } {
-  const size = hud.hotbarSlotSize;
+  const size = hud.hotbarSlotSize * uiScale;
+  const spacing = hud.hotbarSpacing * uiScale;
   return {
-    x: hud.hotbarLeftOffset + i * (size + hud.hotbarSpacing),
-    y: viewH - hud.hotbarBottomOffset,
+    x: hud.hotbarLeftOffset + i * (size + spacing),
+    y: viewH - hud.hotbarBottomOffset * uiScale,
     w: size, h: size,
   };
 }
 
 export function drawHotbar(
   ctx: CanvasRenderingContext2D, state: RunState, viewH: number, hud: HudLayout,
-  hint = "Q cycle · F use"
+  hint = "Q cycle · F use", uiScale = 1
 ): void {
   const cons = state.usableItems();
   if (cons.length === 0) return;
   const sel = Math.min(state.selectedConsumable, cons.length - 1);
   cons.forEach((c, i) => {
-    const r = hotbarSlotRect(hud, viewH, i);
+    const r = hotbarSlotRect(hud, viewH, i, uiScale);
     ctx.fillStyle = i === sel ? "rgba(61,53,86,0.95)" : "rgba(28,24,40,0.85)";
-    roundRect(ctx, r.x, r.y, r.w, r.h, 4);
+    roundRect(ctx, r.x, r.y, r.w, r.h, 4 * uiScale);
     ctx.fill();
     if (i === sel) {
       ctx.strokeStyle = hud.hotbarSelectedColor;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = uiScale;
       ctx.stroke();
     }
-    drawItemIcon(ctx, c, r.x + r.w / 2, r.y + r.h / 2 - 1, 1.1);
+    drawItemIcon(ctx, c, r.x + r.w / 2, r.y + r.h / 2 - 1, 1.1 * uiScale);
     if (c.kind === "consumable") {
       ctx.fillStyle = hud.hotbarSelectedColor;
-      ctx.font = "8px monospace";
-      ctx.fillText(String(state.count(c.id)), r.x + r.w - 8, r.y + r.h - 2);
+      ctx.font = `${Math.round(8 * uiScale)}px monospace`;
+      ctx.fillText(String(state.count(c.id)), r.x + r.w - 8 * uiScale, r.y + r.h - 2);
     }
   });
   ctx.fillStyle = "#8f87ad";
   ctx.font = "8px monospace";
-  ctx.fillText(hint, hud.hotbarLeftOffset, viewH - hud.hotbarBottomOffset - 4);
+  ctx.fillText(hint, hud.hotbarLeftOffset, viewH - hud.hotbarBottomOffset * uiScale - 4);
 }
 
 export function drawTauntBanner(
