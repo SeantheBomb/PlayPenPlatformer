@@ -32,6 +32,37 @@ function bundledFiles(): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Recursively fills in any keys missing from `override` using `base`. This is
+ * what keeps an old disk/published/localStorage game.json from wholesale
+ * blanking out newer schema fields (e.g. the `hud` block) it predates — every
+ * schema addition would otherwise crash any render that reads the new field
+ * off a stale save. Arrays and primitives in `override` win outright.
+ */
+function deepDefaults<T>(base: T, override: unknown): T {
+  if (override === undefined) return base;
+  if (
+    typeof base !== "object" || base === null || Array.isArray(base) ||
+    typeof override !== "object" || override === null || Array.isArray(override)
+  ) {
+    return override as T;
+  }
+  const merged: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+  for (const key of Object.keys(base as Record<string, unknown>)) {
+    merged[key] = deepDefaults(
+      (base as Record<string, unknown>)[key],
+      (override as Record<string, unknown>)[key]
+    );
+  }
+  // Keep any extra keys override adds that base doesn't have yet.
+  for (const key of Object.keys(override as Record<string, unknown>)) {
+    if (!(key in merged)) merged[key] = (override as Record<string, unknown>)[key];
+  }
+  return merged as T;
+}
+
+const BUNDLED_GAME_DEFAULT = bundledFiles()["game.json"];
+
 function assemble(files: Record<string, unknown>): Content {
   const rooms: Record<string, RoomDef> = {};
   for (const [rel, data] of Object.entries(files)) {
@@ -41,7 +72,7 @@ function assemble(files: Record<string, unknown>): Content {
     }
   }
   return {
-    game: files["game.json"] as Content["game"],
+    game: deepDefaults(BUNDLED_GAME_DEFAULT, files["game.json"]) as Content["game"],
     elements: (files["elements.json"] ?? []) as Content["elements"],
     rules: (files["rules.json"] ?? []) as Content["rules"],
     achievements: (files["achievements.json"] ?? []) as Content["achievements"],
