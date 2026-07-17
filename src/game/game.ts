@@ -114,26 +114,29 @@ export class Game {
     // Touch is handled entirely through TouchControls above (avoids double-firing
     // from synthesized pointer events, and survives preventDefault suppressing them).
     const canvas = ctx.canvas as HTMLCanvasElement;
+    // The craft workbench draws and hit-tests in raw canvas-pixel space, so its
+    // pointer coords come from screenToCanvasPixel; everything else is logical.
     canvas.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "touch") return;
-      const p = this.screenToLogical(e.clientX, e.clientY);
       if (this.scene === "play" && this.overlay === "craft") {
+        const p = this.screenToCanvasPixel(e.clientX, e.clientY);
         this.craftUI.pointerDown(p.x, p.y, this.state);
       } else {
+        const p = this.screenToLogical(e.clientX, e.clientY);
         this.handleTap(p.x, p.y);
       }
     });
     canvas.addEventListener("pointermove", (e) => {
       if (e.pointerType === "touch") return;
       if (this.scene === "play" && this.overlay === "craft") {
-        const p = this.screenToLogical(e.clientX, e.clientY);
+        const p = this.screenToCanvasPixel(e.clientX, e.clientY);
         this.craftUI.pointerMove(p.x, p.y);
       }
     });
     canvas.addEventListener("pointerup", (e) => {
       if (e.pointerType === "touch") return;
       if (this.scene === "play" && this.overlay === "craft") {
-        const p = this.screenToLogical(e.clientX, e.clientY);
+        const p = this.screenToCanvasPixel(e.clientX, e.clientY);
         if (this.craftUI.pointerUp(p.x, p.y, this.state) === "close") {
           this.craftUI.hide();
           this.overlay = "none";
@@ -329,6 +332,7 @@ export class Game {
     // Phones see a tighter slice of the world so everything reads larger.
     this.worldZoom = compact ? 4 / 3 : 1;
     this.touch.setViewport(scale, ox, oy, this.ctx.canvas.width, this.ctx.canvas.height);
+    this.craftUI.setViewport(compact, this.ctx.canvas.width, this.ctx.canvas.height, scale, ox, oy);
   }
 
   newRun(startRoomId?: string): void {
@@ -1216,6 +1220,12 @@ export class Game {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.touch.draw(ctx);
     }
+    // The craft workbench also lives in raw canvas-pixel space (full-bleed and
+    // physically large on phones), drawn over the dimmed, still-clipped scene.
+    if (this.scene === "play" && this.overlay === "craft") {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.craftUI.draw(ctx, this.state, ctx.canvas.width, ctx.canvas.height);
+    }
   }
 
   private renderScene(ctx: CanvasRenderingContext2D): void {
@@ -1296,10 +1306,10 @@ export class Game {
     }
     this.drawTip(ctx);
 
-    // Overlays
-    if (this.overlay === "craft") {
-      this.craftUI.draw(ctx, this.state, VIEW_W, VIEW_H);
-    } else if (this.overlay === "note" || this.overlay === "dialog" || this.overlay === "npcConfirm") {
+    // Overlays. The craft workbench is drawn later in render() in raw
+    // canvas-pixel space (so it can be physically large on phones); the rest
+    // stay in the logical 640x360 view.
+    if (this.overlay === "note" || this.overlay === "dialog" || this.overlay === "npcConfirm") {
       const isNpc = this.overlay !== "note" && this.overlayEntity?.kind === "npc";
       this.confirmButtons = drawTextOverlay(ctx, {
         title: this.overlayTitle,

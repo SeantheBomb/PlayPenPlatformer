@@ -34,7 +34,8 @@ interface Viewport {
 export class TouchControls {
   /** Called with a logical-space tap that didn't hit any control. */
   onTap?: (x: number, y: number) => void;
-  /** Called while the craft workbench owns touch input. Coords are logical. */
+  /** Called while the craft workbench owns touch input. Coords are canvas-pixel
+   *  (the workbench draws + hit-tests in raw canvas-pixel space). */
   onCraftPointer?: (phase: "down" | "move" | "up", x: number, y: number) => void;
   /** Interact-context for the E button label; held item for the F button. */
   smartContext: SmartContext = { kind: "none", label: "" };
@@ -123,8 +124,7 @@ export class TouchControls {
         if (btn?.code === "TouchCraft") {
           this.press(t.identifier, btn.code);
         } else {
-          const p = this.toLogical(t.clientX, t.clientY);
-          this.onCraftPointer?.("down", p.x, p.y);
+          this.onCraftPointer?.("down", sp.x, sp.y);
         }
         continue;
       }
@@ -160,8 +160,8 @@ export class TouchControls {
         continue;
       }
       if (mode === "craft") {
-        const p = this.toLogical(t.clientX, t.clientY);
-        this.onCraftPointer?.("move", p.x, p.y);
+        const sp = this.toCanvasPixel(t.clientX, t.clientY);
+        this.onCraftPointer?.("move", sp.x, sp.y);
       }
     }
   }
@@ -173,8 +173,8 @@ export class TouchControls {
       // Releasing a button never leaks into overlay/tap handling.
       if (this.releaseButton(t.identifier)) continue;
       if (mode === "craft") {
-        const p = this.toLogical(t.clientX, t.clientY);
-        this.onCraftPointer?.("up", p.x, p.y);
+        const sp = this.toCanvasPixel(t.clientX, t.clientY);
+        this.onCraftPointer?.("up", sp.x, sp.y);
         continue;
       }
       const start = this.tapStart.get(t.identifier);

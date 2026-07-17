@@ -7,6 +7,9 @@ export interface CraftResult {
   recipe?: RecipeDef;
   outputId?: string;
   firstTime?: boolean;
+  /** True when this craft revealed a recipe not previously in the journal
+   *  (i.e. discovered by experimentation rather than read from a note). */
+  discovered?: boolean;
 }
 
 export function findRecipe(content: Content, a: string, b: string): RecipeDef | undefined {
@@ -51,10 +54,13 @@ export function tryCraft(content: Content, state: RunState, a: string, b: string
   state.add(recipe.output);
   const firstTime = !state.craftedRecipes.has(recipe.id);
   state.craftedRecipes.add(recipe.id);
-  if (!state.knownRecipes.has(recipe.id)) {
+  // A recipe not yet in the journal was just figured out by combining — every
+  // successful craft records its recipe, so guessed combos are never lost.
+  const discovered = !state.knownRecipes.has(recipe.id);
+  if (discovered) {
     state.knownRecipes.add(recipe.id);
     state.stats.discoveries++;
   }
   state.stats.crafts++;
-  return { ok: true, recipe, outputId: recipe.output, firstTime };
+  return { ok: true, recipe, outputId: recipe.output, firstTime, discovered };
 }
