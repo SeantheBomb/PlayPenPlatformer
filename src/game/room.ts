@@ -47,7 +47,11 @@ export interface ElementEvent {
   x: number;
   y: number;
   color: string;
+  enemyId?: string;  // for enemy_* events
+  element?: string;  // the element that caused it
 }
+
+const SIGHT_HALF_SLOPE = 0.55; // vertical spread of the vision cone (~29°)
 
 const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   pickup: [14, 14],
@@ -110,7 +114,7 @@ export class RoomRuntime {
           x: cx - edef.width / 2,
           y: feetY - edef.height,
           vx: 0, vy: 0, facing: 1,
-          state: edef.behavior === "patrol" ? "patrol" : "return",
+          state: "patrol", // everyone drifts a route; chasers escalate on sight
           stunUntil: 0, lastSawPlayerAt: 0, lastHazardAt: 0,
           homeX: cx,
           patrolMin: (def.patrolMinX ?? def.x - 3) * TILE,
@@ -329,6 +333,8 @@ export class RoomRuntime {
           x: en.x + en.def.width / 2,
           y: en.y + en.def.height / 2,
           color: en.def.color,
+          enemyId: en.def.id,
+          element,
         });
       }
     }
@@ -465,6 +471,28 @@ export class RoomRuntime {
     return hit;
   }
 
+  /** Can this enemy safely take a step in `want` direction? */
+  private canStepAhead(en: EnemyInstance, want: number): boolean {
+    if (want === 0) return true;
+    const d = en.def;
+    const aheadX = want > 0 ? en.x + d.width + 3 : en.x - 3;
+    const footY = en.y + d.height;
+    // Metal creatures refuse water — pools are a safe zone.
+    if (d.element === "metal") {
+      const tile = this.map.at(Math.floor(aheadX / TILE), Math.floor((footY - 4) / TILE));
+      if (tile?.element === "water") return false;
+    }
+    // No drops it can't climb back out of (max 1 tile down).
+    for (let step = 0; step < 2; step++) {
+      const def = this.map.at(
+        Math.floor(aheadX / TILE),
+        Math.floor((footY + 4 + step * TILE) / TILE)
+      );
+      if (def?.solid) return true;
+    }
+    return false;
+  }
+
   /** Send every enemy back to its post (called on player respawn). */
   resetEnemies(): void {
     for (const en of this.enemies) {
@@ -518,10 +546,18 @@ export class RoomRuntime {
           igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE)]);
         }
       }
+      // Neighbors get the full fire ruleset — flammables ignite, ice melts.
+      // (A lit goo line can melt a distant ice wall.)
       for (const [tx, ty] of igniters) {
         for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
           if (this.igniteTile(nx, ny)) {
-            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043" });
+            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043", element: "fire" });
+            continue;
+          }
+          const ndef = this.map.at(nx, ny);
+          if (ndef && this.findRule("fire", ndef)?.effect === "melt") {
+            this.setTileById(nx, ny, ndef.meltsTo);
+            events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: "fire" });
           }
         }
       }
@@ -553,6 +589,7 @@ export class RoomRuntime {
             events.push({
               effect: "enemy_" + r,
               x: en.x + d.width / 2, y: en.y + d.height / 2, color: d.color,
+              enemyId: d.id, element: applied,
             });
           }
           if (r === "kill") continue;
@@ -569,9 +606,17 @@ export class RoomRuntime {
       const cx = en.x + d.width / 2;
       const cy = en.y + d.height / 2;
 
+      // Chasers only see FORWARD, in a cone (drawn for the player to read).
       if (d.behavior === "chase" && player && !player.hidden) {
-        const inRange = dist(cx, cy, player.centerX, player.centerY) <= (d.sightRange ?? 120);
-        if (inRange && this.map.lineOfSight(cx, cy, player.centerX, player.centerY)) {
+        const dx = player.centerX - cx;
+        const dy = player.centerY - cy;
+        const facingOk = dx * en.facing > 0;
+        const inCone = Math.abs(dy) <= Math.abs(dx) * SIGHT_HALF_SLOPE + 12;
+        const inRange = Math.abs(dx) <= (d.sightRange ?? 120);
+        if (
+          facingOk && inCone && inRange &&
+          this.map.lineOfSight(cx, cy, player.centerX, player.centerY)
+        ) {
           en.state = "chase";
           en.lastSawPlayerAt = now;
         }
@@ -589,17 +634,17 @@ export class RoomRuntime {
         want = en.facing;
         if (cx <= en.patrolMin) want = 1;
         else if (cx >= en.patrolMax) want = -1;
-        if (d.turnAtEdges) {
-          const aheadX = want > 0 ? en.x + d.width + 2 : en.x - 2;
-          if (!this.map.groundBelow(aheadX, en.y + d.height + 4)) want = -en.facing;
-        }
+        if (!this.canStepAhead(en, want)) want = -en.facing;
       } else if (en.state === "chase" && player) {
         speed = d.chaseSpeed ?? d.speed * 2;
         const dx = player.centerX - cx;
         want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
+        // Too smart to strand itself: no drops it can't climb, no wading.
+        if (want !== 0 && !this.canStepAhead(en, want)) want = 0;
       } else if (en.state === "return") {
         const dx = en.homeX - cx;
         want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
+        if (want !== 0 && !this.canStepAhead(en, want)) want = 0;
       }
       if (want !== 0) en.facing = want;
       en.vx = want * speed;
@@ -850,6 +895,24 @@ export class RoomRuntime {
       return;
     }
     const chasing = en.state === "chase";
+    // Visible sight cone for forward-looking chasers
+    if (d.behavior === "chase") {
+      const range = d.sightRange ?? 120;
+      const eyeX = en.facing > 0 ? en.x + d.width - 2 : en.x + 2;
+      const eyeY = en.y + d.height * 0.35;
+      const endX = eyeX + en.facing * range;
+      const spread = range * SIGHT_HALF_SLOPE + 12;
+      const pulse = chasing ? 0.22 + Math.sin(animT * 12) * 0.06 : 0.10;
+      ctx.fillStyle = chasing
+        ? `rgba(255,84,112,${pulse})`
+        : `rgba(255,233,90,${pulse})`;
+      ctx.beginPath();
+      ctx.moveTo(eyeX, eyeY);
+      ctx.lineTo(endX, eyeY - spread);
+      ctx.lineTo(endX, eyeY + spread);
+      ctx.closePath();
+      ctx.fill();
+    }
     const wobble = Math.sin(animT * (chasing ? 18 : 7) + en.index) * (chasing ? 0.12 : 0.05);
     drawBlob(
       ctx, en.x, en.y, d.width, d.height, d.color, d.eyeColor, en.facing,

@@ -4,7 +4,7 @@
 export interface GameConfig {
   title: string;
   subtitle: string;
-  antagonist: {
+  antagonist: SpriteFields & {
     name: string;
     color: string;
     // Custom portrait override per emotion (data-URI images)
@@ -47,6 +47,8 @@ export interface GameConfig {
     stunDurationMs: number;
     smokeBombRadius: number;
     idleTauntSeconds: number;
+    idleChaseSeconds: number;   // idle this long and the Warden comes for you
+    wardenIdleSpeed: number;    // px/s while punishing idlers
   };
   audio: { sfxVolume: number; muted: boolean };
 }
@@ -83,7 +85,7 @@ export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
 
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
-  | "wood" | "ice" | "water" | "fire" | "metal";
+  | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall";
 
 /**
  * Optional custom art, available on tiles, items, enemies, the player, and
@@ -141,6 +143,8 @@ export interface ItemDef extends SpriteFields {
   description: string;
   element?: string;      // the element this item applies when used
   useMode?: ItemUseMode; // present = appears in the hotbar
+  dousedBy?: string;     // element that reverts this item while overlapped (lit torch in water)
+  dousesTo?: string;     // item id it reverts to when doused
   igniteTo?: string;     // item id this becomes when touched to fire (torch)
   fillsTo?: string;      // item id this becomes when swung at water (bucket)
   emptiesTo?: string;    // item id this reverts to after a splash
@@ -183,7 +187,31 @@ export interface EnemyDef extends SpriteFields {
 export type TauntTrigger =
   | "game_start" | "room_enter" | "first_death" | "death"
   | "craft_fail" | "first_craft" | "craft_item" | "idle"
-  | "hide_enter" | "npc_help" | "confiscate" | "win";
+  | "hide_enter" | "npc_help" | "confiscate" | "warden_chase" | "win";
+
+// ---- Achievements ----
+
+export type AchievementTrigger =
+  | "craft_item"  // itemId filter
+  | "pickup_item" // itemId filter (hidden curios)
+  | "counter"     // counter name reaches count
+  | "npc_help"
+  | "win";        // optional maxDeaths / maxSeconds filters
+
+export interface AchievementDef {
+  id: string;
+  name: string;
+  description: string;
+  hidden: boolean;
+  trigger: AchievementTrigger;
+  itemId?: string;
+  counter?: string;
+  count?: number;
+  maxDeaths?: number;
+  maxSeconds?: number;
+  wardenLine: string;
+  emotion: WardenEmotion;
+}
 
 export type WardenEmotion =
   | "smug" | "gleeful" | "annoyed" | "bored" | "shocked" | "proud";
@@ -227,10 +255,12 @@ export interface RoomEntity {
   // npc
   name?: string;
   color?: string;
+  portrait?: string; // data-URI override for the dialog portrait
   wants?: { item: string; count: number };
   rewardItems?: { item: string; count: number }[];
   rewardRecipes?: string[];
   dialogAsk?: string;
+  dialogConfirm?: string; // shown with Give/Keep choice when the player has the item
   dialogDone?: string;
   dialogAfter?: string;
 }
@@ -243,6 +273,8 @@ export interface RoomDef {
   background: string;
   tiles: string[]; // char rows, indexed into tiles.json by char
   entities: RoomEntity[];
+  /** Boss mode: the Warden spawns and chases through walls. */
+  wardenChase?: { speed: number; delayMs: number };
 }
 
 export interface CampaignDef {
@@ -254,6 +286,7 @@ export interface Content {
   game: GameConfig;
   elements: ElementDef[];
   rules: RuleDef[];
+  achievements: AchievementDef[];
   tiles: TileDef[];
   items: ItemDef[];
   recipes: RecipeDef[];

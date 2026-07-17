@@ -14,16 +14,18 @@ import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
 import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
 import { TouchControls } from "./touch";
+import { Warden } from "./warden";
 import {
   drawFloaties, drawHearts, drawHotbar, drawPrompt,
-  drawTauntBanner, drawTextOverlay, drawToolbelt, type Floaty,
+  drawTauntBanner, drawTextOverlay, drawToolbelt,
+  type Floaty, type OverlayButton,
 } from "./hud";
 
 export const VIEW_W = 640;
 export const VIEW_H = 360;
 
 type Scene = "menu" | "play" | "win";
-type Overlay = "none" | "note" | "dialog" | "craft" | "pause";
+type Overlay = "none" | "note" | "dialog" | "npcConfirm" | "craft" | "pause";
 
 export class Game {
   content: Content;
@@ -42,6 +44,9 @@ export class Game {
   currentRoomId = "";
 
   touch: TouchControls;
+  warden = new Warden();
+  private wardenSpawnAt = Infinity; // boss-room spawn schedule
+  private idleWardenSummoned = false;
   private animT = 0;
   private viewScale = 1;
   private viewOx = 0;
@@ -52,6 +57,7 @@ export class Game {
   private overlayEntity: EntityInstance | null = null;
   private overlayText = "";
   private overlayTitle = "";
+  private confirmButtons: OverlayButton[] = [];
   private winShownAt = 0;
   private finishedInMs = 0;
 
@@ -59,13 +65,20 @@ export class Game {
     this.content = content;
     this.taunts = new TauntManager(content.taunts);
     this.taunts.onTauntShown = () => {
-      if (this.state) this.state.stats.tauntsHeard++;
+      if (this.state) {
+        this.state.stats.tauntsHeard++;
+        this.state.bump("tauntsHeard");
+        this.checkAchievements("counter");
+      }
     };
     this.craftUI = new CraftUI(content, (result) => {
       if (result.ok) {
         sfx.play(result.firstTime ? "discover" : "craft");
         if (this.state.stats.crafts === 1) this.taunts.fire("first_craft");
-        if (result.outputId) this.taunts.fire("craft_item", { itemId: result.outputId });
+        if (result.outputId) {
+          this.taunts.fire("craft_item", { itemId: result.outputId });
+          this.checkAchievements("craft_item", { itemId: result.outputId });
+        }
       } else {
         sfx.play("craftFail");
         this.taunts.fire("craft_fail");
@@ -78,13 +91,75 @@ export class Game {
     this.touch = new TouchControls(
       ctx.canvas as HTMLCanvasElement,
       this.input,
-      (cx, cy) => this.screenToLogical(cx, cy)
+      (cx, cy) => this.screenToLogical(cx, cy),
+      () => this.overlay === "craft" // craft overlay owns its own pointer input
     );
     this.touch.onTap = (x, y) => this.handleTap(x, y);
+    // Pointer events: mouse parity everywhere + drag-and-drop in the workbench
+    const canvas = ctx.canvas as HTMLCanvasElement;
+    canvas.addEventListener("pointerdown", (e) => {
+      const p = this.screenToLogical(e.clientX, e.clientY);
+      if (this.scene === "play" && this.overlay === "craft") {
+        this.craftUI.pointerDown(p.x, p.y, this.state);
+      } else if (e.pointerType === "mouse") {
+        this.handleTap(p.x, p.y);
+      }
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (this.scene === "play" && this.overlay === "craft") {
+        const p = this.screenToLogical(e.clientX, e.clientY);
+        this.craftUI.pointerMove(p.x, p.y);
+      }
+    });
+    canvas.addEventListener("pointerup", (e) => {
+      if (this.scene === "play" && this.overlay === "craft") {
+        const p = this.screenToLogical(e.clientX, e.clientY);
+        if (this.craftUI.pointerUp(p.x, p.y, this.state) === "close") {
+          this.craftUI.hide();
+          this.overlay = "none";
+        }
+      }
+    });
     this.input.onSchemeChange = (s) => {
       if (s === "gamepad") this.tip("controller detected");
     };
     this.applyConfig();
+  }
+
+  /** Dialog portrait: custom art if set, otherwise a big blob face. */
+  private npcPortrait(e: EntityInstance) {
+    return (ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => {
+      if (e.def.portrait) {
+        const img = new Image();
+        img.src = e.def.portrait;
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(img, x, y, size, size);
+          return;
+        }
+      }
+      const color = e.def.color ?? "#7fd8e8";
+      ctx.fillStyle = color;
+      roundRect(ctx, x + 2, y + size * 0.18, size - 4, size * 0.82, 8);
+      ctx.fill();
+      // Wide hopeful eyes + small mouth
+      ctx.fillStyle = "#1a2530";
+      ctx.beginPath();
+      ctx.arc(x + size * 0.32, y + size * 0.48, 4, 0, Math.PI * 2);
+      ctx.arc(x + size * 0.68, y + size * 0.48, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(x + size * 0.34, y + size * 0.45, 1.4, 0, Math.PI * 2);
+      ctx.arc(x + size * 0.70, y + size * 0.45, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#1a2530";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x + size * 0.42, y + size * 0.72);
+      ctx.quadraticCurveTo(x + size * 0.5, y + size * 0.78, x + size * 0.58, y + size * 0.72);
+      ctx.stroke();
+    };
   }
 
   private tip(text: string): void {
@@ -120,13 +195,17 @@ export class Game {
       case "pause":
         this.overlay = "none";
         break;
-      case "craft": {
-        if (this.craftUI.handleTap(x, y, this.state) === "close") {
-          this.craftUI.hide();
-          this.overlay = "none";
+      case "npcConfirm": {
+        for (const b of this.confirmButtons) {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            this.overlay = "none";
+            if (b.action === "give" && this.overlayEntity) this.giveNpc(this.overlayEntity);
+            return;
+          }
         }
         break;
       }
+      // "craft" is handled by the pointer-event path (drag support)
       case "none": {
         // Hotbar slot tap selects that item
         const usable = this.state.usableItems();
@@ -202,6 +281,12 @@ export class Game {
     this.roomRt = new RoomRuntime(room, this.content, this.state.mutations(roomId));
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
+    // Warden scheduling: boss rooms summon him after a grace period.
+    this.warden.dissipate();
+    this.idleWardenSummoned = false;
+    this.wardenSpawnAt = room.wardenChase
+      ? performance.now() + room.wardenChase.delayMs
+      : Infinity;
     this.camera.snapTo(
       this.player.centerX, this.player.centerY,
       VIEW_W, VIEW_H, this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
@@ -269,6 +354,15 @@ export class Game {
       if (this.input.confirmPressed || this.input.pausePressed) this.overlay = "none";
       return;
     }
+    if (this.overlay === "npcConfirm") {
+      if (this.input.confirmPressed && this.overlayEntity) {
+        this.overlay = "none";
+        this.giveNpc(this.overlayEntity);
+      } else if (this.input.pausePressed || this.input.justPressed("Backspace", "GpUse")) {
+        this.overlay = "none";
+      }
+      return;
+    }
     if (this.overlay === "pause") {
       if (this.input.pausePressed) this.overlay = "none";
       if (this.input.justPressed("KeyM")) {
@@ -317,18 +411,49 @@ export class Game {
     }
 
     // ---- Elemental hazards on the player (burning tiles, live charge) ----
-    if (!this.player.invulnerable) {
+    {
       const ptx0 = Math.floor(this.player.x / TILE);
       const ptx1 = Math.floor((this.player.x + this.player.w) / TILE);
       const pty0 = Math.floor(this.player.y / TILE);
       const pty1 = Math.floor((this.player.feetY + 2) / TILE); // include tile underfoot
-      let hazard = false;
-      for (let ty = pty0; ty <= pty1 && !hazard; ty++) {
-        for (let tx = ptx0; tx <= ptx1 && !hazard; tx++) {
-          if (this.roomRt.isBurning(tx, ty) || this.roomRt.isEnergized(tx, ty)) hazard = true;
+      let hazard: "burning" | "spark" | null = null;
+      let inWater = false;
+      for (let ty = pty0; ty <= pty1; ty++) {
+        for (let tx = ptx0; tx <= ptx1; tx++) {
+          if (this.roomRt.isBurning(tx, ty)) hazard = hazard ?? "burning";
+          if (this.roomRt.isEnergized(tx, ty)) hazard = "spark";
+          if (this.roomRt.map.at(tx, ty)?.element === "water") inWater = true;
         }
       }
-      if (hazard) this.damagePlayer(1, this.player.centerX, "element");
+      if (hazard && !this.player.invulnerable) {
+        if (hazard === "spark") {
+          this.state.bump("selfZaps");
+          this.checkAchievements("counter");
+        }
+        this.damagePlayer(1, this.player.centerX, hazard);
+      }
+      // Water douses carried flames (torches revert to unlit)
+      if (inWater) {
+        for (const [id] of [...this.state.inventory]) {
+          const def = this.state.item(id);
+          if (def?.dousedBy === "water" && def.dousesTo) {
+            this.state.transform(id, def.dousesTo);
+            sfx.play("splash");
+            this.floaty("Torch doused!", this.player.centerX, this.player.y - 10, "#4fc3f7");
+          }
+        }
+      }
+      // First steps on ice (achievement)
+      if (!this.state.counters.has("iceWalks") && this.player.onGround) {
+        const below = this.roomRt.map.at(
+          Math.floor(this.player.centerX / TILE),
+          Math.floor((this.player.feetY + 2) / TILE)
+        );
+        if (below?.slippery) {
+          this.state.bump("iceWalks");
+          this.checkAchievements("counter");
+        }
+      }
     }
 
     // ---- Placed springs launch whatever falls on them ----
@@ -392,6 +517,7 @@ export class Game {
         e.collected = true;
         this.state.mutations(this.currentRoomId).collected.add(e.index);
         this.state.add(item.id, e.def.count ?? 1);
+        this.checkAchievements("pickup_item", { itemId: item.id });
         sfx.play("pickup");
         this.floaty(`+${e.def.count ?? 1} ${item.name}`, e.x + e.w / 2, e.y);
         this.particles.burst({
@@ -439,12 +565,62 @@ export class Game {
       }
     }
 
-    // ---- Idle taunt ----
-    if (
-      performance.now() - this.input.lastInputAt >
-      this.content.game.rules.idleTauntSeconds * 1000
-    ) {
+    // ---- Idle taunt, then idle CONSEQUENCES ----
+    const idleMs = performance.now() - this.input.lastInputAt;
+    if (idleMs > this.content.game.rules.idleTauntSeconds * 1000) {
       this.taunts.fire("idle");
+    }
+    if (
+      idleMs > this.content.game.rules.idleChaseSeconds * 1000 &&
+      !this.warden.active && !this.idleWardenSummoned
+    ) {
+      this.idleWardenSummoned = true;
+      this.warden.spawn(
+        "idle",
+        this.player.centerX < this.roomRt.map.pixelWidth / 2
+          ? this.roomRt.map.pixelWidth - 60 : 8,
+        Math.max(16, this.player.y - 40),
+        this.content.game.rules.wardenIdleSpeed
+      );
+      this.taunts.fire("warden_chase");
+      sfx.play("death");
+    }
+    if (idleMs < 1000 && this.warden.active && this.warden.mode === "idle") {
+      // Woke up and moving again? He loses interest... slowly drifts off.
+      if (this.warden.distanceTo(this.player.centerX, this.player.centerY) > 320) {
+        this.warden.dissipate();
+      }
+    }
+
+    // ---- The Warden ----
+    if (this.roomRt.room.wardenChase && !this.warden.active &&
+        performance.now() > this.wardenSpawnAt) {
+      this.warden.spawn(
+        "boss",
+        this.roomRt.spawnX - 80,
+        this.roomRt.spawnY - 60,
+        this.roomRt.room.wardenChase.speed
+      );
+      this.taunts.fire("warden_chase");
+      this.camera.shake(5, 0.5);
+      sfx.play("death");
+    }
+    if (this.warden.active) {
+      this.warden.update(dt, this.player.centerX, this.player.centerY);
+      if (
+        this.player.hiddenIn === null && !this.player.invulnerable &&
+        this.warden.touching(this.player.centerX, this.player.centerY)
+      ) {
+        if (this.warden.mode === "boss") {
+          this.state.health = 0;
+          this.killPlayer();
+          this.warden.dissipate();
+          this.wardenSpawnAt = performance.now() + 1500;
+        } else {
+          this.damagePlayer(1, this.warden.centerX, "warden");
+          this.warden.dissipate();
+        }
+      }
     }
 
     // ---- Fell out of the world (shouldn't happen, but be kind) ----
@@ -478,6 +654,8 @@ export class Game {
       if (spring) {
         this.roomRt.removePlaced(spring);
         this.state.add("spring");
+        this.state.bump("springReclaims");
+        this.checkAchievements("counter");
         sfx.play("pickup");
         this.floaty("+1 Spring", spring.x + spring.w / 2, spring.y);
       }
@@ -489,6 +667,12 @@ export class Game {
         this.overlayTitle = "A note from a previous subject";
         this.overlayText = e.def.text ?? "(the writing is illegible)";
         this.overlay = "note";
+        const noteKey = `${this.currentRoomId}:${e.index}`;
+        if (!this.state.readNotes.has(noteKey)) {
+          this.state.readNotes.add(noteKey);
+          this.state.bump("notesRead");
+          this.checkAchievements("counter");
+        }
         if (e.def.recipe && !this.state.knownRecipes.has(e.def.recipe)) {
           this.state.knownRecipes.add(e.def.recipe);
           this.state.stats.discoveries++;
@@ -556,34 +740,91 @@ export class Game {
     }
     const wants = d.wants;
     if (wants && this.state.has(wants.item, wants.count)) {
-      this.state.remove(wants.item, wants.count);
-      e.helped = true;
-      this.state.mutations(this.currentRoomId).helpedNpcs.add(e.index);
-      for (const r of d.rewardItems ?? []) {
-        this.state.add(r.item, r.count);
-        this.floaty(`+${r.count} ${this.state.item(r.item)?.name ?? r.item}`, e.x + e.w / 2, e.y);
-      }
-      for (const rid of d.rewardRecipes ?? []) {
-        if (!this.state.knownRecipes.has(rid)) {
-          this.state.knownRecipes.add(rid);
-          this.state.stats.discoveries++;
-        }
-      }
-      this.overlayText = d.dialogDone ?? "Thanks!";
-      this.overlay = "dialog";
-      sfx.play("discover");
-      this.taunts.fire("npc_help");
+      // They can SEE you have it — confirm before handing it over.
+      const itemName = this.state.item(wants.item)?.name ?? wants.item;
+      this.overlayText =
+        d.dialogConfirm ?? `Is that... a ${itemName}? It IS. Hand it over?`;
+      this.overlay = "npcConfirm";
     } else {
       this.overlayText = d.dialogAsk ?? "...";
       this.overlay = "dialog";
     }
   }
 
+  /** The player agreed to the trade. */
+  private giveNpc(e: EntityInstance): void {
+    const d = e.def;
+    const wants = d.wants;
+    if (!wants || !this.state.remove(wants.item, wants.count)) return;
+    e.helped = true;
+    this.state.mutations(this.currentRoomId).helpedNpcs.add(e.index);
+    for (const r of d.rewardItems ?? []) {
+      this.state.add(r.item, r.count);
+      this.floaty(`+${r.count} ${this.state.item(r.item)?.name ?? r.item}`, e.x + e.w / 2, e.y);
+    }
+    for (const rid of d.rewardRecipes ?? []) {
+      if (!this.state.knownRecipes.has(rid)) {
+        this.state.knownRecipes.add(rid);
+        this.state.stats.discoveries++;
+      }
+    }
+    this.overlayEntity = e;
+    this.overlayTitle = d.name ?? "Prisoner";
+    this.overlayText = d.dialogDone ?? "Thanks!";
+    this.overlay = "dialog";
+    sfx.play("discover");
+    this.taunts.fire("npc_help");
+    this.checkAchievements("npc_help");
+  }
+
   private lastSwingAt = 0;
+
+  // ================= ACHIEVEMENTS =================
+
+  /** Evaluate achievement triggers against the current run state. */
+  checkAchievements(
+    trigger: string,
+    ctx: { itemId?: string } = {}
+  ): void {
+    if (!this.state) return;
+    for (const a of this.content.achievements) {
+      if (this.state.earned.has(a.id) || a.trigger !== trigger) continue;
+      if (a.itemId && a.itemId !== ctx.itemId) continue;
+      if (a.trigger === "counter") {
+        const v = this.state.counters.get(a.counter ?? "") ?? 0;
+        if (v < (a.count ?? 1)) continue;
+      }
+      if (a.trigger === "win") {
+        if (a.maxDeaths !== undefined && this.state.stats.deaths > a.maxDeaths) continue;
+        if (a.maxSeconds !== undefined && this.finishedInMs / 1000 > a.maxSeconds) continue;
+      }
+      this.earnAchievement(a.id);
+    }
+  }
+
+  private earnAchievement(id: string): void {
+    const a = this.content.achievements.find((x) => x.id === id);
+    if (!a || this.state.earned.has(id)) return;
+    this.state.earned.add(id);
+    sfx.play("discover");
+    this.tip(`★ ${a.name}`);
+    this.taunts.queueLine(a.wardenLine, a.emotion);
+  }
 
   /** Visual/audio feedback for elemental happenings, wherever they come from. */
   private handleElementEvents(events: ElementEvent[]): void {
     for (const ev of events) {
+      // Achievement counters ride on the event stream
+      if (this.state) {
+        if (ev.effect === "ignite") this.state.bump("burns");
+        if (ev.effect === "extinguish") this.state.bump("douses");
+        if (ev.effect === "enemy_kill" && ev.element === "fire" && ev.enemyId === "crawler") {
+          this.state.bump("crawlersCooked");
+        }
+        if (ev.effect === "enemy_stun" && ev.element === "water" && ev.enemyId === "spotter") {
+          this.state.bump("spottersSplashed");
+        }
+      }
       switch (ev.effect) {
         case "ignite":
           sfx.play("ignite");
@@ -632,6 +873,7 @@ export class Game {
           break;
       }
     }
+    this.checkAchievements("counter");
   }
 
   /** The swing/apply box in front of the player. */
@@ -784,6 +1026,7 @@ export class Game {
     this.winShownAt = performance.now();
     sfx.play("win");
     this.taunts.fire("win");
+    this.checkAchievements("win");
   }
 
   // ================= RENDER =================
@@ -831,6 +1074,7 @@ export class Game {
     this.roomRt.draw(ctx, this.animT);
     this.player.draw(ctx);
     this.drawHeldItem(ctx);
+    this.warden.draw(ctx, this.content.game.antagonist, this.animT);
     this.particles.draw(ctx);
     drawFloaties(ctx, this.floaties);
     // Interaction prompt
@@ -870,6 +1114,12 @@ export class Game {
       "Q cycle · F use";
     drawHotbar(ctx, this.state, VIEW_H, hotbarHint);
     drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W);
+    if (this.warden.active) {
+      this.warden.drawVignette(
+        ctx, VIEW_W, VIEW_H,
+        this.warden.distanceTo(this.player.centerX, this.player.centerY)
+      );
+    }
     if (this.input.scheme === "touch" && this.overlay === "none") {
       this.touch.draw(ctx);
     }
@@ -878,13 +1128,25 @@ export class Game {
     // Overlays
     if (this.overlay === "craft") {
       this.craftUI.draw(ctx, this.state, VIEW_W, VIEW_H);
-    } else if (this.overlay === "note" || this.overlay === "dialog") {
-      drawTextOverlay(ctx, {
+    } else if (this.overlay === "note" || this.overlay === "dialog" || this.overlay === "npcConfirm") {
+      const isNpc = this.overlay !== "note" && this.overlayEntity?.kind === "npc";
+      this.confirmButtons = drawTextOverlay(ctx, {
         title: this.overlayTitle,
         titleColor: this.overlay === "note" ? "#c9a86a" : "#7fd8e8",
         body: this.overlayText,
-        footer: "E / Enter — close",
+        footer:
+          this.overlay === "npcConfirm"
+            ? `${this.input.label("interact")} — give · Esc — keep it`
+            : `${this.input.label("interact")} / Enter — close`,
         viewW: VIEW_W, viewH: VIEW_H,
+        portrait: isNpc ? this.npcPortrait(this.overlayEntity!) : undefined,
+        buttons:
+          this.overlay === "npcConfirm"
+            ? [
+                { label: "Hand it over", action: "give", primary: true },
+                { label: "Keep it", action: "keep" },
+              ]
+            : undefined,
       });
     } else if (this.overlay === "pause") {
       ctx.fillStyle = "rgba(8,6,14,0.75)";
@@ -1012,9 +1274,36 @@ export class Game {
       `discoveries     ${s.discoveries}`,
       `taunts endured  ${s.tauntsHeard}`,
     ];
-    ctx.font = "12px monospace";
+    ctx.font = "11px monospace";
     ctx.fillStyle = "#e8e2f4";
-    lines.forEach((l, i) => ctx.fillText(l, 220, 140 + i * 20));
+    lines.forEach((l, i) => ctx.fillText(l, 130, 128 + i * 17));
+
+    // Achievements: what you earned, and how many secrets you missed.
+    const all = this.content.achievements;
+    const earned = all.filter((a) => this.state.earned.has(a.id));
+    const missed = all.length - earned.length;
+    ctx.fillStyle = "#ffd166";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText("ACHIEVEMENTS", 360, 128);
+    ctx.font = "10px monospace";
+    let ay = 146;
+    if (earned.length === 0) {
+      ctx.fillStyle = "#8f87ad";
+      ctx.fillText("(none. the Warden is thrilled.)", 360, ay);
+      ay += 15;
+    }
+    for (const a of earned.slice(0, 9)) {
+      ctx.fillStyle = "#9be8b0";
+      ctx.fillText(`★ ${a.name}`, 360, ay);
+      ay += 15;
+    }
+    if (missed > 0) {
+      ctx.fillStyle = "#8f87ad";
+      ctx.fillText(
+        `${missed} secret${missed === 1 ? "" : "s"} undiscovered...`,
+        360, ay + 6
+      );
+    }
 
     drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W);
 
@@ -1024,6 +1313,6 @@ export class Game {
       this.input.scheme === "gamepad" ? "A — back to menu" :
       this.input.scheme === "touch" ? "tap — back to menu" :
       "Enter — back to menu";
-    ctx.fillText(p, (VIEW_W - ctx.measureText(p).width) / 2, 300);
+    ctx.fillText(p, (VIEW_W - ctx.measureText(p).width) / 2, 320);
   }
 }

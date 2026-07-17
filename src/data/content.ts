@@ -44,6 +44,7 @@ function assemble(files: Record<string, unknown>): Content {
     game: files["game.json"] as Content["game"],
     elements: (files["elements.json"] ?? []) as Content["elements"],
     rules: (files["rules.json"] ?? []) as Content["rules"],
+    achievements: (files["achievements.json"] ?? []) as Content["achievements"],
     tiles: files["tiles.json"] as Content["tiles"],
     items: files["items.json"] as Content["items"],
     recipes: files["recipes.json"] as Content["recipes"],

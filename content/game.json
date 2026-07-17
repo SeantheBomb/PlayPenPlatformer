@@ -45,7 +45,9 @@
     "healAtCheckpoints": true,
     "stunDurationMs": 4000,
     "smokeBombRadius": 96,
-    "idleTauntSeconds": 45
+    "idleTauntSeconds": 45,
+    "idleChaseSeconds": 75,
+    "wardenIdleSpeed": 70
   },
   "audio": {
     "sfxVolume": 0.5,

@@ -228,6 +228,22 @@ export function drawTile(
       ctx.fillRect(px, py, TILE, TILE);
       break;
     }
+    case "waterfall": {
+      const t = animT * 60;
+      ctx.fillStyle = "rgba(79,195,247,0.30)";
+      ctx.fillRect(px + 1, py, TILE - 2, TILE);
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 3; i++) {
+        const sx = px + 3 + i * 5;
+        const off = (t + i * 7 + px) % TILE;
+        ctx.beginPath();
+        ctx.moveTo(sx, py + off - 6);
+        ctx.lineTo(sx, py + off);
+        ctx.stroke();
+      }
+      break;
+    }
     case "metal": {
       ctx.fillStyle = c;
       ctx.fillRect(px, py, TILE, TILE);

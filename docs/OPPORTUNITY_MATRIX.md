@@ -1,4 +1,23 @@
-# PlayPen — Opportunity Matrix (v2, elemental)
+# PlayPen — Opportunity Matrix (v3 campaign: 10 rooms)
+
+**Campaign shape** (pacing per Sean's direction — teach crafting first, enemies late,
+one thinker, one action room, one boss):
+
+| # | Room | Role | Focus |
+| - | --- | --- | --- |
+| 1 | Orientation | Introduce | fire→wood, crafting, brazier lighting |
+| 2 | Storage | Introduce | bucket loop, water→fire |
+| 3 | The Vents | Introduce/Twist | **goo carries fire** (fuse-line under a wall) |
+| 4 | Cell Block | Introduce | spark conduction, fuse gates, Marla trade |
+| 5 | The Gap | Introduce | placeable springs |
+| 6 | Greenhouse | Exercise (long) | waterfall vs lit torch, freeze bridge, side treasure |
+| 7 | Mess Hall | **Enemy debut** | sight cones, lockers, water safe-zones |
+| 8 | The Vault | **The thinker** | multi-step chain: goo-fuse under falls → burn wall → conduct through pool → don't stand in it |
+| 9 | The Yard | **The action room** | everything hostile, pre-crafted supplies |
+| 10 | The Long Run | **Boss** | Warden chase, zero crafting, tools staged on route |
+
+*(Older v2 interaction table below still describes the kernel; per-room mapping
+superseded by the table above.)*
 
 With the element kernel, matrix rows are **element interactions**, not one-off
 mechanics. Each row should hit **I → E → T → C** across a wing:

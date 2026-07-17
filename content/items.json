@@ -101,7 +101,9 @@
     "color": "#ff7043",
     "element": "fire",
     "useMode": "swing",
-    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures."
+    "dousedBy": "water",
+    "dousesTo": "torch",
+    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out."
   },
   {
     "id": "bucket",
@@ -175,6 +177,14 @@
     "useMode": "place",
     "placeType": "trap",
     "description": "Place it down. Creatures that touch it are done having a good time."
+  },
+  {
+    "id": "warden_plush",
+    "name": "Warden Plush",
+    "kind": "curio",
+    "shape": "ball",
+    "color": "#ff5470",
+    "description": "A hand-stitched plush of the Warden. Someone made this. Someone loved this."
   },
   {
     "id": "sock_puppet",

@@ -111,6 +111,16 @@
     "color": "#ff7043"
   },
   {
+    "id": "waterfall",
+    "char": "V",
+    "name": "Waterfall",
+    "style": "waterfall",
+    "element": "water",
+    "conductive": true,
+    "wade": 0.8,
+    "color": "#4fc3f7"
+  },
+  {
     "id": "metal",
     "char": "M",
     "name": "Metal Block",

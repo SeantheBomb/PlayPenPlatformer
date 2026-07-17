@@ -62,7 +62,8 @@
         "recipe_smoke_bomb"
       ],
       "dialogAsk": "Psst. #67! Marla. #12. There's a GLOW MUSHROOM sealed under the ice over there — I've been staring at it for a month. Get it out, bring it here, I'll make it worth your while.",
-      "dialogDone": "Beautiful. Here — cloth I've been hoarding, and a recipe: mushroom spores in a sock. Shake it and everything nearby takes a nap. Poof.",
+      "dialogConfirm": "You HAVE it. The mushroom. Okay. Okay okay okay. Hand it over and my spore recipe is yours. Deal?",
+      "dialogDone": "Beautiful. Here — cloth I've been hoarding, and the recipe: mushroom spores in a sock. Shake it and everything nearby takes a nap. Poof.",
       "dialogAfter": "Go. GO. Wave at the parking lot for me."
     },
     {
@@ -131,14 +132,6 @@
       "item": "cog",
       "x": 33,
       "y": 20
-    },
-    {
-      "type": "enemy",
-      "enemy": "crawler",
-      "x": 36,
-      "y": 20,
-      "patrolMinX": 34,
-      "patrolMaxX": 42
     },
     {
       "type": "pickup",

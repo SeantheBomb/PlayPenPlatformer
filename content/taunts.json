@@ -145,6 +145,62 @@
     "emotion": "smug"
   },
   {
+    "id": "warden_chase",
+    "trigger": "warden_chase",
+    "cooldownMs": 10000,
+    "chance": 1,
+    "lines": [
+      "Where are you GOING? We were bonding.",
+      "Personal escort service, complimentary. You cannot refuse.",
+      "RUN ALL YOU LIKE. I am the building."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "room_greenhouse",
+    "trigger": "room_enter",
+    "roomId": "greenhouse",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Greenhouse! We grow mushrooms, mold, and despair. Mind the falls — fire hates them."
+    ],
+    "emotion": "smug"
+  },
+  {
+    "id": "room_vault",
+    "trigger": "room_enter",
+    "roomId": "the_vault",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Vault. Nobody has ever solved it. One subject got close, then had a little cry."
+    ],
+    "emotion": "smug"
+  },
+  {
+    "id": "room_yard",
+    "trigger": "room_enter",
+    "roomId": "the_yard",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "Exercise time! The specimens are ALSO exercising. Wonderful energy out here."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "room_long_run",
+    "trigger": "room_enter",
+    "roomId": "the_long_run",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "You know what? Fine. FINE. I will handle this personally."
+    ],
+    "emotion": "annoyed"
+  },
+  {
     "id": "win",
     "trigger": "win",
     "cooldownMs": 0,

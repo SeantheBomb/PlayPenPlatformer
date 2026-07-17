@@ -31,7 +31,8 @@ export class TouchControls {
   constructor(
     private canvas: HTMLCanvasElement,
     private input: Input,
-    private toLogical: (clientX: number, clientY: number) => { x: number; y: number }
+    private toLogical: (clientX: number, clientY: number) => { x: number; y: number },
+    private isCaptured: () => boolean = () => false
   ) {
     const opts = { passive: false } as AddEventListenerOptions;
     canvas.addEventListener("touchstart", (e) => this.onStart(e), opts);
@@ -67,6 +68,7 @@ export class TouchControls {
 
   private onStart(e: TouchEvent): void {
     e.preventDefault();
+    if (this.isCaptured()) return; // another surface (craft UI) owns input
     for (const t of Array.from(e.changedTouches)) {
       const p = this.toLogical(t.clientX, t.clientY);
       const btn = this.buttonAt(p.x, p.y);

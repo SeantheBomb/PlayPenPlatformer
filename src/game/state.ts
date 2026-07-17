@@ -36,6 +36,15 @@ export class RunState {
   roomStates = new Map<string, RoomMutations>();
   selectedConsumable = 0;
   hasDiedOnce = false;
+  counters = new Map<string, number>();      // achievement counters
+  earned = new Set<string>();                // achievement ids earned this run
+  readNotes = new Set<string>();             // "roomId:entityIndex" of notes read
+
+  bump(counter: string, by = 1): number {
+    const v = (this.counters.get(counter) ?? 0) + by;
+    this.counters.set(counter, v);
+    return v;
+  }
   stats: RunStats = {
     deaths: 0, crafts: 0, discoveries: 0, tauntsHeard: 0,
     startedAt: performance.now(),

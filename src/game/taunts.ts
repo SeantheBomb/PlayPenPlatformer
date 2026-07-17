@@ -36,6 +36,11 @@ export class TauntManager {
     }
   }
 
+  /** Queue a specific line directly (achievement reactions, scripted beats). */
+  queueLine(line: string, emotion: WardenEmotion = "smug"): void {
+    this.queue.push({ line, emotion });
+  }
+
   update(): void {
     const now = performance.now();
     if (this.active && now - this.active.shownAt > this.active.duration) {

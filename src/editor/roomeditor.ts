@@ -5,6 +5,7 @@ import { TILE } from "../engine/tilemap";
 import { drawMap } from "../engine/renderer";
 import { RoomRuntime } from "../game/room";
 import { autoForm, el, toast } from "./forms";
+import { openPixelEditor } from "./pixeleditor";
 
 type Tool =
   | { kind: "select" }
@@ -347,7 +348,8 @@ export class RoomEditor {
       autoForm(sel as unknown as Record<string, unknown>, () => {
         this.markDirty();
         this.renderCanvas();
-      }, [], () => this.pushUndoDebounced()),
+      }, ["portrait"], () => this.pushUndoDebounced()),
+      sel.type === "npc" ? this.npcPortraitRow(sel) : el("span", {}),
       el("div", { className: "pp-btnrow" },
         el("button", {
           className: "pp-btn pp-danger",
@@ -361,6 +363,40 @@ export class RoomEditor {
           },
         }, "Delete entity")
       )
+    );
+  }
+
+  /** Upload / pixel-edit / clear a custom dialog portrait on an NPC. */
+  private npcPortraitRow(sel: RoomEntity): HTMLElement {
+    return el("div", { className: "pp-btnrow" },
+      el("span", { className: "pp-hint" },
+        sel.portrait ? "portrait: custom" : "portrait: auto"),
+      el("button", {
+        className: "pp-btn",
+        onclick: () =>
+          openPixelEditor({
+            title: `${sel.name ?? "NPC"} portrait (32x32)`,
+            size: 32,
+            frames: sel.portrait ? [sel.portrait] : [],
+            fps: 6,
+            multiFrame: false,
+            onSave: (frames) => {
+              this.pushUndo();
+              sel.portrait = frames[0];
+              this.markDirty();
+              this.renderInspector();
+            },
+          }),
+      }, "portrait"),
+      el("button", {
+        className: "pp-btn pp-danger",
+        onclick: () => {
+          this.pushUndo();
+          delete sel.portrait;
+          this.markDirty();
+          this.renderInspector();
+        },
+      }, "✕"),
     );
   }
 

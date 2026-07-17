@@ -69,14 +69,6 @@
       "text": "Metal on a stick shatters what's brittle. Cracks in stone. Ice. Keep one around. — Subject #31"
     },
     {
-      "type": "enemy",
-      "enemy": "crawler",
-      "x": 26,
-      "y": 20,
-      "patrolMinX": 25,
-      "patrolMaxX": 31
-    },
-    {
       "type": "pickup",
       "item": "scrap_metal",
       "x": 30,

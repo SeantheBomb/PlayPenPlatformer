@@ -87,7 +87,17 @@ escape the wing → (future) descend to the next facility layer.
   (`rules.resetInventoryBetweenRooms`). Recipes/knowledge persist — knowing how to
   make a torch IS the progression. Every room supplies everything its own gates need,
   and the held tool is visible in the player's hand (matching its state, lit/unlit).
-- **NPCs**: fetch-quest prisoners (give item → receive items + recipes + dialog).
+- **NPCs**: fetch-quest prisoners with dialog portraits and an explicit Give/Keep
+  confirmation before any trade.
+- **The Warden, embodied**: a blob-creature that phases through walls. Idle too long
+  anywhere and he comes for a one-heart slap (`rules.idleChaseSeconds`); the finale
+  (`room.wardenChase`) is a full chase gauntlet where touch = death and every needed
+  tool is pre-crafted along the route — no menus while running.
+- **Waterfalls + dousing**: waterfall tiles are walk-through but douse carried flames
+  (`dousedBy`/`dousesTo` on items); fire cannot cross falling water.
+- **Achievements**: `content/achievements.json` — visible + hidden, trigger/counter
+  driven, each with a Warden reaction; win screen lists what you earned and counts
+  (but never names) what you missed.
 - **Taunts**: trigger-driven (game_start, room_enter, death, first_death, craft_fail,
   first_craft, craft_item, idle, hide_enter, npc_help, win) with cooldown + chance.
   Each taunt carries an `emotion`; the banner shows the Warden's portrait making that

@@ -1,0 +1,150 @@
+[
+  {
+    "id": "best_friend",
+    "name": "Best Friend",
+    "description": "Craft the sock puppet.",
+    "hidden": true,
+    "trigger": "craft_item",
+    "itemId": "sock_puppet",
+    "wardenLine": "You made HIM. Achievement noted. Framed, actually. He stays forever.",
+    "emotion": "proud"
+  },
+  {
+    "id": "teachers_pet",
+    "name": "Teacher's Pet",
+    "description": "Find the Warden's plush.",
+    "hidden": true,
+    "trigger": "pickup_item",
+    "itemId": "warden_plush",
+    "wardenLine": "You found my... that's not mine. I've never seen it. Keep it safe.",
+    "emotion": "shocked"
+  },
+  {
+    "id": "arsonist",
+    "name": "Certified Arsonist",
+    "description": "Set 10 tiles on fire.",
+    "hidden": false,
+    "trigger": "counter",
+    "counter": "burns",
+    "count": 10,
+    "wardenLine": "Ten counts of arson. That's facility property, you know. Was.",
+    "emotion": "annoyed"
+  },
+  {
+    "id": "plumbers_union",
+    "name": "Plumbers' Union",
+    "description": "Extinguish 5 fires.",
+    "hidden": false,
+    "trigger": "counter",
+    "counter": "douses",
+    "count": 5,
+    "wardenLine": "Five fires out. The safety committee would love you. There is no safety committee.",
+    "emotion": "bored"
+  },
+  {
+    "id": "ice_to_meet_you",
+    "name": "Ice to Meet You",
+    "description": "Walk across a frozen pool.",
+    "hidden": false,
+    "trigger": "counter",
+    "counter": "iceWalks",
+    "count": 1,
+    "wardenLine": "Walking on water. Frozen water. Fine. Technically impressive.",
+    "emotion": "smug"
+  },
+  {
+    "id": "grounded",
+    "name": "Grounded",
+    "description": "Electrocute yourself.",
+    "hidden": true,
+    "trigger": "counter",
+    "counter": "selfZaps",
+    "count": 1,
+    "wardenLine": "You were STANDING on the metal. Physics! It works! I love this job.",
+    "emotion": "gleeful"
+  },
+  {
+    "id": "chef",
+    "name": "Chef",
+    "description": "Cook a Crawler.",
+    "hidden": true,
+    "trigger": "counter",
+    "counter": "crawlersCooked",
+    "count": 1,
+    "wardenLine": "That was a company specimen. It had a name. It was Specimen.",
+    "emotion": "shocked"
+  },
+  {
+    "id": "short_circuit",
+    "name": "Short Circuit",
+    "description": "Splash a Spotter.",
+    "hidden": true,
+    "trigger": "counter",
+    "counter": "spottersSplashed",
+    "count": 1,
+    "wardenLine": "Water. On the drone. Do you know what those COST? Me neither. A lot, probably.",
+    "emotion": "annoyed"
+  },
+  {
+    "id": "marlas_favorite",
+    "name": "Marla's Favorite",
+    "description": "Complete a trade with a prisoner.",
+    "hidden": false,
+    "trigger": "npc_help",
+    "wardenLine": "Commerce. In MY facility. I'm adding it to both your files.",
+    "emotion": "annoyed"
+  },
+  {
+    "id": "librarian",
+    "name": "Librarian",
+    "description": "Read every note in the facility.",
+    "hidden": true,
+    "trigger": "counter",
+    "counter": "notesRead",
+    "count": 7,
+    "wardenLine": "You read ALL the graffiti. It's not literature, #67. It's vandalism with feelings.",
+    "emotion": "bored"
+  },
+  {
+    "id": "spring_hoarder",
+    "name": "It Comes Back",
+    "description": "Reclaim a placed spring 5 times.",
+    "hidden": true,
+    "trigger": "counter",
+    "counter": "springReclaims",
+    "count": 5,
+    "wardenLine": "Place it, take it, place it, take it. The spring has feelings too. Probably dizzy ones.",
+    "emotion": "bored"
+  },
+  {
+    "id": "good_listener",
+    "name": "Good Listener",
+    "description": "Endure 15 taunts.",
+    "hidden": false,
+    "trigger": "counter",
+    "counter": "tauntsHeard",
+    "count": 15,
+    "wardenLine": "You LISTEN. Nobody listens. This is the best relationship I've ever had.",
+    "emotion": "proud"
+  },
+  {
+    "id": "untouchable",
+    "name": "Untouchable",
+    "description": "Escape without dying once.",
+    "hidden": false,
+    "trigger": "win",
+    "maxDeaths": 0,
+    "wardenLine": "Zero deaths. The recycling department is FURIOUS.",
+    "emotion": "annoyed"
+  },
+  {
+    "id": "speedrunner",
+    "name": "Early Checkout",
+    "description": "Escape in under 12 minutes.",
+    "hidden": false,
+    "trigger": "win",
+    "maxSeconds": 720,
+    "wardenLine": "Twelve minutes?! We have a two-night minimum. This is going on your invoice.",
+    "emotion": "shocked"
+  }
+]

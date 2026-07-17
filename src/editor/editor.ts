@@ -106,7 +106,7 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 
 type TabId =
   | "rooms" | "elements" | "rules" | "tiles" | "items" | "recipes"
-  | "enemies" | "taunts" | "game" | "campaign";
+  | "enemies" | "taunts" | "achievements" | "game" | "campaign";
 
 interface ListSpec {
   file: string;
@@ -179,7 +179,7 @@ class EditorShell {
     const c = this.store.content;
     const tabs: TabId[] = [
       "rooms", "elements", "rules", "tiles", "items", "recipes",
-      "enemies", "taunts", "game", "campaign",
+      "enemies", "taunts", "achievements", "game", "campaign",
     ];
     this.bodyEl = el("div", { className: "pp-body" });
     const shell = el(
@@ -338,6 +338,20 @@ class EditorShell {
             lines: ["..."],
           }),
           label: (t) => `${t.id} (${t.trigger})`,
+        });
+        break;
+      case "achievements":
+        this.renderListTab({
+          file: "achievements.json",
+          list: () => c.achievements as unknown as Record<string, unknown>[],
+          setList: (l) => (c.achievements = l as never),
+          template: () => ({
+            id: "new_achievement", name: "New Achievement",
+            description: "", hidden: false,
+            trigger: "counter", counter: "burns", count: 1,
+            wardenLine: "Noted. Filed. Judged.", emotion: "smug",
+          }),
+          label: (t) => `${t.hidden ? "◈ " : ""}${t.id}`,
         });
         break;
       case "game": {
