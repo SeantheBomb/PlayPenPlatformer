@@ -50,7 +50,39 @@ export interface GameConfig {
   audio: { sfxVolume: number; muted: boolean };
 }
 
-export type TileStyle = "block" | "platform" | "spikes" | "cracked" | "spring" | "goo";
+// ---- Elemental system ----
+
+export interface ElementDef {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export type RuleEffect =
+  | "ignite"      // flammable target starts burning, becomes burnsTo after burnTime
+  | "melt"        // target becomes meltsTo
+  | "extinguish"  // fire/burning target reverts (extinguishesTo / stops burning)
+  | "dissolve"    // target becomes dissolvesTo
+  | "freeze"      // target becomes freezesTo
+  | "shatter"     // brittle target becomes shattersTo
+  | "energize"    // charge floods connected conductive tiles
+  | "ignite_self" // the applied carrier item transforms (unlit torch -> lit)
+  | "fizzle";     // visible puff, no change
+
+export interface RuleDef {
+  id: string;
+  actor: string;           // element id applying the effect
+  target?: string;         // element id of the target tile...
+  targetProperty?: string; // ...or a tile property: flammable | brittle | conductive
+  effect: RuleEffect;
+  note?: string;
+}
+
+export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
+
+export type TileStyle =
+  | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
+  | "wood" | "ice" | "water" | "fire" | "metal";
 
 /**
  * Optional custom art, available on tiles, items, enemies, the player, and
@@ -72,15 +104,32 @@ export interface TileDef extends SpriteFields {
   solid?: boolean;
   oneWay?: boolean;
   damage?: number;
-  breakBy?: string; // capability string, e.g. "break:cracked"
   bounce?: number;  // upward launch velocity in px/s
-  slow?: number;    // movement multiplier while overlapping
+  slow?: number;    // movement multiplier while overlapping (sticky)
+  wade?: number;    // movement multiplier while overlapping (liquid)
+  // Elemental identity + properties
+  element?: string;
+  flammable?: boolean;
+  brittle?: boolean;
+  conductive?: boolean;
+  slippery?: boolean;
+  spreads?: boolean;   // fire tiles ignite neighbors
+  burnTime?: number;   // seconds a burning tile lasts
+  // Transformations (tile id, or "" for empty)
+  burnsTo?: string;
+  meltsTo?: string;
+  freezesTo?: string;
+  shattersTo?: string;
+  dissolvesTo?: string;
+  extinguishesTo?: string;
 }
 
 export type ItemKind = "material" | "tool" | "consumable" | "curio";
 export type ItemShape =
   | "shard" | "plank" | "ring" | "cloth" | "ball" | "mushroom"
-  | "cog" | "spring" | "tool" | "bottle";
+  | "cog" | "spring" | "tool" | "bottle" | "torch" | "bucket" | "rod";
+
+export type ItemUseMode = "swing" | "splash" | "place" | "burst";
 
 export interface ItemDef extends SpriteFields {
   id: string;
@@ -89,6 +138,12 @@ export interface ItemDef extends SpriteFields {
   shape: ItemShape;
   color: string;
   description: string;
+  element?: string;      // the element this item applies when used
+  useMode?: ItemUseMode; // present = appears in the hotbar
+  igniteTo?: string;     // item id this becomes when touched to fire (torch)
+  fillsTo?: string;      // item id this becomes when swung at water (bucket)
+  emptiesTo?: string;    // item id this reverts to after a splash
+  placeType?: "spring" | "trap";
   capabilities?: string[];
   params?: Record<string, number>;
 }
@@ -119,6 +174,8 @@ export interface EnemyDef extends SpriteFields {
   turnAtEdges?: boolean;
   stunnable?: boolean;
   trappable?: boolean;
+  element?: string;
+  reactions?: Record<string, EnemyReaction>; // element id -> what happens
   description?: string;
 }
 
@@ -145,7 +202,8 @@ export interface TauntDef {
 
 export type EntityType =
   | "spawn" | "checkpoint" | "pickup" | "note" | "door"
-  | "locker" | "enemy" | "npc" | "exit" | "hint";
+  | "locker" | "enemy" | "npc" | "exit" | "hint"
+  | "brazier" | "fusebox";
 
 export interface RoomEntity {
   type: EntityType;
@@ -159,8 +217,8 @@ export interface RoomEntity {
   text?: string;
   // door
   to?: string; // room id or "next"
-  locked?: boolean;
-  gate?: boolean; // opens in place instead of teleporting
+  gate?: boolean;  // opens in place instead of teleporting
+  fuseId?: string; // gate opens when a fusebox with the same fuseId is energized
   // enemy
   enemy?: string;
   patrolMinX?: number;
@@ -193,6 +251,8 @@ export interface CampaignDef {
 // Bundle of everything loaded
 export interface Content {
   game: GameConfig;
+  elements: ElementDef[];
+  rules: RuleDef[];
   tiles: TileDef[];
   items: ItemDef[];
   recipes: RecipeDef[];

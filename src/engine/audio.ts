@@ -3,7 +3,7 @@ type SfxName =
   | "jump" | "land" | "pickup" | "hurt" | "death" | "craft" | "craftFail"
   | "discover" | "note" | "door" | "locked" | "unlock" | "checkpoint"
   | "bounce" | "break" | "stun" | "trap" | "hide" | "taunt" | "npc" | "win"
-  | "swing"
+  | "swing" | "ignite" | "splash" | "freeze"
   | "uiMove" | "uiSelect";
 
 export class Sfx {
@@ -84,6 +84,9 @@ export class Sfx {
       case "bounce": this.tone(200, 0.16, "square", 0.16, 700); break;
       case "break": this.noise(0.18, 0.18); this.tone(160, 0.12, "square", 0.12, 60); break;
       case "swing": this.noise(0.07, 0.06); this.tone(520, 0.08, "sine", 0.07, 240); break;
+      case "ignite": this.noise(0.22, 0.1); this.tone(180, 0.18, "sawtooth", 0.08, 320); break;
+      case "splash": this.noise(0.16, 0.12); this.tone(300, 0.14, "sine", 0.1, 120); break;
+      case "freeze": this.tone(900, 0.12, "triangle", 0.14, 1400); this.tone(1200, 0.1, "triangle", 0.1, 1800, 0.08); break;
       case "stun": this.tone(880, 0.3, "sine", 0.14, 220); this.noise(0.25, 0.06); break;
       case "trap": this.tone(300, 0.12, "square", 0.14, 150); break;
       case "hide": this.tone(240, 0.12, "sine", 0.12, 160); break;

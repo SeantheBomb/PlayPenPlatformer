@@ -14,7 +14,7 @@ type Tool =
 
 const ENTITY_TYPES: RoomEntity["type"][] = [
   "spawn", "checkpoint", "pickup", "note", "door", "locker", "enemy", "npc",
-  "exit", "hint",
+  "exit", "hint", "brazier", "fusebox",
 ];
 
 const UNDO_CAP = 50;
@@ -310,7 +310,8 @@ export class RoomEditor {
       pickup: { item: firstMaterial, count: 1 },
       note: { text: "A note.", recipe: "" },
       hint: { text: "hint text here" },
-      door: { to: "next" },
+      door: { to: "next", gate: false, fuseId: "" },
+      fusebox: { fuseId: "A" },
       enemy: { enemy: firstEnemy, patrolMinX: tx - 3, patrolMaxX: tx + 3 },
       npc: {
         name: "Prisoner", color: "#7fd8e8",
@@ -389,8 +390,9 @@ export class RoomEditor {
 
     // Real runtime preview: same rendering the game uses.
     const emptyMuts = {
-      collected: new Set<number>(), brokenTiles: [], openedDoors: new Set<number>(),
+      collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
       helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), bundles: [],
+      placedItems: [],
     };
     try {
       const rt = new RoomRuntime(room, this.content, emptyMuts);

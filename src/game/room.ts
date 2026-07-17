@@ -1,9 +1,12 @@
-// Runtime instantiation of a RoomDef: tilemap, entities, enemies, traps, drops.
-import type { Content, EnemyDef, RoomDef, RoomEntity } from "../data/types";
+// Runtime instantiation of a RoomDef, including the elemental simulation:
+// tile transformations, fire spread, spark conduction, and enemy reactions.
+import type {
+  Content, EnemyDef, EnemyReaction, RoomDef, RoomEntity, RuleDef, TileDef,
+} from "../data/types";
 import { TILE, TileMap } from "../engine/tilemap";
-import { drawBlob, drawItemIcon, roundRect, shade } from "../engine/renderer";
-import { dist, rectsOverlap, type Rect } from "../engine/math";
-import type { RoomMutations } from "./state";
+import { drawBlob, drawItemIcon, drawTile, roundRect, shade } from "../engine/renderer";
+import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
+import type { PlacedItem, RoomMutations } from "./state";
 
 export interface EntityInstance extends Rect {
   index: number;
@@ -24,17 +27,26 @@ export interface EnemyInstance {
   state: "patrol" | "chase" | "return" | "stunned" | "trapped";
   stunUntil: number;
   lastSawPlayerAt: number;
+  lastHazardAt: number;
   homeX: number;
   patrolMin: number;
   patrolMax: number;
 }
 
-export interface PlacedTrap extends Rect {
-  used: boolean;
+export interface PlacedInstance extends Rect {
+  data: PlacedItem;
 }
 
 export interface DropBundle extends Rect {
   items: [string, number][];
+}
+
+/** One thing that happened when an element was applied — for game feedback. */
+export interface ElementEvent {
+  effect: string; // RuleEffect, plus "enemy_kill" | "enemy_stun" | "enemy_knockback" | "fuse"
+  x: number;
+  y: number;
+  color: string;
 }
 
 const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
@@ -46,16 +58,29 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   checkpoint: [8, 24],
   exit: [28, 44],
   hint: [16, 16],
+  brazier: [16, 14],
+  fusebox: [14, 18],
 };
+
+const SPREAD_INTERVAL = 0.7; // seconds between fire spread ticks
+const ENERGIZE_MS = 1500;
+const HAZARD_COOLDOWN_MS = 500;
 
 export class RoomRuntime {
   map: TileMap;
   entities: EntityInstance[] = [];
   enemies: EnemyInstance[] = [];
-  traps: PlacedTrap[] = [];
+  placed: PlacedInstance[] = [];
   bundles: DropBundle[] = [];
   spawnX = 32;
   spawnY = 32;
+
+  /** tile index -> seconds of burn left */
+  burning = new Map<number, number>();
+  /** tile index -> performance.now() timestamp when charge dissipates */
+  energized = new Map<number, number>();
+  private spreadClock = 0;
+  private tilesById = new Map<string, TileDef>();
 
   constructor(
     public room: RoomDef,
@@ -63,7 +88,10 @@ export class RoomRuntime {
     private muts: RoomMutations
   ) {
     this.map = new TileMap(room, content.tiles);
-    for (const idx of muts.brokenTiles) this.map.broken.add(idx);
+    for (const t of content.tiles) this.tilesById.set(t.id, t);
+    for (const [idx, tileId] of muts.tileOverrides) {
+      this.map.overrides.set(idx, tileId ? this.tilesById.get(tileId) ?? null : null);
+    }
 
     room.entities.forEach((def, index) => {
       const cx = def.x * TILE + TILE / 2;
@@ -83,7 +111,7 @@ export class RoomRuntime {
           y: feetY - edef.height,
           vx: 0, vy: 0, facing: 1,
           state: edef.behavior === "patrol" ? "patrol" : "return",
-          stunUntil: 0, lastSawPlayerAt: 0,
+          stunUntil: 0, lastSawPlayerAt: 0, lastHazardAt: 0,
           homeX: cx,
           patrolMin: (def.patrolMinX ?? def.x - 3) * TILE,
           patrolMax: (def.patrolMaxX ?? def.x + 3) * TILE,
@@ -103,7 +131,293 @@ export class RoomRuntime {
     for (const b of muts.bundles) {
       this.bundles.push({ x: b.x, y: b.y, w: 14, h: 12, items: b.items });
     }
+    for (const p of muts.placedItems) {
+      this.placed.push(this.makePlacedInstance(p));
+    }
   }
+
+  private makePlacedInstance(p: PlacedItem): PlacedInstance {
+    const size: [number, number] = p.type === "spring" ? [16, 8] : [16, 8];
+    return { data: p, x: p.x, y: p.y, w: size[0], h: size[1] };
+  }
+
+  // ================= ELEMENTAL CORE =================
+
+  private findRule(actor: string, tile: TileDef): RuleDef | undefined {
+    return this.content.rules.find((r) => {
+      if (r.actor !== actor) return false;
+      if (r.target) return r.target === tile.element;
+      if (r.targetProperty) {
+        return !!(tile as unknown as Record<string, unknown>)[r.targetProperty];
+      }
+      return false;
+    });
+  }
+
+  private setTileById(tx: number, ty: number, tileId: string | undefined): void {
+    const id = tileId ?? "";
+    const def = id ? this.tilesById.get(id) ?? null : null;
+    this.map.setTile(tx, ty, def);
+    const idx = this.map.index(tx, ty);
+    this.burning.delete(idx);
+    // Persist (replace any earlier override for this index)
+    this.muts.tileOverrides = this.muts.tileOverrides.filter(([i]) => i !== idx);
+    this.muts.tileOverrides.push([idx, id || null]);
+  }
+
+  igniteTile(tx: number, ty: number): boolean {
+    const def = this.map.at(tx, ty);
+    const idx = this.map.index(tx, ty);
+    if (!def?.flammable || this.burning.has(idx)) return false;
+    this.burning.set(idx, def.burnTime ?? 2.5);
+    return true;
+  }
+
+  /** Apply an element to every tile in a pixel-space box. Returns events. */
+  applyElementToTiles(element: string | undefined, box: Rect): ElementEvent[] {
+    const events: ElementEvent[] = [];
+    if (!element) return events;
+    const tx0 = Math.max(0, Math.floor(box.x / TILE));
+    const tx1 = Math.min(this.map.width - 1, Math.floor((box.x + box.w) / TILE));
+    const ty0 = Math.max(0, Math.floor(box.y / TILE));
+    const ty1 = Math.min(this.map.height - 1, Math.floor((box.y + box.h) / TILE));
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const def = this.map.at(tx, ty);
+        if (!def) continue;
+        const idx = this.map.index(tx, ty);
+        const cx = tx * TILE + 8;
+        const cy = ty * TILE + 8;
+        // Water on a burning (but not water-element) tile: put it out.
+        if (element === "water" && this.burning.has(idx)) {
+          this.burning.delete(idx);
+          events.push({ effect: "extinguish", x: cx, y: cy, color: "#4fc3f7" });
+          continue;
+        }
+        const rule = this.findRule(element, def);
+        if (!rule) continue;
+        switch (rule.effect) {
+          case "ignite":
+            if (this.igniteTile(tx, ty)) {
+              events.push({ effect: "ignite", x: cx, y: cy, color: "#ff7043" });
+            }
+            break;
+          case "melt":
+            this.setTileById(tx, ty, def.meltsTo);
+            events.push({ effect: "melt", x: cx, y: cy, color: "#b3e5fc" });
+            break;
+          case "extinguish":
+            this.setTileById(tx, ty, def.extinguishesTo);
+            events.push({ effect: "extinguish", x: cx, y: cy, color: "#8f9bb3" });
+            break;
+          case "dissolve":
+            this.setTileById(tx, ty, def.dissolvesTo);
+            events.push({ effect: "dissolve", x: cx, y: cy, color: def.color });
+            break;
+          case "freeze":
+            this.freezeFrom(tx, ty, events);
+            break;
+          case "shatter":
+            this.setTileById(tx, ty, def.shattersTo);
+            events.push({ effect: "shatter", x: cx, y: cy, color: def.color });
+            break;
+          case "energize":
+            this.energizeFrom(tx, ty, events);
+            break;
+          case "fizzle":
+            events.push({ effect: "fizzle", x: cx, y: cy, color: "#cfd8dc" });
+            break;
+          // ignite_self is a carrier-item rule; Game handles it.
+        }
+      }
+    }
+    return events;
+  }
+
+  /** Cold propagates across a connected body of water: one vial, one bridge. */
+  private freezeFrom(tx: number, ty: number, events: ElementEvent[]): void {
+    const startElem = this.map.at(tx, ty)?.element;
+    const stack = [[tx, ty]];
+    const seen = new Set<number>();
+    let count = 0;
+    while (stack.length > 0 && count < 32) {
+      const [cx, cy] = stack.pop()!;
+      const idx = this.map.index(cx, cy);
+      if (seen.has(idx)) continue;
+      seen.add(idx);
+      const def = this.map.at(cx, cy);
+      if (!def || def.element !== startElem || !def.freezesTo) continue;
+      this.setTileById(cx, cy, def.freezesTo);
+      count++;
+      events.push({
+        effect: "freeze", x: cx * TILE + 8, y: cy * TILE + 8, color: "#b3e5fc",
+      });
+      stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+    }
+  }
+
+  /** Flood charge through connected conductive tiles; trip fuse boxes. */
+  private energizeFrom(tx: number, ty: number, events: ElementEvent[]): void {
+    const until = performance.now() + ENERGIZE_MS;
+    const stack = [[tx, ty]];
+    const seen = new Set<number>();
+    let count = 0;
+    while (stack.length > 0 && count < 600) {
+      const [cx, cy] = stack.pop()!;
+      const idx = this.map.index(cx, cy);
+      if (seen.has(idx)) continue;
+      seen.add(idx);
+      const def = this.map.at(cx, cy);
+      if (!def?.conductive) continue;
+      this.energized.set(idx, until);
+      count++;
+      events.push({
+        effect: "energize", x: cx * TILE + 8, y: cy * TILE + 8, color: "#ffe95a",
+      });
+      stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+    }
+    if (count > 0) this.checkFuseboxes(events);
+  }
+
+  /** A fusebox trips if any energized tile touches it (or its neighbors). */
+  private checkFuseboxes(events: ElementEvent[]): void {
+    const now = performance.now();
+    for (const fb of this.entities) {
+      if (fb.kind !== "fusebox" || fb.open) continue;
+      const tx0 = Math.floor(fb.x / TILE) - 1;
+      const tx1 = Math.floor((fb.x + fb.w) / TILE) + 1;
+      const ty0 = Math.floor(fb.y / TILE) - 1;
+      const ty1 = Math.floor((fb.y + fb.h) / TILE) + 1;
+      let hit = false;
+      for (let ty = ty0; ty <= ty1 && !hit; ty++) {
+        for (let tx = tx0; tx <= tx1 && !hit; tx++) {
+          const until = this.energized.get(this.map.index(tx, ty));
+          if (until && until > now) hit = true;
+        }
+      }
+      if (hit) this.tripFusebox(fb, events);
+    }
+  }
+
+  tripFusebox(fb: EntityInstance, events: ElementEvent[]): void {
+    fb.open = true;
+    this.muts.openedDoors.add(fb.index);
+    events.push({ effect: "fuse", x: fb.x + fb.w / 2, y: fb.y, color: "#ffe95a" });
+    for (const e of this.entities) {
+      if (e.kind === "door" && e.def.fuseId && e.def.fuseId === fb.def.fuseId && !e.open) {
+        e.open = true;
+        this.muts.openedDoors.add(e.index);
+        events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#9be8b0" });
+      }
+    }
+  }
+
+  /** Apply an element to enemies in a box (from tools, splashes, hazards). */
+  applyElementToEnemies(
+    element: string | undefined, box: Rect, stunMs: number
+  ): ElementEvent[] {
+    const events: ElementEvent[] = [];
+    if (!element) return events;
+    for (const en of this.enemies) {
+      if (en.state === "trapped") continue;
+      const rect = { x: en.x, y: en.y, w: en.def.width, h: en.def.height };
+      if (!rectsOverlap(rect, box)) continue;
+      const reaction = this.reactEnemy(en, element, stunMs);
+      if (reaction !== "none") {
+        events.push({
+          effect: "enemy_" + reaction,
+          x: en.x + en.def.width / 2,
+          y: en.y + en.def.height / 2,
+          color: en.def.color,
+        });
+      }
+    }
+    return events;
+  }
+
+  reactEnemy(en: EnemyInstance, element: string, stunMs: number): EnemyReaction {
+    const reaction: EnemyReaction = en.def.reactions?.[element] ?? "none";
+    switch (reaction) {
+      case "kill":
+        en.state = "trapped"; // reuse: removed from play
+        this.muts.disabledEnemies.add(en.index);
+        this.enemies = this.enemies.filter((e) => e !== en);
+        break;
+      case "stun":
+        en.state = "stunned";
+        en.stunUntil = performance.now() + stunMs;
+        break;
+      case "knockback":
+        en.vx = en.facing * -120;
+        break;
+      case "none":
+        break;
+    }
+    return reaction;
+  }
+
+  isEnergized(tx: number, ty: number): boolean {
+    const until = this.energized.get(this.map.index(tx, ty));
+    return !!until && until > performance.now();
+  }
+
+  isBurning(tx: number, ty: number): boolean {
+    return this.burning.has(this.map.index(tx, ty));
+  }
+
+  /** Does this box touch open flame (fire tiles, burning tiles, braziers)? */
+  boxTouchesFire(box: Rect): boolean {
+    const tx0 = Math.floor(box.x / TILE);
+    const tx1 = Math.floor((box.x + box.w) / TILE);
+    const ty0 = Math.floor(box.y / TILE);
+    const ty1 = Math.floor((box.y + box.h) / TILE);
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        if (this.isBurning(tx, ty)) return true;
+        if (this.map.at(tx, ty)?.element === "fire") return true;
+      }
+    }
+    return this.entities.some(
+      (e) => e.kind === "brazier" && rectsOverlap(e, box)
+    );
+  }
+
+  /** Does this box touch water (for filling buckets)? */
+  boxTouchesWater(box: Rect): { tx: number; ty: number } | null {
+    const tx0 = Math.floor(box.x / TILE);
+    const tx1 = Math.floor((box.x + box.w) / TILE);
+    const ty0 = Math.floor(box.y / TILE);
+    const ty1 = Math.floor((box.y + box.h) / TILE);
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        if (this.map.at(tx, ty)?.element === "water") return { tx, ty };
+      }
+    }
+    return null;
+  }
+
+  // ================= PLACED ITEMS =================
+
+  placeItem(type: "spring" | "trap", x: number, y: number): void {
+    const p: PlacedItem = { type, x, y, used: false };
+    this.muts.placedItems.push(p);
+    this.placed.push(this.makePlacedInstance(p));
+  }
+
+  removePlaced(inst: PlacedInstance): void {
+    this.placed = this.placed.filter((p) => p !== inst);
+    this.muts.placedItems = this.muts.placedItems.filter((p) => p !== inst.data);
+  }
+
+  placedSpringNear(px: number, py: number, range = 20): PlacedInstance | null {
+    for (const p of this.placed) {
+      if (p.data.type !== "spring") continue;
+      if (dist(px, py, p.x + p.w / 2, p.y + p.h / 2) <= range) return p;
+    }
+    return null;
+  }
+
+  // ================= QUERIES =================
 
   /** Nearest interactable entity within reach of the player center. */
   interactableNear(px: number, py: number, range = 22): EntityInstance | null {
@@ -112,8 +426,7 @@ export class RoomRuntime {
     for (const e of this.entities) {
       if (e.collected) continue;
       if (!["note", "door", "locker", "npc", "exit"].includes(e.kind)) continue;
-      // Distance to the entity's rect, not its center — tall doors/lockers
-      // should be reachable while standing at their base.
+      if (e.kind === "door" && e.def.gate && e.open) continue; // open gates are scenery
       const nx = Math.max(e.x, Math.min(px, e.x + e.w));
       const ny = Math.max(e.y, Math.min(py, e.y + e.h));
       const d = dist(px, py, nx, ny);
@@ -139,18 +452,6 @@ export class RoomRuntime {
     );
   }
 
-  /** Send every enemy back to its post (called on player respawn). */
-  resetEnemies(): void {
-    for (const en of this.enemies) {
-      if (en.state === "trapped") continue;
-      en.x = en.homeX - en.def.width / 2;
-      en.vx = 0;
-      en.vy = 0;
-      en.state = en.def.behavior === "patrol" ? "patrol" : "return";
-      en.lastSawPlayerAt = 0;
-    }
-  }
-
   stunEnemiesNear(x: number, y: number, radius: number, durationMs: number): number {
     let hit = 0;
     for (const en of this.enemies) {
@@ -164,14 +465,100 @@ export class RoomRuntime {
     return hit;
   }
 
+  /** Send every enemy back to its post (called on player respawn). */
+  resetEnemies(): void {
+    for (const en of this.enemies) {
+      if (en.state === "trapped") continue;
+      en.x = en.homeX - en.def.width / 2;
+      en.vx = 0;
+      en.vy = 0;
+      en.state = en.def.behavior === "patrol" ? "patrol" : "return";
+      en.lastSawPlayerAt = 0;
+    }
+  }
+
+  // ================= UPDATE =================
+
   update(
     dt: number,
-    player: { centerX: number; centerY: number; hidden: boolean } | null
+    player: { centerX: number; centerY: number; hidden: boolean } | null,
+    stunMs: number,
+    onEvents: (events: ElementEvent[]) => void
   ): void {
     const now = performance.now();
-    for (const en of this.enemies) {
+    const events: ElementEvent[] = [];
+
+    // ---- Fire simulation ----
+    for (const [idx, left] of [...this.burning]) {
+      const next = left - dt;
+      if (next <= 0) {
+        const tx = idx % this.map.width;
+        const ty = Math.floor(idx / this.map.width);
+        const def = this.map.at(tx, ty);
+        this.setTileById(tx, ty, def?.burnsTo);
+        events.push({ effect: "burnout", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
+      } else {
+        this.burning.set(idx, next);
+      }
+    }
+    this.spreadClock += dt;
+    if (this.spreadClock >= SPREAD_INTERVAL) {
+      this.spreadClock = 0;
+      const igniters: [number, number][] = [];
+      for (let ty = 0; ty < this.map.height; ty++) {
+        for (let tx = 0; tx < this.map.width; tx++) {
+          const def = this.map.at(tx, ty);
+          if ((def?.spreads && def.element === "fire") || this.isBurning(tx, ty)) {
+            igniters.push([tx, ty]);
+          }
+        }
+      }
+      for (const e of this.entities) {
+        if (e.kind === "brazier") {
+          igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE)]);
+        }
+      }
+      for (const [tx, ty] of igniters) {
+        for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
+          if (this.igniteTile(nx, ny)) {
+            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043" });
+          }
+        }
+      }
+    }
+
+    // ---- Enemies ----
+    for (const en of [...this.enemies]) {
       const d = en.def;
       if (en.state === "trapped") continue;
+
+      // Environmental hazards act on enemies too
+      if (now - en.lastHazardAt > HAZARD_COOLDOWN_MS) {
+        const tx0 = Math.floor(en.x / TILE);
+        const tx1 = Math.floor((en.x + d.width) / TILE);
+        const ty0 = Math.floor(en.y / TILE);
+        const ty1 = Math.floor((en.y + d.height + 2) / TILE);
+        let applied: string | null = null;
+        for (let ty = ty0; ty <= ty1 && !applied; ty++) {
+          for (let tx = tx0; tx <= tx1 && !applied; tx++) {
+            const tdef = this.map.at(tx, ty);
+            if (this.isBurning(tx, ty) || tdef?.element === "fire") applied = "fire";
+            else if (this.isEnergized(tx, ty)) applied = "spark";
+          }
+        }
+        if (applied) {
+          en.lastHazardAt = now;
+          const r = this.reactEnemy(en, applied, stunMs);
+          if (r !== "none") {
+            events.push({
+              effect: "enemy_" + r,
+              x: en.x + d.width / 2, y: en.y + d.height / 2, color: d.color,
+            });
+          }
+          if (r === "kill") continue;
+        }
+      }
+
       if (en.state === "stunned") {
         if (now >= en.stunUntil) {
           en.state = d.behavior === "patrol" ? "patrol" : "return";
@@ -182,7 +569,6 @@ export class RoomRuntime {
       const cx = en.x + d.width / 2;
       const cy = en.y + d.height / 2;
 
-      // Vision (chase behavior)
       if (d.behavior === "chase" && player && !player.hidden) {
         const inRange = dist(cx, cy, player.centerX, player.centerY) <= (d.sightRange ?? 120);
         if (inRange && this.map.lineOfSight(cx, cy, player.centerX, player.centerY)) {
@@ -197,14 +583,12 @@ export class RoomRuntime {
         if (lost) en.state = d.returnsHome ? "return" : "patrol";
       }
 
-      // Movement intent
       let want = 0;
       let speed = d.speed;
       if (en.state === "patrol") {
         want = en.facing;
         if (cx <= en.patrolMin) want = 1;
         else if (cx >= en.patrolMax) want = -1;
-        // Turn at ledges and walls
         if (d.turnAtEdges) {
           const aheadX = want > 0 ? en.x + d.width + 2 : en.x - 2;
           if (!this.map.groundBelow(aheadX, en.y + d.height + 4)) want = -en.facing;
@@ -215,8 +599,7 @@ export class RoomRuntime {
         want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
       } else if (en.state === "return") {
         const dx = en.homeX - cx;
-        if (Math.abs(dx) > 4) want = Math.sign(dx);
-        else want = 0;
+        want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
       }
       if (want !== 0) en.facing = want;
       en.vx = want * speed;
@@ -228,25 +611,70 @@ export class RoomRuntime {
       en.y = res.y;
       en.vy = res.vy;
 
-      // Trap check
+      // Player-placed traps
       const rect = { x: en.x, y: en.y, w: d.width, h: d.height };
-      for (const trap of this.traps) {
-        if (!trap.used && d.trappable && rectsOverlap(rect, trap)) {
-          trap.used = true;
+      for (const p of this.placed) {
+        if (p.data.type === "trap" && !p.data.used && d.trappable && rectsOverlap(rect, p)) {
+          p.data.used = true;
           en.state = "trapped";
           this.muts.disabledEnemies.add(en.index);
         }
       }
     }
+
+    if (events.length > 0) onEvents(events);
   }
 
-  // ---------- Drawing ----------
+  // ================= DRAWING =================
 
   draw(ctx: CanvasRenderingContext2D, animT: number): void {
     for (const e of this.entities) this.drawEntity(ctx, e, animT);
-    for (const t of this.traps) this.drawTrap(ctx, t);
+    for (const p of this.placed) this.drawPlaced(ctx, p, animT);
     for (const b of this.bundles) this.drawBundle(ctx, b, animT);
     for (const en of this.enemies) this.drawEnemy(ctx, en, animT);
+    this.drawElementOverlays(ctx, animT);
+  }
+
+  private drawElementOverlays(ctx: CanvasRenderingContext2D, animT: number): void {
+    const now = performance.now();
+    for (const idx of this.burning.keys()) {
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      this.drawFlames(ctx, tx * TILE, ty * TILE, animT);
+    }
+    for (const [idx, until] of this.energized) {
+      if (until <= now) {
+        this.energized.delete(idx);
+        continue;
+      }
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      const px = tx * TILE;
+      const py = ty * TILE;
+      const flick = Math.sin(animT * 40 + idx) > -0.3;
+      if (flick) {
+        ctx.strokeStyle = "rgba(255,233,90,0.7)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px + 2, py + randRange(2, 14));
+        ctx.lineTo(px + 8, py + randRange(2, 14));
+        ctx.lineTo(px + 14, py + randRange(2, 14));
+        ctx.stroke();
+      }
+    }
+  }
+
+  private drawFlames(ctx: CanvasRenderingContext2D, px: number, py: number, animT: number): void {
+    for (let i = 0; i < 3; i++) {
+      const fx = px + 3 + i * 5;
+      const hgt = 7 + Math.sin(animT * 9 + px + i * 2.1) * 3;
+      ctx.fillStyle = i % 2 ? "#ff7043" : "#ffb74d";
+      ctx.beginPath();
+      ctx.moveTo(fx - 2.5, py + 14);
+      ctx.quadraticCurveTo(fx, py + 14 - hgt * 1.6, fx + 2.5, py + 14);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
   private drawEntity(ctx: CanvasRenderingContext2D, e: EntityInstance, animT: number): void {
@@ -276,7 +704,8 @@ export class RoomRuntime {
         break;
       }
       case "door": {
-        const c = e.open ? "#4f8a5e" : e.def.locked ? "#8a4f5e" : "#6e5c8a";
+        const powered = !!e.def.fuseId;
+        const c = e.open ? "#4f8a5e" : powered ? "#8a6f4f" : "#6e5c8a";
         ctx.fillStyle = shade(c, -25);
         ctx.fillRect(e.x - 2, e.y - 2, e.w + 4, e.h + 2);
         ctx.fillStyle = c;
@@ -289,12 +718,15 @@ export class RoomRuntime {
           ctx.beginPath();
           ctx.arc(e.x + e.w - 5, e.y + e.h / 2, 1.8, 0, Math.PI * 2);
           ctx.fill();
-          if (e.def.locked) {
-            ctx.strokeStyle = "#e8c95a";
+          if (powered) {
+            // bolt emblem: this door wants electricity
+            ctx.strokeStyle = "#ffe95a";
             ctx.lineWidth = 1.5;
-            ctx.strokeRect(e.x + 4, e.y + 12, 8, 7);
             ctx.beginPath();
-            ctx.arc(e.x + 8, e.y + 12, 3, Math.PI, 0);
+            ctx.moveTo(e.x + 9, e.y + 10);
+            ctx.lineTo(e.x + 6, e.y + 16);
+            ctx.lineTo(e.x + 9, e.y + 16);
+            ctx.lineTo(e.x + 6, e.y + 22);
             ctx.stroke();
           }
         }
@@ -309,7 +741,6 @@ export class RoomRuntime {
         for (let i = 0; i < 3; i++) ctx.fillRect(e.x + 3, e.y + 4 + i * 3, e.w - 6, 1.4);
         ctx.fillRect(e.x + e.w - 5, e.y + e.h / 2, 2, 5);
         if (e.occupied) {
-          // peeking eyes
           ctx.fillStyle = "#ffd166";
           ctx.fillRect(e.x + 4, e.y + 6, 2, 2);
           ctx.fillRect(e.x + 9, e.y + 6, 2, 2);
@@ -330,7 +761,7 @@ export class RoomRuntime {
         break;
       }
       case "checkpoint": {
-        const active = !!e.open; // reuse `open` as "activated"
+        const active = !!e.open;
         ctx.fillStyle = "#5a5470";
         ctx.fillRect(e.x + e.w / 2 - 1, e.y, 2, e.h);
         ctx.fillStyle = active ? "#5ad1a5" : "#3a3550";
@@ -343,12 +774,44 @@ export class RoomRuntime {
         break;
       }
       case "hint": {
-        // Faint in-world tutorial text; content-authored, editor-placeable.
         const txt = e.def.text ?? "";
         ctx.font = "9px monospace";
         ctx.fillStyle = "rgba(232,226,244,0.42)";
         const tw = ctx.measureText(txt).width;
         ctx.fillText(txt, e.x + e.w / 2 - tw / 2, e.y + 6 + bob * 0.4);
+        break;
+      }
+      case "brazier": {
+        ctx.fillStyle = "#4a4258";
+        roundRect(ctx, e.x, e.y + 8, e.w, 6, 2);
+        ctx.fill();
+        ctx.fillStyle = "#332d40";
+        ctx.fillRect(e.x + e.w / 2 - 2, e.y + 13, 4, 3);
+        this.drawFlames(ctx, e.x, e.y - 6, animT);
+        ctx.fillStyle = "rgba(255,150,80,0.12)";
+        ctx.beginPath();
+        ctx.arc(e.x + e.w / 2, e.y + 4, 14 + Math.sin(animT * 5) * 2, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "fusebox": {
+        ctx.fillStyle = "#3a3550";
+        roundRect(ctx, e.x - 1, e.y - 1, e.w + 2, e.h + 2, 2);
+        ctx.fill();
+        ctx.fillStyle = e.open ? "#5ad1a5" : "#59627f";
+        ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.strokeStyle = e.open ? "#0d2b1c" : "#ffe95a";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(e.x + 8, e.y + 4);
+        ctx.lineTo(e.x + 5, e.y + 9);
+        ctx.lineTo(e.x + 8, e.y + 9);
+        ctx.lineTo(e.x + 5, e.y + 14);
+        ctx.stroke();
+        if (!e.open && Math.sin(animT * 3 + e.index) > 0.6) {
+          ctx.fillStyle = "rgba(255,233,90,0.25)";
+          ctx.fillRect(e.x - 2, e.y - 2, e.w + 4, e.h + 4);
+        }
         break;
       }
       case "exit": {
@@ -399,12 +862,22 @@ export class RoomRuntime {
     }
   }
 
-  private drawTrap(ctx: CanvasRenderingContext2D, t: PlacedTrap): void {
+  private drawPlaced(ctx: CanvasRenderingContext2D, p: PlacedInstance, animT: number): void {
+    if (p.data.type === "spring") {
+      const springTile = this.tilesById.get("spring");
+      drawTile(
+        ctx,
+        springTile ?? ({ id: "spring", char: "S", name: "", style: "spring", color: "#5ad1a5" } as TileDef),
+        p.x, p.y - 8, animT
+      );
+      return;
+    }
+    // trap
     ctx.fillStyle = "#8a6d47";
-    ctx.fillRect(t.x, t.y + t.h - 3, t.w, 3);
-    if (!t.used) {
+    ctx.fillRect(p.x, p.y + p.h - 3, p.w, 3);
+    if (!p.data.used) {
       ctx.fillStyle = "rgba(139,212,79,0.8)";
-      roundRect(ctx, t.x + 1, t.y + t.h - 7, t.w - 2, 5, 2);
+      roundRect(ctx, p.x + 1, p.y + p.h - 7, p.w - 2, 5, 2);
       ctx.fill();
     }
   }

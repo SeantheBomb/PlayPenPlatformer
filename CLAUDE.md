@@ -6,9 +6,17 @@ Docs: `docs/DESIGN.md` (vision/systems), `docs/OPPORTUNITY_MATRIX.md` (level des
 ## The one rule
 
 **All design data is serialized in `content/` — never hardcode gameplay values in
-`src/`.** Code implements capabilities (`break:*`, `unlock`, `stun`, `trap`,
-`jump:boost`); JSON decides everything else. If a new feature has a tunable, it goes in
-a content file AND gets editor coverage (usually free via the auto-forms).
+`src/`.** Code implements the element kernel's effect verbs (ignite, melt, extinguish,
+dissolve, freeze, shatter, energize, ignite_self, fizzle — see `docs/ELEMENTS.md`);
+`content/rules.json` wires which element does what to which. New gameplay should be a
+new rule, tile, or item first — new code verbs only when a rule genuinely can't
+express it. Every tunable gets editor coverage (usually free via the auto-forms).
+
+## The second rule
+
+Prefer systemic over arbitrary (Sean's explicit direction): no object-specific keys
+("X opens Y"). Gates should resolve through element interactions and admit ≥2
+solutions where possible. Tools are element carriers, not player stat powerups.
 
 ## Where things live
 

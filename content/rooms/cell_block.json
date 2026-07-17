@@ -26,7 +26,7 @@
     "#.......................#......................#",
     "#..............................................#",
     "#..............................................#",
-    "##################CC############################",
+    "##################IIMMMMMMMMM###################",
     "#################...############################",
     "################################################"
   ],
@@ -54,66 +54,78 @@
       },
       "rewardItems": [
         {
-          "item": "goo_blob",
+          "item": "cloth",
           "count": 2
         }
       ],
       "rewardRecipes": [
         "recipe_smoke_bomb"
       ],
-      "dialogAsk": "Psst. #47! Marla. #12. If you've got a GLOW MUSHROOM from the vents, I'll trade you something good. The Warden hates trades. Do it out of spite.",
-      "dialogDone": "A mushroom! You beautiful stranger. Take this goo I've been hoarding, and a recipe I scratched into a food tray: goo + mushroom = instant privacy. Poof.",
+      "dialogAsk": "Psst. #47! Marla. #12. Got a GLOW MUSHROOM from the vents? I'll trade you something good. The Warden hates trades. Do it out of spite.",
+      "dialogDone": "Beautiful. Here — cloth I've been hoarding, and a recipe: mushroom spores in a sock. Shake it and everything nearby takes a nap. Poof.",
       "dialogAfter": "Go. GO. Wave at the parking lot for me."
     },
     {
       "type": "pickup",
       "item": "cog",
-      "x": 14,
+      "x": 12,
       "y": 20
     },
     {
       "type": "hint",
-      "x": 18,
-      "y": 18,
-      "text": "this floor looks... cracked"
+      "x": 14,
+      "y": 17,
+      "text": "ice melts. ice shatters. the note is under it"
     },
     {
       "type": "note",
       "x": 18,
       "y": 22,
-      "recipe": "recipe_lockpick",
-      "text": "They lock everything, but they're cheap about it. Scrap + a cog = a pick. One use. Make it count. — Subject #19"
+      "recipe": "recipe_spark_rod",
+      "text": "Every gate runs to a fuse box. A cog on scrap makes a rod that BITES. Zap the box — or any metal touching it. Don't be standing on that metal. — Subject #19"
+    },
+    {
+      "type": "hint",
+      "x": 21,
+      "y": 17,
+      "text": "charge follows metal"
     },
     {
       "type": "door",
       "x": 24,
       "y": 20,
-      "locked": true,
-      "gate": true
+      "gate": true,
+      "fuseId": "A"
+    },
+    {
+      "type": "fusebox",
+      "x": 27,
+      "y": 19,
+      "fuseId": "A"
     },
     {
       "type": "checkpoint",
-      "x": 27,
+      "x": 30,
       "y": 20
     },
     {
       "type": "pickup",
-      "item": "scrap_metal",
-      "x": 30,
+      "item": "cog",
+      "x": 33,
       "y": 20
     },
     {
       "type": "enemy",
       "enemy": "crawler",
-      "x": 32,
+      "x": 36,
       "y": 20,
-      "patrolMinX": 29,
-      "patrolMaxX": 40
+      "patrolMinX": 34,
+      "patrolMaxX": 42
     },
     {
       "type": "pickup",
-      "item": "cog",
-      "x": 42,
+      "item": "scrap_metal",
+      "x": 43,
       "y": 20
     },
     {

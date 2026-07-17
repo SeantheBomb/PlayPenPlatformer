@@ -1,0 +1,10 @@
+[
+  { "id": "fire",  "name": "Fire",  "color": "#ff7043" },
+  { "id": "water", "name": "Water", "color": "#4fc3f7" },
+  { "id": "ice",   "name": "Ice",   "color": "#b3e5fc" },
+  { "id": "wood",  "name": "Wood",  "color": "#b08757" },
+  { "id": "metal", "name": "Metal", "color": "#9aa7b8" },
+  { "id": "goo",   "name": "Goo",   "color": "#8bd44f" },
+  { "id": "spark", "name": "Spark", "color": "#ffe95a" },
+  { "id": "stone", "name": "Stone (neutral)", "color": "#3d3a52" }
+]

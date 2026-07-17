@@ -1,8 +1,12 @@
 # PlayPen
 
-A comedic-menace escape platformer. You are Subject #47, locked in a facility run by
-**The Warden**, who watches everything you do and has opinions about it. Explore, scavenge,
-craft, evade, and escape — while every parameter of the game lives in editable JSON.
+A comedic-menace escape platformer with a systemic **element engine**. You are Subject
+#47, locked in a facility run by **The Warden**, who watches everything you do and has
+opinions about it. Everything is made of an element — fire burns wood and spreads,
+water douses and dissolves, cold freezes pools into bridges, charge floods through
+metal, and your tools carry elements instead of following one-off rules. Learn the
+kernel once, invent your own solutions everywhere. Every rule lives in editable JSON
+(`content/rules.json`) — see `docs/ELEMENTS.md`.
 
 ## Running it
 
@@ -57,11 +61,14 @@ data decides everything else:
 ```
 content/
   game.json        global tuning (physics, camera, juice, rules, antagonist, audio)
-  tiles.json       tile types (chars used by room maps; solidity, damage, bounce, slow...)
-  items.json       materials / tools / consumables / curios
+  elements.json    the element set (fire/water/ice/wood/metal/goo/spark + stone)
+  rules.json       the interaction kernel: {actor, target|targetProperty, effect}
+  tiles.json       tile types: element, properties (flammable/brittle/conductive/
+                   slippery), transformations (burnsTo/meltsTo/freezesTo/shattersTo...)
+  items.json       materials / element-carrier tools / consumables / curios
   recipes.json     combine-two recipes
-  enemies.json     enemy archetypes (patrol / chase params)
-  taunts.json      The Warden's trigger-driven voice lines
+  enemies.json     enemy archetypes with elements + per-element reactions
+  taunts.json      The Warden's trigger-driven voice lines (with emotions)
   campaign.json    room order
   rooms/*.json     char-map tile grids + entity lists
 src/

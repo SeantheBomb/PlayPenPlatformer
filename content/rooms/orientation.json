@@ -22,10 +22,10 @@
     "#..........................................#",
     "#..........................................#",
     "#..........................................#",
-    "#...................................C......#",
-    "#...................###.............C......#",
-    "#.............###...###.............C......#",
-    "#.............###...###.............C......#",
+    "#...................................W......#",
+    "#...................###.............W......#",
+    "#.............###...###.............W......#",
+    "#.............###...###.............W......#",
     "###########################...##############",
     "###########################^^^##############",
     "############################################"
@@ -50,40 +50,51 @@
     },
     {
       "type": "hint",
-      "x": 32,
+      "x": 30,
       "y": 15,
       "text": "TAB — craft what you find"
     },
     {
       "type": "hint",
-      "x": 37,
-      "y": 14,
-      "text": "F — swing the hammer at cracks"
+      "x": 33,
+      "y": 13,
+      "text": "light it, then burn what burns"
     },
     {
       "type": "pickup",
-      "item": "scrap_metal",
+      "item": "plank",
       "x": 9,
       "y": 20
     },
     {
       "type": "pickup",
-      "item": "plank",
+      "item": "cloth",
+      "x": 12,
+      "y": 20
+    },
+    {
+      "type": "pickup",
+      "item": "cloth",
       "x": 21,
       "y": 17
     },
     {
       "type": "pickup",
-      "item": "scrap_metal",
+      "item": "plank",
       "x": 25,
+      "y": 20
+    },
+    {
+      "type": "brazier",
+      "x": 31,
       "y": 20
     },
     {
       "type": "note",
       "x": 33,
       "y": 20,
-      "recipe": "recipe_hammer",
-      "text": "Day 12. The walls with CRACKS can break. Metal + plank made me a hammer. The Warden watched me build it and said nothing. Unsettling. — Subject #31"
+      "recipe": "recipe_torch",
+      "text": "Day 9. Cloth wrapped on a plank makes a torch — but it wants a flame first. The brazier never goes out. The wooden doors DO. — Subject #31"
     },
     {
       "type": "door",

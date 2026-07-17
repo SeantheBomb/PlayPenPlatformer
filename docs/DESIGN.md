@@ -59,18 +59,27 @@ overcome obstacle (break / unlock / bounce / evade / trap) ──> advance ─�
 Meta-loop (a full run): learn the facility → build the toolkit → help prisoners →
 escape the wing → (future) descend to the next facility layer.
 
-## Systems — current (v0.1)
+## Systems — current (v0.2, elemental core)
 
+- **The element kernel** (see `ELEMENTS.md`, the heart of the game): 7 elements +
+  neutral stone, ~10 data-driven rules in `content/rules.json`. Tiles, items, and
+  enemies all carry elements; applying element to element resolves through the kernel.
 - **Movement**: run, variable jump, coyote time, jump buffering, one-way platforms,
-  bounce pads, goo (slow zones). All numbers in `game.json`.
-- **Crafting**: combine-two, unordered. Journal records known recipes. Recipes learned
-  from notes, NPCs, or blind discovery. 6 recipes, 15 items.
-- **Tools**: hammer (`break:cracked`) — reusable hotbar tool, F swings a short-range
-  arc that smashes cracked tiles; spring boots (`jump:boost`) — passive.
-- **Consumables**: lockpick (`unlock`), smoke bomb (`stun`), sticky trap (`trap`).
+  bounce pads, goo (sticky-slow), water (wading), ice (slippery). All in `game.json`.
+- **Crafting**: combine-two, unordered, plus **environmental crafting** — the unlit
+  torch becomes lit by touching world fire; the bucket fills at any pool.
+- **Element carriers**: hammer (metal/force), torch (wood→fire), bucket
+  (metal→water, refillable), frost vial (ice, consumable), spark rod (spark),
+  placeable/reclaimable spring, sticky trap, smoke bomb (neutral fallback).
+- **Fire simulation**: burning tiles tick and spread to adjacent flammables, then
+  become their `burnsTo`. Braziers are permanent sources.
+- **Conduction**: spark floods connected metal/water; energized tiles hurt anything
+  touching them (you included) and trip fuse boxes, which open powered gates.
+- **Freezing**: cold propagates across a connected pool — one vial, one ice bridge.
 - **Curio**: sock puppet. Does nothing. The Warden adores him.
-- **Enemies**: Crawler (patrol), Spotter (line-of-sight chase, returns home). Stunnable,
-  trappable. Reset to posts when the player dies.
+- **Enemies**: element + reactions data (Crawler: goo — fire kills it, spark is
+  insulated; Spotter: metal — water/spark short it out, fireproof). Environmental
+  hazards apply to enemies identically. Reset to posts when the player dies.
 - **Stealth**: lockers break line of sight and chase aggro.
 - **Death**: drop carried *materials* as a recoverable bundle; tools/consumables kept;
   respawn at checkpoint with heal; enemies reset.

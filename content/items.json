@@ -5,6 +5,7 @@
     "kind": "material",
     "shape": "shard",
     "color": "#9aa7b8",
+    "element": "metal",
     "description": "A jagged bit of the facility that fell off. The Warden calls this 'decor'."
   },
   {
@@ -13,6 +14,7 @@
     "kind": "material",
     "shape": "plank",
     "color": "#b08757",
+    "element": "wood",
     "description": "Certified 30% splinter by volume."
   },
   {
@@ -21,6 +23,7 @@
     "kind": "material",
     "shape": "ring",
     "color": "#c9a86a",
+    "element": "wood",
     "description": "Standard-issue escape prevention rope. Ironic."
   },
   {
@@ -29,6 +32,7 @@
     "kind": "material",
     "shape": "cloth",
     "color": "#d98fb0",
+    "element": "wood",
     "description": "Torn from a previous subject's jumpsuit. They won't need it."
   },
   {
@@ -37,6 +41,7 @@
     "kind": "material",
     "shape": "ball",
     "color": "#8bd44f",
+    "element": "goo",
     "description": "It's warm. Nobody knows why it's warm."
   },
   {
@@ -45,7 +50,8 @@
     "kind": "material",
     "shape": "mushroom",
     "color": "#7fd8e8",
-    "description": "Grows in the vents. Smells like regret and blueberries."
+    "element": "ice",
+    "description": "Cold to the touch. Smells like regret and blueberries."
   },
   {
     "id": "cog",
@@ -53,6 +59,7 @@
     "kind": "material",
     "shape": "cog",
     "color": "#c2b280",
+    "element": "metal",
     "description": "Every facility runs on these. This one runs slightly worse now."
   },
   {
@@ -61,6 +68,7 @@
     "kind": "material",
     "shape": "spring",
     "color": "#5ad1a5",
+    "element": "metal",
     "description": "Boing potential: considerable."
   },
   {
@@ -69,27 +77,84 @@
     "kind": "tool",
     "shape": "tool",
     "color": "#e8b04b",
-    "description": "Swing with F to break cracked tiles. Reusable. Percussive problem solving.",
-    "capabilities": ["break:cracked"]
+    "element": "metal",
+    "useMode": "swing",
+    "description": "Swing with F. Brittle things (cracks, ice) shatter. Percussive problem solving.",
+    "capabilities": []
   },
   {
-    "id": "spring_boots",
-    "name": "Spring Boots",
+    "id": "torch",
+    "name": "Torch (unlit)",
     "kind": "tool",
     "shape": "tool",
-    "color": "#5ad1a5",
-    "description": "Jump ~35% higher. Warranty void if used for escaping.",
-    "capabilities": ["jump:boost"],
-    "params": { "jumpMultiplier": 1.35 }
+    "color": "#b08757",
+    "element": "wood",
+    "useMode": "swing",
+    "igniteTo": "torch_lit",
+    "description": "Cloth on a stick. Touch it to something burning and it becomes a very good stick."
   },
   {
-    "id": "lockpick",
-    "name": "Lockpick",
+    "id": "torch_lit",
+    "name": "Torch (lit)",
+    "kind": "tool",
+    "shape": "torch",
+    "color": "#ff7043",
+    "element": "fire",
+    "useMode": "swing",
+    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures."
+  },
+  {
+    "id": "bucket",
+    "name": "Bucket (empty)",
+    "kind": "tool",
+    "shape": "bucket",
+    "color": "#9aa7b8",
+    "element": "metal",
+    "useMode": "swing",
+    "fillsTo": "bucket_full",
+    "description": "Swing it at water to scoop. The facility's most advanced technology."
+  },
+  {
+    "id": "bucket_full",
+    "name": "Bucket (water)",
+    "kind": "tool",
+    "shape": "bucket",
+    "color": "#4fc3f7",
+    "element": "water",
+    "useMode": "splash",
+    "emptiesTo": "bucket",
+    "description": "Sloshing and ready. Douses fire, washes goo away. Refillable."
+  },
+  {
+    "id": "frost_vial",
+    "name": "Frost Vial",
     "kind": "consumable",
-    "shape": "tool",
-    "color": "#b8c4d0",
-    "description": "Opens one locked door, then retires forever. Single-use.",
-    "capabilities": ["unlock"]
+    "shape": "bottle",
+    "color": "#b3e5fc",
+    "element": "ice",
+    "useMode": "swing",
+    "description": "Mushroom cold, concentrated. Freezes water solid, chills creatures. One use."
+  },
+  {
+    "id": "spark_rod",
+    "name": "Spark Rod",
+    "kind": "tool",
+    "shape": "rod",
+    "color": "#ffe95a",
+    "element": "spark",
+    "useMode": "swing",
+    "description": "A cog's teeth and a bad idea. Charge runs through metal and water. Mind your feet."
+  },
+  {
+    "id": "spring",
+    "name": "Spring",
+    "kind": "consumable",
+    "shape": "spring",
+    "color": "#5ad1a5",
+    "element": "metal",
+    "useMode": "place",
+    "placeType": "spring",
+    "description": "F places it, anything that lands on it launches. E picks it back up. Bring your own architecture."
   },
   {
     "id": "smoke_bomb",
@@ -97,8 +162,8 @@
     "kind": "consumable",
     "shape": "bottle",
     "color": "#8f9bb3",
-    "description": "Stuns nearby enemies. Also great at parties.",
-    "capabilities": ["stun"]
+    "useMode": "burst",
+    "description": "Stuns nearby creatures the old-fashioned way. Also great at parties."
   },
   {
     "id": "sticky_trap",
@@ -106,8 +171,10 @@
     "kind": "consumable",
     "shape": "plank",
     "color": "#8bd44f",
-    "description": "Place it down. Enemies that touch it are done having a good time.",
-    "capabilities": ["trap"]
+    "element": "goo",
+    "useMode": "place",
+    "placeType": "trap",
+    "description": "Place it down. Creatures that touch it are done having a good time."
   },
   {
     "id": "sock_puppet",

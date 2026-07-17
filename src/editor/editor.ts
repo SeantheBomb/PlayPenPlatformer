@@ -105,7 +105,7 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 `;
 
 type TabId =
-  | "rooms" | "tiles" | "items" | "recipes"
+  | "rooms" | "elements" | "rules" | "tiles" | "items" | "recipes"
   | "enemies" | "taunts" | "game" | "campaign";
 
 interface ListSpec {
@@ -177,7 +177,10 @@ class EditorShell {
 
   render(): void {
     const c = this.store.content;
-    const tabs: TabId[] = ["rooms", "tiles", "items", "recipes", "enemies", "taunts", "game", "campaign"];
+    const tabs: TabId[] = [
+      "rooms", "elements", "rules", "tiles", "items", "recipes",
+      "enemies", "taunts", "game", "campaign",
+    ];
     this.bodyEl = el("div", { className: "pp-body" });
     const shell = el(
       "div", { className: "pp-editor" },
@@ -211,6 +214,33 @@ class EditorShell {
     switch (this.tab) {
       case "rooms":
         this.bodyEl.append(this.roomEditor.mount());
+        break;
+      case "elements":
+        this.renderListTab({
+          file: "elements.json",
+          list: () => c.elements as unknown as Record<string, unknown>[],
+          setList: (l) => (c.elements = l as never),
+          template: () => ({ id: "new_element", name: "New Element", color: "#888888" }),
+          label: (t) => String(t.id),
+          thumb: (t, ctx) => {
+            ctx.fillStyle = String(t.color ?? "#888");
+            ctx.beginPath();
+            ctx.arc(12, 12, 8, 0, Math.PI * 2);
+            ctx.fill();
+          },
+        });
+        break;
+      case "rules":
+        this.renderListTab({
+          file: "rules.json",
+          list: () => c.rules as unknown as Record<string, unknown>[],
+          setList: (l) => (c.rules = l as never),
+          template: () => ({
+            id: "new_rule", actor: "fire", target: "", targetProperty: "",
+            effect: "ignite", note: "effects: ignite melt extinguish dissolve freeze shatter energize ignite_self fizzle",
+          }),
+          label: (t) => `${t.actor} → ${t.target || t.targetProperty}: ${t.effect}`,
+        });
         break;
       case "tiles":
         this.renderListTab({

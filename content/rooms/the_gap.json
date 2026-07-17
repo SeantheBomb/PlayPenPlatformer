@@ -65,7 +65,7 @@
     },
     {
       "type": "pickup",
-      "item": "cloth",
+      "item": "plank",
       "x": 17,
       "y": 12
     },
@@ -73,8 +73,14 @@
       "type": "note",
       "x": 26,
       "y": 9,
-      "recipe": "recipe_spring_boots",
-      "text": "The shelf CANNOT be jumped. Believe me. BELIEVE ME. Coil + cloth, strap the bounce to your feet. — Subject #45"
+      "recipe": "recipe_spring",
+      "text": "You can't jump the shelf. You can BUILD the jump. Coil + plank. Place it (F), take it back (E). The floor is wherever you say it is. — Subject #45"
+    },
+    {
+      "type": "hint",
+      "x": 25,
+      "y": 7,
+      "text": "F — place · jump on it · E — reclaim"
     },
     {
       "type": "door",

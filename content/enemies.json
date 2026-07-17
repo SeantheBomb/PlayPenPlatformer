@@ -12,7 +12,15 @@
     "turnAtEdges": true,
     "stunnable": true,
     "trappable": true,
-    "description": "Walks its little route forever. Touching it is discouraged."
+    "element": "goo",
+    "reactions": {
+      "fire": "kill",
+      "water": "none",
+      "ice": "stun",
+      "spark": "none",
+      "metal": "knockback"
+    },
+    "description": "A goo creature. Burns like a candle, laughs at electricity (goo insulates), freezes solid."
   },
   {
     "id": "spotter",
@@ -30,6 +38,14 @@
     "returnsHome": true,
     "stunnable": true,
     "trappable": true,
-    "description": "Mostly asleep on its feet. If it sees you, it becomes extremely awake."
+    "element": "metal",
+    "reactions": {
+      "fire": "none",
+      "water": "stun",
+      "ice": "stun",
+      "spark": "stun",
+      "metal": "knockback"
+    },
+    "description": "A metal drone. Fireproof, but water and charge short it out. If it sees you, it becomes extremely awake."
   }
 ]

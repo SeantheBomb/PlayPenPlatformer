@@ -16,7 +16,6 @@ export interface MoveResult {
   onGround: boolean;
   hitHead: boolean;
   hitWall: boolean;
-  broken: TileHit[];   // breakable tiles smashed through this move
   bounced?: TileHit;   // spring tile landed on
   overlapping: TileHit[]; // non-solid special tiles overlapped after the move
 }
@@ -26,7 +25,8 @@ export class TileMap {
   height: number;
   private grid: (TileDef | null)[];
   private byChar = new Map<string, TileDef>();
-  broken = new Set<number>(); // tile indexes removed at runtime
+  /** Runtime tile replacements (elemental transformations, shattering...). */
+  overrides = new Map<number, TileDef | null>();
 
   constructor(room: RoomDef, tileDefs: TileDef[]) {
     this.width = room.width;
@@ -45,15 +45,20 @@ export class TileMap {
   get pixelWidth() { return this.width * TILE; }
   get pixelHeight() { return this.height * TILE; }
 
+  index(tx: number, ty: number): number {
+    return ty * this.width + tx;
+  }
+
   at(tx: number, ty: number): TileDef | null {
     if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return null;
     const idx = ty * this.width + tx;
-    if (this.broken.has(idx)) return null;
+    if (this.overrides.has(idx)) return this.overrides.get(idx)!;
     return this.grid[idx];
   }
 
-  breakTile(tx: number, ty: number): void {
-    this.broken.add(ty * this.width + tx);
+  setTile(tx: number, ty: number, def: TileDef | null): void {
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) return;
+    this.overrides.set(this.index(tx, ty), def);
   }
 
   isSolidAt(tx: number, ty: number): boolean {
@@ -62,30 +67,18 @@ export class TileMap {
     return !!this.at(tx, ty)?.solid;
   }
 
-  /**
-   * Axis-separated AABB move. `breakCaps` lets the mover smash matching
-   * breakable tiles instead of colliding with them.
-   */
+  /** Axis-separated AABB move. */
   move(
     x: number, y: number, w: number, h: number,
     vx: number, vy: number, dt: number,
-    opts: { breakCaps?: Set<string>; dropThrough?: boolean } = {}
+    opts: { dropThrough?: boolean } = {}
   ): MoveResult {
     const res: MoveResult = {
       x, y, vx, vy,
       onGround: false, hitHead: false, hitWall: false,
-      broken: [], overlapping: [],
+      overlapping: [],
     };
     const eps = 0.001;
-
-    const tryBreak = (def: TileDef, tx: number, ty: number): boolean => {
-      if (def.breakBy && opts.breakCaps?.has(def.breakBy)) {
-        this.breakTile(tx, ty);
-        res.broken.push({ tx, ty, def });
-        return true;
-      }
-      return false;
-    };
 
     // ---- X axis ----
     let nx = res.x + vx * dt;
@@ -99,7 +92,6 @@ export class TileMap {
         const def = this.at(tx, ty);
         const oob = tx < 0 || tx >= this.width;
         if (oob || (def?.solid && !def.oneWay)) {
-          if (def && !oob && tryBreak(def, tx, ty)) continue;
           nx = dir > 0 ? tx * TILE - w - eps : (tx + 1) * TILE + eps;
           res.vx = 0;
           res.hitWall = true;
@@ -131,7 +123,6 @@ export class TileMap {
           if (prevBottom <= ty * TILE + eps + 1) blocks = true;
         }
         if (blocks) {
-          if (def && !oob && !def.oneWay && tryBreak(def, tx, ty)) continue;
           ny = dir > 0 ? ty * TILE - h - eps : (ty + 1) * TILE + eps;
           if (dir > 0) {
             res.onGround = true;

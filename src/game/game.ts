@@ -10,7 +10,7 @@ import { drawBackdrop, drawMap, roundRect } from "../engine/renderer";
 import { rectsOverlap } from "../engine/math";
 import { RunState } from "./state";
 import { Player } from "./player";
-import { RoomRuntime, type EntityInstance } from "./room";
+import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
 import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
 import {
@@ -241,17 +241,54 @@ export class Game {
         count: 10, color: ev.bounced.def.color, speed: 80, upBias: 60, life: 0.4,
       });
     }
-    void ev.broke; // contact-breaking retired: breaking is an active swing now
     if (ev.spikeDamage > 0) {
       this.damagePlayer(ev.spikeDamage, this.player.centerX, "spikes");
     }
 
-    // ---- Enemies ----
-    this.roomRt.update(dt, {
-      centerX: this.player.centerX,
-      centerY: this.player.centerY,
-      hidden: this.player.hiddenIn !== null,
-    });
+    // ---- Elemental hazards on the player (burning tiles, live charge) ----
+    if (!this.player.invulnerable) {
+      const ptx0 = Math.floor(this.player.x / TILE);
+      const ptx1 = Math.floor((this.player.x + this.player.w) / TILE);
+      const pty0 = Math.floor(this.player.y / TILE);
+      const pty1 = Math.floor((this.player.feetY + 2) / TILE); // include tile underfoot
+      let hazard = false;
+      for (let ty = pty0; ty <= pty1 && !hazard; ty++) {
+        for (let tx = ptx0; tx <= ptx1 && !hazard; tx++) {
+          if (this.roomRt.isBurning(tx, ty) || this.roomRt.isEnergized(tx, ty)) hazard = true;
+        }
+      }
+      if (hazard) this.damagePlayer(1, this.player.centerX, "element");
+    }
+
+    // ---- Placed springs launch whatever falls on them ----
+    if (this.player.vy > 40) {
+      const prect0 = { x: this.player.x, y: this.player.feetY - 2, w: this.player.w, h: 6 };
+      for (const p of this.roomRt.placed) {
+        if (p.data.type === "spring" && rectsOverlap(prect0, p)) {
+          this.player.vy = -620;
+          this.player.squashX = 0.6;
+          this.player.squashY = 1.45;
+          sfx.play("bounce");
+          this.particles.burst({
+            x: p.x + p.w / 2, y: p.y,
+            count: 10, color: "#5ad1a5", speed: 80, upBias: 60, life: 0.4,
+          });
+          break;
+        }
+      }
+    }
+
+    // ---- Room simulation (fire spread, charge, enemies) ----
+    this.roomRt.update(
+      dt,
+      {
+        centerX: this.player.centerX,
+        centerY: this.player.centerY,
+        hidden: this.player.hiddenIn !== null,
+      },
+      this.content.game.rules.stunDurationMs,
+      (events) => this.handleElementEvents(events)
+    );
     if (!this.player.invulnerable) {
       const prect = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
       for (const en of this.roomRt.enemies) {
@@ -364,7 +401,17 @@ export class Game {
       return;
     }
     const e = this.roomRt.interactableNear(this.player.centerX, this.player.centerY);
-    if (!e) return;
+    if (!e) {
+      // Reclaim a placed spring
+      const spring = this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY);
+      if (spring) {
+        this.roomRt.removePlaced(spring);
+        this.state.add("spring");
+        sfx.play("pickup");
+        this.floaty("+1 Spring", spring.x + spring.w / 2, spring.y);
+      }
+      return;
+    }
     switch (e.kind) {
       case "note": {
         this.overlayEntity = e;
@@ -395,19 +442,12 @@ export class Game {
   }
 
   private useDoor(e: EntityInstance): void {
-    if (e.def.locked && !e.open) {
-      const pick = this.state.findConsumableWith("unlock");
-      if (pick) {
-        this.state.remove(pick.id);
-        e.open = true;
-        this.state.mutations(this.currentRoomId).openedDoors.add(e.index);
-        sfx.play("unlock");
-        this.camera.shake(1.5, 0.12);
-        this.floaty(`Used ${pick.name}`, e.x + e.w / 2, e.y, "#9be8b0");
-      } else {
-        sfx.play("locked");
-        this.floaty("Locked tight.", e.x + e.w / 2, e.y, "#e8a2b4");
-      }
+    if (e.def.gate && !e.open) {
+      sfx.play("locked");
+      this.floaty(
+        e.def.fuseId ? "Dead. Needs power." : "Sealed shut.",
+        e.x + e.w / 2, e.y, "#e8a2b4"
+      );
       return;
     }
     if (e.def.gate) return; // opened gates are just passable
@@ -458,84 +498,152 @@ export class Game {
 
   private lastSwingAt = 0;
 
-  /** Reusable swing tools (hammer): break matching tiles in a short arc ahead. */
-  private trySwing(item: ItemDef): void {
-    const now = performance.now();
-    if (now - this.lastSwingAt < 320) return;
-    this.lastSwingAt = now;
-    this.player.swing();
-    sfx.play("swing");
-    const caps = new Set(
-      (item.capabilities ?? []).filter((c) => c.startsWith("break:"))
-    );
+  /** Visual/audio feedback for elemental happenings, wherever they come from. */
+  private handleElementEvents(events: ElementEvent[]): void {
+    for (const ev of events) {
+      switch (ev.effect) {
+        case "ignite":
+          sfx.play("ignite");
+          this.particles.burst({ x: ev.x, y: ev.y, count: 8, color: "#ff7043", speed: 60, upBias: 40, life: 0.5, gravity: -60 });
+          break;
+        case "extinguish":
+        case "fizzle":
+          sfx.play("splash");
+          this.particles.burst({ x: ev.x, y: ev.y, count: 10, color: "#cfd8dc", speed: 50, upBias: 50, life: 0.6, gravity: -80 });
+          break;
+        case "melt":
+        case "dissolve":
+          sfx.play("splash");
+          this.particles.burst({ x: ev.x, y: ev.y, count: 10, color: ev.color, speed: 70, life: 0.5 });
+          break;
+        case "freeze":
+          sfx.play("freeze");
+          this.particles.burst({ x: ev.x, y: ev.y, count: 12, color: "#b3e5fc", speed: 60, life: 0.5, gravity: 40 });
+          break;
+        case "shatter":
+          sfx.play("break");
+          this.camera.shake(3, 0.2);
+          this.loop.hitStop(this.content.game.juice.hitStopMs * 0.6);
+          this.particles.burst({ x: ev.x, y: ev.y, count: 14, color: ev.color, speed: 120, life: 0.55 });
+          break;
+        case "energize":
+          this.particles.burst({ x: ev.x, y: ev.y, count: 2, color: "#ffe95a", speed: 40, life: 0.25, gravity: 0 });
+          break;
+        case "fuse":
+          sfx.play("unlock");
+          this.camera.shake(2, 0.15);
+          this.particles.burst({ x: ev.x, y: ev.y, count: 14, color: "#ffe95a", speed: 90, life: 0.5 });
+          this.floaty("CLUNK.", ev.x, ev.y - 6, "#9be8b0");
+          break;
+        case "enemy_kill":
+          sfx.play("death");
+          this.camera.shake(3, 0.2);
+          this.particles.burst({ x: ev.x, y: ev.y, count: 20, color: ev.color, speed: 140, upBias: 50, life: 0.6 });
+          break;
+        case "enemy_stun":
+          sfx.play("stun");
+          this.particles.burst({ x: ev.x, y: ev.y, count: 8, color: ev.color, speed: 70, life: 0.4 });
+          break;
+        case "burnout":
+          this.particles.burst({ x: ev.x, y: ev.y, count: 6, color: "#5a5470", speed: 40, upBias: 30, life: 0.6, gravity: -40 });
+          break;
+      }
+    }
+  }
+
+  /** The swing/apply box in front of the player. */
+  private swingBox(): { x: number; y: number; w: number; h: number } {
     const p = this.player;
     const front = p.facing >= 0 ? p.x + p.w : p.x;
     const reach = p.facing * 22;
     const x0 = Math.min(front, front + reach);
     const x1 = Math.max(front, front + reach);
-    const y0 = p.y - 16;
-    const y1 = p.feetY + 10;
-    const map = this.roomRt.map;
-    for (let ty = Math.floor(y0 / TILE); ty <= Math.floor(y1 / TILE); ty++) {
-      for (let tx = Math.floor(x0 / TILE); tx <= Math.floor(x1 / TILE); tx++) {
-        const def = map.at(tx, ty);
-        if (def?.breakBy && caps.has(def.breakBy)) {
-          map.breakTile(tx, ty);
-          this.smashTileFX(tx, ty, def.color);
-        }
-      }
-    }
-  }
-
-  private smashTileFX(tx: number, ty: number, color: string): void {
-    sfx.play("break");
-    this.camera.shake(3, 0.2);
-    this.loop.hitStop(this.content.game.juice.hitStopMs * 0.6);
-    this.particles.burst({
-      x: tx * TILE + 8, y: ty * TILE + 8,
-      count: 14, color, speed: 120, life: 0.55,
-    });
-    this.state.mutations(this.currentRoomId).brokenTiles.push(
-      ty * this.roomRt.map.width + tx
-    );
+    return { x: x0, y: p.y - 16, w: x1 - x0, h: p.feetY + 10 - (p.y - 16) };
   }
 
   private useItem(item: ItemDef): void {
-    if (item.kind === "tool") {
-      if (item.capabilities?.some((c) => c.startsWith("break:"))) this.trySwing(item);
-      return;
-    }
-    this.useConsumable(item.id);
-  }
-
-  private useConsumable(id: string): void {
-    const item = this.state.item(id);
-    if (!item) return;
-    const caps = item.capabilities ?? [];
+    const now = performance.now();
     const rules = this.content.game.rules;
-    if (caps.includes("stun")) {
-      this.state.remove(id);
-      const hit = this.roomRt.stunEnemiesNear(
-        this.player.centerX, this.player.centerY,
-        rules.smokeBombRadius, rules.stunDurationMs
-      );
-      sfx.play("stun");
-      this.camera.shake(2, 0.2);
-      this.particles.burst({
-        x: this.player.centerX, y: this.player.centerY,
-        count: 26, color: "#aab3c8", speed: 110, life: 0.9, gravity: -20,
-      });
-      this.floaty(hit > 0 ? `Stunned ${hit}!` : "Poof.", this.player.centerX, this.player.y);
-    } else if (caps.includes("trap")) {
-      this.state.remove(id);
-      const tx = this.player.centerX + this.player.facing * 14;
-      this.roomRt.traps.push({ x: tx - 8, y: this.player.feetY - 8, w: 16, h: 8, used: false });
-      sfx.play("trap");
-      this.floaty("Trap set.", tx, this.player.y);
-    } else if (caps.includes("unlock")) {
-      this.floaty("Use it on a locked door (E).", this.player.centerX, this.player.y, "#bbb3d6");
-    } else {
-      this.floaty("It does... nothing. Proudly.", this.player.centerX, this.player.y, "#bbb3d6");
+    switch (item.useMode) {
+      case "swing": {
+        if (now - this.lastSwingAt < 320) return;
+        this.lastSwingAt = now;
+        this.player.swing();
+        sfx.play("swing");
+        const box = this.swingBox();
+        // Carrier transformations first: light the torch, fill the bucket.
+        if (item.igniteTo && this.roomRt.boxTouchesFire(box)) {
+          this.state.transform(item.id, item.igniteTo);
+          sfx.play("ignite");
+          this.floaty("Lit!", this.player.centerX, this.player.y - 8, "#ff7043");
+          return;
+        }
+        if (item.fillsTo && this.roomRt.boxTouchesWater(box)) {
+          this.state.transform(item.id, item.fillsTo);
+          sfx.play("splash");
+          this.floaty("Scooped.", this.player.centerX, this.player.y - 8, "#4fc3f7");
+          return;
+        }
+        const events = [
+          ...this.roomRt.applyElementToTiles(item.element, box),
+          ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
+        ];
+        this.handleElementEvents(events);
+        if (item.kind === "consumable" && events.length > 0) {
+          this.state.remove(item.id); // frost vial spends itself on a real effect
+        }
+        break;
+      }
+      case "splash": {
+        if (now - this.lastSwingAt < 320) return;
+        this.lastSwingAt = now;
+        this.player.swing();
+        const p = this.player;
+        const dir = p.facing;
+        const box = {
+          x: dir >= 0 ? p.x : p.x - 52, y: p.y - 8,
+          w: 52 + p.w, h: p.h + 26,
+        };
+        const events = [
+          ...this.roomRt.applyElementToTiles(item.element, box),
+          ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
+        ];
+        sfx.play("splash");
+        this.particles.burst({
+          x: p.centerX + dir * 24, y: p.centerY,
+          count: 18, color: "#4fc3f7", speed: 110, upBias: 30, life: 0.5,
+        });
+        this.handleElementEvents(events);
+        if (item.emptiesTo) this.state.transform(item.id, item.emptiesTo);
+        break;
+      }
+      case "place": {
+        if (!item.placeType) return;
+        const tx = this.player.centerX + this.player.facing * 14;
+        this.state.remove(item.id);
+        this.roomRt.placeItem(item.placeType, tx - 8, this.player.feetY - 8);
+        sfx.play("trap");
+        this.floaty(
+          item.placeType === "spring" ? "Sprung. (E to take back)" : "Trap set.",
+          tx, this.player.y
+        );
+        break;
+      }
+      case "burst": {
+        this.state.remove(item.id);
+        const hit = this.roomRt.stunEnemiesNear(
+          this.player.centerX, this.player.centerY,
+          rules.smokeBombRadius, rules.stunDurationMs
+        );
+        sfx.play("stun");
+        this.camera.shake(2, 0.2);
+        this.particles.burst({
+          x: this.player.centerX, y: this.player.centerY,
+          count: 26, color: "#aab3c8", speed: 110, life: 0.9, gravity: -20,
+        });
+        this.floaty(hit > 0 ? `Stunned ${hit}!` : "Poof.", this.player.centerX, this.player.y);
+        break;
+      }
     }
   }
 
@@ -645,10 +753,15 @@ export class Game {
         const near = this.roomRt.interactableNear(this.player.centerX, this.player.centerY);
         if (near) {
           const verbs: Record<string, string> = {
-            note: "read", door: near.def.locked && !near.open ? "unlock" : "open",
+            note: "read", door: near.def.gate && !near.open ? "inspect" : "open",
             locker: "hide", npc: "talk", exit: "ESCAPE",
           };
           drawPrompt(ctx, `E — ${verbs[near.kind] ?? "use"}`, near.x + near.w / 2, near.y - 6);
+        } else {
+          const spring = this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY);
+          if (spring) {
+            drawPrompt(ctx, "E — take spring", spring.x + spring.w / 2, spring.y - 10);
+          }
         }
       }
     }

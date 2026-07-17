@@ -1,65 +1,77 @@
-# PlayPen — Opportunity Matrix
+# PlayPen — Opportunity Matrix (v2, elemental)
 
-Mechanics × rooms. Every mechanic should ideally hit **I → E → T → C** across a wing:
+With the element kernel, matrix rows are **element interactions**, not one-off
+mechanics. Each row should hit **I → E → T → C** across a wing:
 
 - **I** Introduce (safe, legible first contact)
-- **E** Exercise (apply under mild pressure)
+- **E** Exercise (apply under pressure)
 - **T** Twist (subvert the expectation)
-- **C** Combine (interlock with another mechanic)
-- `·` present but not the focus
+- **C** Combine (interlock with another interaction)
+- `·` available in the room but not the focus
 
-## Wing A (v0.1 campaign)
+## Wing A (v0.2 campaign)
 
-| Mechanic | orientation | storage | vents | cell_block | the_gap | mess_hall | exit_wing |
+| Interaction | orientation | storage | vents | cell_block | the_gap | mess_hall | exit_wing |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| Run / jump | I | E | · | · | T (vertical) | · | E |
-| One-way platforms | | I | | | E | E (tables) | E |
-| Spikes / pits | I | E | | | E (fall cost) | E | C (goo+spikes) |
-| Goo (slow) | | | I | | | | C (goo+spikes) |
-| Bounce pads | | | | | I | | |
-| Pickups / materials | I | E | E | E | E | E | · |
-| Notes / recipes | I | | | T (buried in floor) | E | E | |
-| Crafting (combine) | I (hammer) | · (sock puppet bait) | | E (lockpick) | E (boots) | E (trap) | · |
-| Break (cracked) | I (wall) | | | T (floor crumbles under you) | | | |
-| Locked door / key | | | | I | | | |
-| Mobility gate (boots) | | | | | I | · | E (platform route) |
-| Crawler (patrol) | | I | | E | | C (w/ spotter) | E |
-| Spotter (chase) | | | I | | | E | C (w/ crawler) |
-| Lockers (hide) | | | I | | | E | T (none near exit!) |
-| Smoke bomb (stun) | | | · (materials) | · (recipe) | | I/E | E |
-| Sticky trap | | | | | | I | E |
-| NPC / fetch quest | | | · (mushroom source) | I | | | |
-| Checkpoints | · | I | E | E | E | E | E |
-| Death / drop / recover | I (pit) | E | E | · | E | E | E |
-| Taunt beats | I (intro) | · | E (room bark) | E (npc bark) | · | · | T (win bark) |
+| fire → wood (burn) | I | | | | | | E (upper route) |
+| fire spread (chains) | I (barrier) | | E (goo strip) | | | · | C (goo near exit) |
+| wood → fire (light torch) | I (brazier) | | | | | | E (brazier resupply) |
+| water → fire (douse) | | I | | | | E (kitchen fire) | E (fire strip) |
+| water → goo (dissolve) | | | I (pool + goo) | | | | E |
+| bucket fill/refill | | I | E | | | E | E |
+| ice → water (freeze bridge) | | | | | | I | E (pool crossing) |
+| ice slippery surface | | | | | | T (frozen bridge is slick) | E |
+| fire → ice (melt) | | | | I (note pocket) | | · (re-melt your bridge!) | · |
+| force → brittle (shatter) | | I (note: hammer) | | E (ice pocket alt) | | · | · |
+| spark → conduction | | | | I (fuse gate) | | | · (grate walkway) |
+| spark self-danger | | | | T (strip underfoot) | | | · |
+| fuse boxes / powered gates | | | | I | | | |
+| placeable springs | | | | | I/E (shelf) | · (platform route) | E (route shortcuts) |
+| fire vs goo creature (kill) | | · (crawler+torch) | E | · | | E | E |
+| water/spark vs metal drone | | | E (pool + spotter) | | | E | E |
+| smoke bomb (neutral fallback) | | | · | I (Marla) | | · | · |
+| lockers / stealth | | | I/E | | | E | T (none on upper route) |
+| water wading (slow, exposed) | | I | · | | | E (under spotter watch) | E |
+| NPC trade | | | · (mushrooms) | I (Marla) | | | |
+| death / drop / recover | I (pit) | E | E | E | E | E | E |
 
-## Reading the gaps
+## Multi-solution gates (the emergence check)
 
-Empty columns down a mechanic's row = authoring opportunities for the next wing.
-Current known gaps (deliberate, queued for M2):
+| Gate | Solutions verified |
+| --- | --- |
+| Orientation barrier | burn it (intended); *only* fire — Introduce room |
+| Storage shelf fire | douse (bucket) · frost vial · sneak nothing past it — it's 3 wide, jump is possible with a run |
+| Vents goo strip | burn it · wash it · wade it slowly |
+| Cell block note pocket | melt the ice · shatter the ice (hammer, or anything metal) |
+| Cell block gate | spark the strip · spark the box side-on — conduction only, it's the Introduce |
+| Gap shelf | placed spring (bounce pad chain assists) |
+| Mess hall pool | freeze bridge · wade under pressure · spring to the high shelf |
+| Mess hall fire | douse · high-shelf bypass · run-jump |
+| Exit wing | upper: torch the wood wall past the drone · lower: freeze/wade + douse/jump + burn/wash goo |
 
-- **Bounce pads** only appear once (I without E/T/C). Wing B should exercise them under
-  enemy pressure and twist them (ceiling spikes above a pad).
-- **Lockers** never get their Twist in a punishing form — the Lurker entity (haunts
-  overused hiding spots) is the planned T.
-- **NPCs** have one instance. Wing B: an NPC whose request requires a *discovered*
-  (unhinted) recipe; an NPC who trades for curios.
-- **Goo** deserves a Combine with bounce pads (goo-covered pad = no bounce until cleaned?).
-- **Crafting fail-space** is untapped as a mechanic: fake recipe notes planted by the
-  Warden (Act 2 interference) are the natural Twist.
+## Known gaps (deliberate, queued for Wing B)
+
+- **spark → water** (electrified pools) is implemented but never authored as a beat —
+  Wing B introduces it as a trap AND a weapon (spotter wading = free stun).
+- **ice → fire** quench never has a room. Twist idea: brazier you must NOT extinguish.
+- **Burning goo as a fuse line** (lit at one end, carries fire to a target) — the
+  system supports it today; author a room around it.
+- **Melting your own ice bridge** (fire near frozen pool) is a live Twist in
+  mess_hall but unhinted; make it explicit in Wing B.
+- **Placed springs under enemies** (launch a crawler) — not yet supported; enemies
+  ignore springs. Candidate engine addition.
+- SPARK machinery beyond fuseboxes: powered platforms, timed conduits, camera turrets.
 
 ## Template for new rooms
-
-For each new room, fill in before building:
 
 ```
 Room id:            (kebab_case)
 Wing / position:    (pacing slot)
-Teaches (I):        one thing max
-Exercises (E):      1-2 things
-Twists (T):         0-1 thing
+Introduces (I):     one interaction max
+Exercises (E):      1-2
+Twists (T):         0-1
 Combines (C):       0-1 pairing
-Gate out:           tool / key / mobility / knowledge / courage
-Materials in room:  must cover the gate + one spare experiment
+Gate out:           which interactions open it; list ALL valid solutions (aim ≥2)
+Supplies:           materials must cover every listed solution + one spare experiment
 Taunt beats:        room_enter line? special trigger?
 ```

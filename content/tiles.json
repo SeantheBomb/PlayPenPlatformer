@@ -2,17 +2,20 @@
   {
     "id": "wall",
     "char": "#",
-    "name": "Wall",
+    "name": "Stone Wall",
     "style": "block",
     "solid": true,
+    "element": "stone",
     "color": "#3d3a52"
   },
   {
     "id": "platform",
     "char": "=",
-    "name": "One-Way Platform",
+    "name": "Metal Grate",
     "style": "platform",
     "oneWay": true,
+    "element": "metal",
+    "conductive": true,
     "color": "#7a6f9b"
   },
   {
@@ -21,15 +24,19 @@
     "name": "Spikes",
     "style": "spikes",
     "damage": 1,
+    "element": "metal",
+    "conductive": true,
     "color": "#c84b6a"
   },
   {
     "id": "cracked",
     "char": "C",
-    "name": "Cracked Wall",
+    "name": "Cracked Stone",
     "style": "cracked",
     "solid": true,
-    "breakBy": "break:cracked",
+    "element": "stone",
+    "brittle": true,
+    "shattersTo": "",
     "color": "#57536e"
   },
   {
@@ -39,6 +46,8 @@
     "style": "spring",
     "solid": true,
     "bounce": 620,
+    "element": "metal",
+    "conductive": true,
     "color": "#5ad1a5"
   },
   {
@@ -47,6 +56,68 @@
     "name": "Goo",
     "style": "goo",
     "slow": 0.45,
+    "element": "goo",
+    "flammable": true,
+    "burnTime": 2.5,
+    "burnsTo": "",
+    "dissolvesTo": "",
     "color": "#8bd44f"
+  },
+  {
+    "id": "wood",
+    "char": "W",
+    "name": "Wood Barrier",
+    "style": "wood",
+    "solid": true,
+    "element": "wood",
+    "flammable": true,
+    "burnTime": 2.2,
+    "burnsTo": "",
+    "color": "#b08757"
+  },
+  {
+    "id": "ice",
+    "char": "I",
+    "name": "Ice Block",
+    "style": "ice",
+    "solid": true,
+    "element": "ice",
+    "brittle": true,
+    "slippery": true,
+    "meltsTo": "water",
+    "shattersTo": "",
+    "color": "#b3e5fc"
+  },
+  {
+    "id": "water",
+    "char": "w",
+    "name": "Water",
+    "style": "water",
+    "element": "water",
+    "conductive": true,
+    "wade": 0.55,
+    "freezesTo": "ice",
+    "color": "#4fc3f7"
+  },
+  {
+    "id": "fire",
+    "char": "f",
+    "name": "Fire",
+    "style": "fire",
+    "damage": 1,
+    "element": "fire",
+    "spreads": true,
+    "extinguishesTo": "",
+    "color": "#ff7043"
+  },
+  {
+    "id": "metal",
+    "char": "M",
+    "name": "Metal Block",
+    "style": "metal",
+    "solid": true,
+    "element": "metal",
+    "conductive": true,
+    "color": "#8a97a8"
   }
 ]

@@ -1,0 +1,71 @@
+[
+  {
+    "id": "fire_ignites_flammable",
+    "actor": "fire",
+    "targetProperty": "flammable",
+    "effect": "ignite",
+    "note": "Burning tiles spread to adjacent flammables, then become their burnsTo."
+  },
+  {
+    "id": "fire_melts_ice",
+    "actor": "fire",
+    "target": "ice",
+    "effect": "melt",
+    "note": "Ice becomes its meltsTo (usually water)."
+  },
+  {
+    "id": "fire_fizzles_on_water",
+    "actor": "fire",
+    "target": "water",
+    "effect": "fizzle",
+    "note": "Steam puff; nothing changes."
+  },
+  {
+    "id": "water_extinguishes_fire",
+    "actor": "water",
+    "target": "fire",
+    "effect": "extinguish",
+    "note": "Fire tiles become their extinguishesTo; burning tiles stop burning."
+  },
+  {
+    "id": "water_dissolves_goo",
+    "actor": "water",
+    "target": "goo",
+    "effect": "dissolve",
+    "note": "Goo becomes its dissolvesTo (washed away)."
+  },
+  {
+    "id": "ice_freezes_water",
+    "actor": "ice",
+    "target": "water",
+    "effect": "freeze",
+    "note": "Water becomes its freezesTo (walkable ice)."
+  },
+  {
+    "id": "ice_quenches_fire",
+    "actor": "ice",
+    "target": "fire",
+    "effect": "extinguish"
+  },
+  {
+    "id": "force_shatters_brittle",
+    "actor": "metal",
+    "targetProperty": "brittle",
+    "effect": "shatter",
+    "note": "Kinetic force: brittle tiles become their shattersTo."
+  },
+  {
+    "id": "spark_energizes_conductive",
+    "actor": "spark",
+    "targetProperty": "conductive",
+    "effect": "energize",
+    "note": "Charge floods through connected conductive tiles; hurts anything touching them; triggers fuse boxes."
+  },
+  {
+    "id": "wood_ignites_self_on_fire",
+    "actor": "wood",
+    "target": "fire",
+    "effect": "ignite_self",
+    "note": "A wood carrier (torch) touched to fire becomes its lit form."
+  }
+]

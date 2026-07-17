@@ -6,22 +6,40 @@
     "flavor": "Metal + wood = the oldest idea in the world. Still works."
   },
   {
-    "id": "recipe_spring_boots",
-    "inputs": ["spring_coil", "cloth"],
-    "output": "spring_boots",
-    "flavor": "Strap the bounce directly to your feet. What could go wrong."
+    "id": "recipe_torch",
+    "inputs": ["plank", "cloth"],
+    "output": "torch",
+    "flavor": "Wrap the cloth tight. Now find something already on fire."
   },
   {
-    "id": "recipe_lockpick",
-    "inputs": ["scrap_metal", "cog"],
-    "output": "lockpick",
-    "flavor": "Teeth of a cog, patience of a desperate person."
+    "id": "recipe_bucket",
+    "inputs": ["scrap_metal", "rope"],
+    "output": "bucket",
+    "flavor": "Bend the metal, tie the handle. Water goes in the hole. Revolutionary."
+  },
+  {
+    "id": "recipe_frost_vial",
+    "inputs": ["glow_mushroom", "goo_blob"],
+    "output": "frost_vial",
+    "flavor": "The goo holds the mushroom's cold like a grudge."
+  },
+  {
+    "id": "recipe_spark_rod",
+    "inputs": ["cog", "scrap_metal"],
+    "output": "spark_rod",
+    "flavor": "Spin the cog against the scrap and the air starts to bite."
+  },
+  {
+    "id": "recipe_spring",
+    "inputs": ["spring_coil", "plank"],
+    "output": "spring",
+    "flavor": "A board on a coil. Place it anywhere gravity is being a problem."
   },
   {
     "id": "recipe_smoke_bomb",
-    "inputs": ["goo_blob", "glow_mushroom"],
+    "inputs": ["glow_mushroom", "cloth"],
     "output": "smoke_bomb",
-    "flavor": "The mushroom does something to the goo. Don't ask what."
+    "flavor": "Spores in a sock. Shake well. Regret nothing."
   },
   {
     "id": "recipe_sticky_trap",

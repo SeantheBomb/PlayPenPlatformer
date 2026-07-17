@@ -1,13 +1,21 @@
 // Mutable state for a single run. Everything here resets on "New Game".
 import type { Content, ItemDef } from "../data/types";
 
+export interface PlacedItem {
+  type: "spring" | "trap";
+  x: number;
+  y: number;
+  used?: boolean;
+}
+
 export interface RoomMutations {
   collected: Set<number>;     // entity indexes taken (pickups)
-  brokenTiles: number[];      // tile indexes smashed
-  openedDoors: Set<number>;   // entity indexes of unlocked/opened gates
+  tileOverrides: [number, string | null][]; // tile index -> new tile id ("" -> null)
+  openedDoors: Set<number>;   // entity indexes of opened gates / lit checkpoints
   helpedNpcs: Set<number>;
-  disabledEnemies: Set<number>; // trapped enemies stay gone
+  disabledEnemies: Set<number>; // trapped/killed enemies stay gone
   bundles: { x: number; y: number; items: [string, number][] }[]; // death drops
+  placedItems: PlacedItem[];  // player-placed springs and traps
 }
 
 export interface RunStats {
@@ -44,11 +52,12 @@ export class RunState {
     if (!m) {
       m = {
         collected: new Set(),
-        brokenTiles: [],
+        tileOverrides: [],
         openedDoors: new Set(),
         helpedNpcs: new Set(),
         disabledEnemies: new Set(),
         bundles: [],
+        placedItems: [],
       };
       this.roomStates.set(roomId, m);
     }
@@ -79,26 +88,6 @@ export class RunState {
     return this.count(id) >= n;
   }
 
-  /** Does any owned tool grant this capability? */
-  hasCapability(cap: string): boolean {
-    for (const [id, n] of this.inventory) {
-      if (n <= 0) continue;
-      const def = this.item(id);
-      if (def?.kind === "tool" && def.capabilities?.includes(cap)) return true;
-    }
-    return false;
-  }
-
-  /** Find an owned consumable granting this capability (for lockpicks etc). */
-  findConsumableWith(cap: string): ItemDef | undefined {
-    for (const [id, n] of this.inventory) {
-      if (n <= 0) continue;
-      const def = this.item(id);
-      if (def?.kind === "consumable" && def.capabilities?.includes(cap)) return def;
-    }
-    return undefined;
-  }
-
   ownedConsumables(): ItemDef[] {
     const out: ItemDef[] = [];
     for (const [id, n] of this.inventory) {
@@ -109,20 +98,23 @@ export class RunState {
     return out;
   }
 
-  /** Hotbar items: consumables plus reusable tools with an active use (swing). */
+  /** Hotbar items: anything with an active use. */
   usableItems(): ItemDef[] {
     const out: ItemDef[] = [];
     for (const [id, n] of this.inventory) {
       if (n <= 0) continue;
       const def = this.item(id);
-      if (!def) continue;
-      if (def.kind === "consumable") out.push(def);
-      else if (def.kind === "tool" && def.capabilities?.some((c) => c.startsWith("break:"))) {
-        out.push(def);
-      }
+      if (def?.useMode) out.push(def);
     }
     out.sort((a, b) => a.name.localeCompare(b.name));
     return out;
+  }
+
+  /** Swap one inventory item for another (torch->lit, bucket->full...). */
+  transform(fromId: string, toId: string): boolean {
+    if (!this.remove(fromId)) return false;
+    this.add(toId);
+    return true;
   }
 
   ownedTools(): ItemDef[] {
@@ -148,29 +140,4 @@ export class RunState {
     return out;
   }
 
-  jumpMultiplier(): number {
-    let mult = 1;
-    for (const [id, n] of this.inventory) {
-      if (n <= 0) continue;
-      const def = this.item(id);
-      if (def?.kind === "tool" && def.capabilities?.includes("jump:boost")) {
-        mult = Math.max(mult, def.params?.jumpMultiplier ?? 1);
-      }
-    }
-    return mult;
-  }
-
-  breakCaps(): Set<string> {
-    const caps = new Set<string>();
-    for (const [id, n] of this.inventory) {
-      if (n <= 0) continue;
-      const def = this.item(id);
-      if (def?.kind === "tool") {
-        for (const c of def.capabilities ?? []) {
-          if (c.startsWith("break:")) caps.add(c);
-        }
-      }
-    }
-    return caps;
-  }
 }

@@ -10,10 +10,9 @@ export interface PlayerFrameEvents {
   jumped: boolean;
   landed: boolean;
   landSpeed: number;
-  broke: TileHit[];
   bounced?: TileHit;
   spikeDamage: number;
-  inGoo: boolean;
+  inLiquidOrGoo: boolean;
 }
 
 export class Player {
@@ -29,6 +28,7 @@ export class Player {
   invulnUntil = 0;
 
   swingUntil = 0; // swing-tool animation window
+  private onIce = false; // standing on a slippery tile last frame
   private coyoteUntil = 0;
   private jumpBufferedUntil = 0;
   private jumpHeld = false;
@@ -76,7 +76,7 @@ export class Player {
     const now = performance.now();
     const ev: PlayerFrameEvents = {
       jumped: false, landed: false, landSpeed: 0,
-      broke: [], spikeDamage: 0, inGoo: false,
+      spikeDamage: 0, inLiquidOrGoo: false,
     };
 
     if (this.hiddenIn !== null) {
@@ -86,14 +86,16 @@ export class Player {
       return ev;
     }
 
-    // ---- Horizontal intent ----
+    // ---- Horizontal intent (ice makes everything mushy) ----
     const want = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     if (want !== 0) this.facing = want;
+    const iceAccel = this.onIce && this.onGround ? 0.45 : 1;
+    const iceFriction = this.onIce && this.onGround ? 0.1 : 1;
     const control = this.onGround ? 1 : cfg.airControl;
     if (want !== 0) {
-      this.vx += want * cfg.acceleration * control * dt;
+      this.vx += want * cfg.acceleration * control * iceAccel * dt;
     } else {
-      const f = cfg.friction * control * dt;
+      const f = cfg.friction * control * iceFriction * dt;
       if (Math.abs(this.vx) <= f) this.vx = 0;
       else this.vx -= Math.sign(this.vx) * f;
     }
@@ -102,7 +104,7 @@ export class Player {
     if (this.onGround) this.coyoteUntil = now + cfg.coyoteTimeMs;
     if (input.jumpPressed) this.jumpBufferedUntil = now + cfg.jumpBufferMs;
     if (now < this.jumpBufferedUntil && now < this.coyoteUntil) {
-      this.vy = -cfg.jumpVelocity * state.jumpMultiplier();
+      this.vy = -cfg.jumpVelocity;
       this.jumpBufferedUntil = 0;
       this.coyoteUntil = 0;
       this.jumpHeld = true;
@@ -129,10 +131,11 @@ export class Player {
     );
 
     for (const hit of res.overlapping) {
-      if (hit.def.slow) {
-        ev.inGoo = true;
-        speedCap = cfg.runSpeed * hit.def.slow;
-        // Re-apply cap immediately so goo actually feels sticky.
+      const mult = hit.def.slow ?? hit.def.wade;
+      if (mult) {
+        ev.inLiquidOrGoo = true;
+        speedCap = cfg.runSpeed * mult;
+        // Re-apply cap immediately so goo/water actually drag.
         this.vx = clamp(this.vx, -speedCap, speedCap);
       }
       if (hit.def.damage && !this.invulnerable) {
@@ -145,7 +148,17 @@ export class Player {
     this.vx = clamp(res.vx, -speedCap, speedCap);
     const fallSpeed = this.vy;
     this.vy = res.vy;
-    ev.broke = res.broken;
+
+    // Slippery check for next frame's friction
+    if (res.onGround) {
+      const below = map.at(
+        Math.floor(this.centerX / 16),
+        Math.floor((this.y + this.h + 2) / 16)
+      );
+      this.onIce = !!below?.slippery;
+    } else {
+      this.onIce = false;
+    }
 
     if (res.bounced && res.bounced.def.bounce) {
       this.vy = -res.bounced.def.bounce;

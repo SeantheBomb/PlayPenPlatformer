@@ -159,6 +159,90 @@ export function drawTile(
       ctx.fill();
       break;
     }
+    case "wood": {
+      ctx.fillStyle = c;
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.strokeStyle = shade(c, -35);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, py + 5);
+      ctx.lineTo(px + TILE, py + 4);
+      ctx.moveTo(px, py + 11);
+      ctx.lineTo(px + TILE, py + 12);
+      ctx.stroke();
+      ctx.fillStyle = shade(c, 16);
+      ctx.fillRect(px, py, TILE, 2);
+      ctx.fillStyle = shade(c, -40);
+      ctx.beginPath();
+      ctx.arc(px + 11, py + 8, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "ice": {
+      ctx.fillStyle = c;
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.fillRect(px, py, TILE, 2);
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 3, py + 12);
+      ctx.lineTo(px + 8, py + 5);
+      ctx.moveTo(px + 10, py + 13);
+      ctx.lineTo(px + 13, py + 9);
+      ctx.stroke();
+      ctx.fillStyle = shade(c, -40);
+      ctx.fillRect(px, py + TILE - 1.5, TILE, 1.5);
+      break;
+    }
+    case "water": {
+      const wave = Math.sin(animT * 2.4 + px * 0.35) * 1.6;
+      ctx.fillStyle = "rgba(79,195,247,0.55)";
+      ctx.beginPath();
+      ctx.moveTo(px, py + 4 + wave);
+      ctx.quadraticCurveTo(px + 8, py + 2 - wave, px + TILE, py + 4 + wave * 0.6);
+      ctx.lineTo(px + TILE, py + TILE);
+      ctx.lineTo(px, py + TILE);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 1, py + 4 + wave);
+      ctx.quadraticCurveTo(px + 8, py + 2 - wave, px + TILE - 1, py + 4 + wave * 0.6);
+      ctx.stroke();
+      break;
+    }
+    case "fire": {
+      for (let i = 0; i < 3; i++) {
+        const fx = px + 3 + i * 5;
+        const hgt = 9 + Math.sin(animT * 8 + px + i * 2.3) * 3.5;
+        ctx.fillStyle = i % 2 ? "#ff7043" : "#ffb74d";
+        ctx.beginPath();
+        ctx.moveTo(fx - 2.5, py + TILE);
+        ctx.quadraticCurveTo(fx, py + TILE - hgt * 1.7, fx + 2.5, py + TILE);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = "rgba(255,150,80,0.16)";
+      ctx.fillRect(px, py, TILE, TILE);
+      break;
+    }
+    case "metal": {
+      ctx.fillStyle = c;
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = shade(c, 22);
+      ctx.fillRect(px, py, TILE, 2);
+      ctx.fillStyle = shade(c, -28);
+      ctx.fillRect(px, py + TILE - 2, TILE, 2);
+      ctx.fillStyle = shade(c, -18);
+      for (const [rx, ry] of [[3, 4], [12, 4], [3, 12], [12, 12]] as const) {
+        ctx.beginPath();
+        ctx.arc(px + rx, py + ry, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
   }
 }
 
@@ -425,6 +509,54 @@ export function drawItemIcon(
       ctx.fillStyle = shade(c, -50);
       ctx.fillRect(-1.5, -6, 3, 3);
       break;
+    case "torch": {
+      ctx.fillStyle = "#8a6d47";
+      ctx.fillRect(-1.2, -2, 2.4, 8);
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(-3, -2);
+      ctx.quadraticCurveTo(0, -9, 3, -2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = shade(c, 45);
+      ctx.beginPath();
+      ctx.arc(0, -3.5, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "bucket": {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(-5, -3);
+      ctx.lineTo(-3.4, 5);
+      ctx.lineTo(3.4, 5);
+      ctx.lineTo(5, -3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = shade(c, 30);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, -3, 4.6, Math.PI, 0);
+      ctx.stroke();
+      break;
+    }
+    case "rod": {
+      ctx.strokeStyle = shade(c, -40);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-4, 5);
+      ctx.lineTo(2, -2);
+      ctx.stroke();
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(2, -2);
+      ctx.lineTo(0.5, -4);
+      ctx.lineTo(4, -4.5);
+      ctx.lineTo(2.5, -7);
+      ctx.stroke();
+      break;
+    }
   }
   ctx.restore();
 }
