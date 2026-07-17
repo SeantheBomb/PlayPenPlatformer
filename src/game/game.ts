@@ -15,6 +15,7 @@ import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
 import { TouchControls, type SmartContext } from "./touch";
 import { Warden } from "./warden";
+import { telemetry } from "./telemetry";
 import {
   drawFloaties, drawHearts, drawHotbar, drawPrompt,
   drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
@@ -42,6 +43,7 @@ export class Game {
   player!: Player;
   roomRt!: RoomRuntime;
   currentRoomId = "";
+  private roomEnteredAt = 0;
 
   touch: TouchControls;
   warden = new Warden();
@@ -81,6 +83,7 @@ export class Game {
         if (result.outputId) {
           this.taunts.fire("craft_item", { itemId: result.outputId });
           this.checkAchievements("craft_item", { itemId: result.outputId });
+          telemetry.craft(this.currentRoomId, result.outputId);
         }
       } else {
         sfx.play("craftFail");
@@ -179,6 +182,23 @@ export class Game {
     };
   }
 
+  /** Stuck? Put the whole room back the way it started (softlock escape). */
+  private confirmResetRoom(): void {
+    if (!confirm("Reset this room? Items, doors, and your inventory go back to how the room began.")) {
+      return;
+    }
+    this.overlay = "none";
+    this.state.roomStates.delete(this.currentRoomId);
+    this.state.inventory.clear();
+    this.state.selectedConsumable = 0;
+    this.loadRoom(this.currentRoomId);
+    this.state.checkpoint = {
+      roomId: this.currentRoomId, x: this.roomRt.spawnX, y: this.roomRt.spawnY,
+    };
+    this.floaty("Room reset.", this.player.centerX, this.player.y - 12, "#9be8b0");
+    sfx.play("checkpoint");
+  }
+
   private async openReportUI(): Promise<void> {
     if (!this.reportUI) {
       const mod = await import("./report");
@@ -234,11 +254,14 @@ export class Game {
         this.overlay = "none";
         break;
       case "pause": {
-        // "R — report an issue" line's tap zone
-        const rx = VIEW_W / 2 - 70, ry = 188 - 10;
-        if (x >= rx && x <= rx + 160 && y >= ry && y <= ry + 14) {
+        const lx = VIEW_W / 2 - 70;
+        if (x >= lx && x <= lx + 200 && y >= 178 && y <= 192) {
+          // "R — report an issue"
           this.overlay = "report";
           this.openReportUI();
+        } else if (x >= lx && x <= lx + 200 && y >= 194 && y <= 208) {
+          // "X — reset this room"
+          this.confirmResetRoom();
         } else {
           this.overlay = "none";
         }
@@ -331,6 +354,8 @@ export class Game {
       return;
     }
     this.currentRoomId = roomId;
+    this.roomEnteredAt = Date.now();
+    telemetry.roomEnter(roomId);
     this.roomRt = new RoomRuntime(room, this.content, this.state.mutations(roomId));
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
@@ -424,6 +449,10 @@ export class Game {
       if (this.input.justPressed("KeyR", "GpCraft")) {
         this.overlay = "report";
         this.openReportUI();
+        return;
+      }
+      if (this.input.justPressed("KeyX")) {
+        this.confirmResetRoom();
         return;
       }
       if (this.input.pausePressed) this.overlay = "none";
@@ -597,6 +626,7 @@ export class Game {
         this.state.mutations(this.currentRoomId).collected.add(e.index);
         this.state.add(item.id, e.def.count ?? 1);
         this.checkAchievements("pickup_item", { itemId: item.id });
+        telemetry.collect(this.currentRoomId, item.id);
         sfx.play("pickup");
         this.floaty(`+${e.def.count ?? 1} ${item.name}`, e.x + e.w / 2, e.y);
         this.particles.burst({
@@ -718,17 +748,8 @@ export class Game {
       this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
     );
 
-    // ---- Smart action context (mobile) + its press ----
+    // ---- Button decoration context (mobile E verb + F item icon) ----
     this.touch.smartContext = this.computeSmartContext();
-    if (this.input.justPressed("TouchSmart")) {
-      if (this.touch.smartContext.kind === "interact") {
-        this.tryInteract();
-      } else if (this.touch.smartContext.kind === "use" && this.player.hiddenIn === null) {
-        const items = this.state.usableItems();
-        const held = items[Math.min(this.state.selectedConsumable, items.length - 1)];
-        if (held) this.useItem(held);
-      }
-    }
   }
 
   /** What would the smart button do right now? */
@@ -825,6 +846,7 @@ export class Game {
     const target = e.def.to === "next" || !e.def.to ? this.nextRoomId() : e.def.to;
     if (target) {
       sfx.play("door");
+      telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
       // The Warden confiscates your belongings between wings. Knowledge stays.
       if (
         this.content.game.rules.resetInventoryBetweenRooms &&
@@ -1123,6 +1145,7 @@ export class Game {
     const g = this.content.game;
     this.state.stats.deaths++;
     sfx.play("death");
+    telemetry.death(this.currentRoomId);
     this.camera.shake(6, 0.4);
     this.particles.burst({
       x: this.player.centerX, y: this.player.centerY,
@@ -1154,6 +1177,8 @@ export class Game {
   }
 
   private winGame(): void {
+    telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
+    telemetry.event("game_win");
     this.finishedInMs = performance.now() - this.state.stats.startedAt;
     this.scene = "win";
     this.winShownAt = performance.now();
@@ -1307,8 +1332,10 @@ export class Game {
       ctx.fillText("Q — quit to menu", VIEW_W / 2 - 70, 172);
       ctx.fillStyle = "#9be8b0";
       ctx.fillText("R — report an issue", VIEW_W / 2 - 70, 188);
+      ctx.fillStyle = "#e8a2b4";
+      ctx.fillText("X — reset this room (if stuck)", VIEW_W / 2 - 70, 204);
       ctx.fillStyle = "#8f87ad";
-      ctx.fillText("CONTROLS", VIEW_W / 2 - 70, 204);
+      ctx.fillText("CONTROLS", VIEW_W / 2 - 70, 222);
       const controls = [
         "A/D or ←/→ ... move",
         "SPACE / W ... jump (hold = higher)",
@@ -1318,7 +1345,7 @@ export class Game {
         "Q / F ....... cycle / use item",
       ];
       controls.forEach((l, i) =>
-        ctx.fillText(l, VIEW_W / 2 - 70, 220 + i * 14)
+        ctx.fillText(l, VIEW_W / 2 - 70, 238 + i * 14)
       );
     }
   }

@@ -9,3 +9,7 @@ id = "0b4fd764e69e4fc5b66eafd6a3ae2dbf"
 [[kv_namespaces]]
 binding = "CONTENT"
 id = "f76627198ee34df7b6b46e4256f6b4a4"
+
+[[kv_namespaces]]
+binding = "TELEMETRY"
+id = "25bfc4293c2c4e8fb00d3c3efab59a5b"

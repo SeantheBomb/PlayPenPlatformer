@@ -11,7 +11,8 @@
     "app": "npm run build && electron .",
     "app:dev": "electron . --dev",
     "deploy": "npm run build && wrangler pages deploy dist --project-name=playpen --branch=master",
-    "reports": "node tools/fetch-reports.mjs"
+    "reports": "node tools/fetch-reports.mjs",
+    "analytics": "node tools/analytics.mjs"
   },
   "devDependencies": {
     "electron": "^33.0.0",

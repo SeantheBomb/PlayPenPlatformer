@@ -6,7 +6,7 @@ import type { Input } from "../engine/input";
 import { drawItemIcon, roundRect } from "../engine/renderer";
 import { sfx } from "../engine/audio";
 import type { RunState } from "./state";
-import { tryCraft, type CraftResult } from "./crafting";
+import { tryCraft, tryDismantle, type CraftResult } from "./crafting";
 
 const COLS = 5;
 const SLOT = 34;
@@ -18,9 +18,10 @@ const PY = (360 - PANEL_H) / 2;
 const GRID_X = PX + 14;
 const GRID_Y = PY + 56;
 const EQUIP_Y = GRID_Y + 3 * STEP + 20;
-const MSG_Y = EQUIP_Y + 46;
+const MSG_Y = EQUIP_Y + 62; // below the shelf and the break-apart button
 const JOURNAL_X = PX + PANEL_W - 190;
 const CLOSE_BTN = { x: PX + PANEL_W - 28, y: PY + 8, w: 20, h: 20 };
+const DISMANTLE_BTN = { x: GRID_X, y: EQUIP_Y + 34, w: 108, h: 18 };
 
 interface Slot {
   item: ItemDef;
@@ -34,6 +35,7 @@ export class CraftUI {
   private message = "";
   private messageColor = "#bbb3d6";
   private resultItem: ItemDef | null = null;
+  private selectedEquip: string | null = null; // item id picked on the shelf
   // Pointer drag state
   private downIdx: number | null = null;
   private downX = 0;
@@ -82,6 +84,7 @@ export class CraftUI {
     this.message = "Combine two materials. Drag one onto another, or pick twice.";
     this.messageColor = "#bbb3d6";
     this.resultItem = null;
+    this.selectedEquip = null;
   }
 
   hide(): void {
@@ -193,14 +196,43 @@ export class CraftUI {
     const eq = this.equipIndexAt(x, y, state);
     if (eq !== null) {
       const slot = this.equipment(state)[eq];
+      this.selectedEquip = slot.item.id;
       this.message = `${slot.item.name}: ${slot.item.description}`;
       this.messageColor = "#bbb3d6";
       this.resultItem = null;
       return "handled";
     }
+    // "Break apart" button (visible when an equipment item is selected)
+    if (
+      this.selectedEquip &&
+      x >= DISMANTLE_BTN.x && x <= DISMANTLE_BTN.x + DISMANTLE_BTN.w &&
+      y >= DISMANTLE_BTN.y && y <= DISMANTLE_BTN.y + DISMANTLE_BTN.h
+    ) {
+      this.dismantle(state, this.selectedEquip);
+      return "handled";
+    }
     // Outside the panel closes
     if (x < PX || x > PX + PANEL_W || y < PY || y > PY + PANEL_H) return "close";
     return "handled";
+  }
+
+  /** Break a crafted item back into its ingredients (softlock escape). */
+  private dismantle(state: RunState, id: string): void {
+    const r = tryDismantle(this.content, state, id);
+    if (!r.ok) {
+      this.message = "That can't be broken apart — nothing crafted it.";
+      this.messageColor = "#e8a2b4";
+      sfx.play("craftFail");
+      return;
+    }
+    const names = (r.inputs ?? []).map(
+      (i) => this.content.items.find((x) => x.id === i)?.name ?? i
+    );
+    this.message = `Broke the ${r.baseName} back into ${names.join(" + ")}.`;
+    this.messageColor = "#9be8b0";
+    this.resultItem = null;
+    if (!state.has(id)) this.selectedEquip = null;
+    sfx.play("break");
   }
 
   // ---------- combining ----------
@@ -297,17 +329,26 @@ export class CraftUI {
     const equip = this.equipment(state);
     ctx.fillStyle = "#7fd8e8";
     ctx.font = "bold 9px monospace";
-    ctx.fillText("EQUIPMENT (tap for details — not craftable)", GRID_X, EQUIP_Y - 5);
+    ctx.fillText("EQUIPMENT (tap one to inspect)", GRID_X, EQUIP_Y - 5);
     if (equip.length === 0) {
       ctx.fillStyle = "#5a5470";
       ctx.font = "9px monospace";
       ctx.fillText("(nothing yet — combine materials above)", GRID_X, EQUIP_Y + 18);
     }
+    if (this.selectedEquip && !equip.some((s) => s.item.id === this.selectedEquip)) {
+      this.selectedEquip = null; // it got used up / transformed
+    }
     equip.forEach((slot, i) => {
       const sx = GRID_X + i * 34;
-      ctx.fillStyle = "#20304a";
+      const selected = slot.item.id === this.selectedEquip;
+      ctx.fillStyle = selected ? "#31517a" : "#20304a";
       roundRect(ctx, sx, EQUIP_Y, 30, 30, 5);
       ctx.fill();
+      if (selected) {
+        ctx.strokeStyle = "#7fd8e8";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
       drawItemIcon(ctx, slot.item, sx + 15, EQUIP_Y + 15, 1.3);
       if (slot.count > 1) {
         ctx.fillStyle = "#ffd166";
@@ -315,6 +356,18 @@ export class CraftUI {
         ctx.fillText("x" + slot.count, sx + 16, EQUIP_Y + 28);
       }
     });
+    // "Break apart" — undo a craft to reclaim its ingredients
+    if (this.selectedEquip) {
+      ctx.fillStyle = "#4a2432";
+      roundRect(ctx, DISMANTLE_BTN.x, DISMANTLE_BTN.y, DISMANTLE_BTN.w, DISMANTLE_BTN.h, 4);
+      ctx.fill();
+      ctx.strokeStyle = "#7a3e50";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = "#e8a2b4";
+      ctx.font = "bold 9px monospace";
+      ctx.fillText("⟲ break apart", DISMANTLE_BTN.x + 10, DISMANTLE_BTN.y + 13);
+    }
 
     // Message + result
     if (this.resultItem) {
