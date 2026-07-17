@@ -61,6 +61,8 @@ export function isElectron(): boolean {
 
 export class ContentStore {
   content!: Content;
+  /** id/time of the published bundle this session loaded (browser only). */
+  publishedInfo: { id: string; publishedAt: string; note?: string } | null = null;
   private files: Record<string, unknown> = {};
   private deletedInOverlay = new Set<string>();
 
@@ -77,6 +79,25 @@ export class ContentStore {
         }
       }
     } else {
+      // Published content (Sean's editor pushes) sits between the bundled
+      // defaults and any local editing draft: bundled < published < draft.
+      try {
+        const res = await fetch("/api/content", { cache: "no-store" });
+        if (res.ok) {
+          const pub = (await res.json()) as {
+            id: string; publishedAt: string; note?: string;
+            files: Record<string, unknown>;
+          };
+          if (pub?.files) {
+            Object.assign(this.files, pub.files);
+            this.publishedInfo = {
+              id: pub.id, publishedAt: pub.publishedAt, note: pub.note,
+            };
+          }
+        }
+      } catch {
+        // Offline or local dev without functions — bundled content is fine.
+      }
       try {
         const raw = localStorage.getItem(LS_KEY);
         if (raw) {
@@ -131,6 +152,11 @@ export class ContentStore {
   /** Full export for sharing/backup (web builds especially). */
   exportAll(): string {
     return JSON.stringify(this.files, null, 2);
+  }
+
+  /** The complete current file map (for publishing). */
+  allFiles(): Record<string, unknown> {
+    return { ...this.files };
   }
 
   async importAll(json: string): Promise<void> {

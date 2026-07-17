@@ -106,7 +106,12 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 
 type TabId =
   | "rooms" | "elements" | "rules" | "tiles" | "items" | "recipes"
-  | "enemies" | "taunts" | "achievements" | "game" | "campaign";
+  | "enemies" | "taunts" | "achievements" | "game" | "campaign" | "publish";
+
+// Electron loads from file://, so API calls need the real origin.
+const API_BASE =
+  location.protocol === "file:" ? "https://playpen.pages.dev" : "";
+const PASS_KEY = "playpen.editorPass";
 
 interface ListSpec {
   file: string;
@@ -179,7 +184,7 @@ class EditorShell {
     const c = this.store.content;
     const tabs: TabId[] = [
       "rooms", "elements", "rules", "tiles", "items", "recipes",
-      "enemies", "taunts", "achievements", "game", "campaign",
+      "enemies", "taunts", "achievements", "game", "campaign", "publish",
     ];
     this.bodyEl = el("div", { className: "pp-body" });
     const shell = el(
@@ -393,7 +398,130 @@ class EditorShell {
       case "campaign":
         this.renderCampaignTab();
         break;
+      case "publish":
+        this.renderPublishTab();
+        break;
     }
+  }
+
+  /** Push the current content to every player (password-gated, versioned). */
+  private renderPublishTab(): void {
+    const panel = el("div", { className: "pp-panel" });
+    const pub = this.store.publishedInfo;
+    panel.append(
+      el("p", { className: "pp-hint" },
+        "Publishing pushes THIS editor's current content to all players at " +
+        "playpen.pages.dev (they get it on their next page load). " +
+        "Every publish is kept in history and can be restored."),
+      el("p", { className: "pp-hint" },
+        pub
+          ? `This session loaded published version ${pub.id} (${pub.publishedAt})${pub.note ? ` — "${pub.note}"` : ""}.`
+          : "This session loaded no published version (bundled/local content only).")
+    );
+
+    const passInput = el("input", {
+      type: "password",
+      placeholder: "editor password",
+      value: localStorage.getItem(PASS_KEY) ?? "",
+    });
+    const noteInput = el("input", {
+      type: "text", placeholder: "what changed? (optional note)",
+    });
+    const form = el("div", { className: "pp-form" },
+      el("div", { className: "pp-row" }, el("label", {}, "password"), passInput),
+      el("div", { className: "pp-row" }, el("label", {}, "note"), noteInput),
+    );
+    panel.append(form);
+
+    const historyEl = el("div", { style: "margin-top:14px" });
+    const auth = () => {
+      const p = passInput.value.trim();
+      localStorage.setItem(PASS_KEY, p);
+      return { "x-editor-password": p, "content-type": "application/json" };
+    };
+
+    const loadHistory = async () => {
+      historyEl.replaceChildren(el("p", { className: "pp-hint" }, "loading history..."));
+      try {
+        const res = await fetch(`${API_BASE}/api/content/versions`, { headers: auth() });
+        if (res.status === 401) {
+          historyEl.replaceChildren(el("p", { className: "pp-hint" }, "wrong password — history hidden"));
+          return;
+        }
+        const data = await res.json() as {
+          liveId: string | null;
+          versions: { id: string; at: string; note: string; bytes: number }[];
+        };
+        historyEl.replaceChildren(
+          el("div", { className: "pp-sidehead" }, "Version history")
+        );
+        if (data.versions.length === 0) {
+          historyEl.append(el("p", { className: "pp-hint" }, "no versions published yet"));
+        }
+        for (const v of data.versions) {
+          const isLive = v.id === data.liveId;
+          historyEl.append(
+            el("div", { className: "pp-row", style: "display:flex;gap:8px;align-items:center;margin:4px 0" },
+              el("span", { style: `font-family:monospace;${isLive ? "color:#9be8b0" : ""}` },
+                `${isLive ? "● " : ""}${v.id}`),
+              el("span", { className: "pp-hint", style: "flex:1" },
+                `${new Date(v.at).toLocaleString()}${v.note ? ` — ${v.note}` : ""} (${Math.round(v.bytes / 1024)}kb)`),
+              isLive
+                ? el("span", { className: "pp-hint" }, "live")
+                : el("button", {
+                    className: "pp-btn",
+                    onclick: async () => {
+                      if (!confirm(`Make ${v.id} live for all players?`)) return;
+                      const r = await fetch(`${API_BASE}/api/content/restore`, {
+                        method: "POST", headers: auth(),
+                        body: JSON.stringify({ id: v.id }),
+                      });
+                      toast(r.ok ? `Restored ${v.id}` : "Restore failed", r.ok);
+                      loadHistory();
+                    },
+                  }, "restore")
+            )
+          );
+        }
+      } catch {
+        historyEl.replaceChildren(el("p", { className: "pp-hint" },
+          "couldn't reach the server (offline / local dev without functions)"));
+      }
+    };
+
+    panel.append(
+      el("div", { className: "pp-btnrow" },
+        el("button", {
+          className: "pp-btn pp-primary",
+          onclick: async () => {
+            if (!passInput.value.trim()) {
+              toast("Enter the editor password first.", false);
+              return;
+            }
+            if (!confirm("Publish current content to ALL players?")) return;
+            try {
+              const res = await fetch(`${API_BASE}/api/content`, {
+                method: "POST",
+                headers: auth(),
+                body: JSON.stringify({
+                  files: this.store.allFiles(),
+                  note: noteInput.value.trim(),
+                }),
+              });
+              const out = await res.json() as { ok: boolean; id?: string; error?: string };
+              toast(out.ok ? `Published ${out.id}` : `Failed: ${out.error}`, out.ok);
+              if (out.ok) loadHistory();
+            } catch {
+              toast("Couldn't reach the server.", false);
+            }
+          },
+        }, "🚀 Publish to all players"),
+        el("button", { className: "pp-btn", onclick: () => loadHistory() }, "Load history")
+      ),
+      historyEl
+    );
+    this.bodyEl.append(panel);
+    if (passInput.value) loadHistory();
   }
 
   private renderListTab(spec: ListSpec): void {

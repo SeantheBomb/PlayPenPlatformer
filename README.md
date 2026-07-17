@@ -70,6 +70,13 @@ localStorage overlay (bundled files stay untouched) — use **Export JSON / Impo
 move content between machines or hand a bundle to someone else. This is also the seed of
 the modding story: a content bundle *is* a mod.
 
+**Publishing to players**: the editor's **publish** tab pushes the current content to
+Cloudflare KV; every player receives it on their next page load (content precedence:
+bundled defaults < published < your local editing draft). Publishing is gated by the
+`EDITOR_PASSWORD` Cloudflare secret, and every publish lands in a version history with
+one-click restore. Local editing needs no password — it only ever touches your own
+browser/disk.
+
 ## Architecture
 
 Everything gameplay-related is serialized in `content/` — code implements *capabilities*,

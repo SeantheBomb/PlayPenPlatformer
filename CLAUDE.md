@@ -35,6 +35,23 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   clear ~6) and ~5 tiles across.
 - Player is 12×14 px, fits through 1-tile gaps.
 
+## Cloud content + reports
+
+- Published content lives in Cloudflare KV (`CONTENT` binding): players load it via
+  GET `/api/content` on boot (precedence bundled < published < local draft). Publish /
+  history / restore via the editor's **publish** tab, gated by the `EDITOR_PASSWORD`
+  Pages secret (never hardcode it — the repo is public).
+- Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`.
+- Wrangler: use the pinned local version (4.112+); `kv key` commands need `--remote`.
+
+## Mobile
+
+- Compact screens (short side < 500 CSS px) get a zoomed world view (worldZoom 4/3),
+  up-biased camera, and 1.4x touch UI. Touch controls are a floating joystick (left
+  half) + jump + a context-smart action button + a branded CRAFT button (src/game/touch.ts).
+- Touch button drawing happens in raw canvas-pixel space AFTER resetting the transform
+  to identity — restore() alone rewinds only to the post-viewTransform save point.
+
 ## Testing / verification workflow
 
 - `npm run typecheck` then `npm run dev`; drive the game via the `window.PP` debug
