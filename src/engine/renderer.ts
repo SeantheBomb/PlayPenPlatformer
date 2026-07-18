@@ -554,6 +554,24 @@ export function drawItemIcon(
       }
       ctx.stroke();
       break;
+    case "coil": {
+      // Raw, unsprung wire — stacked rings, not the "boing" zigzag of an
+      // installed spring. Deliberately reads as inert material, not a tool.
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1.3;
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.ellipse(0, -4 + i * 2.6, 3.2, 1.3, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = shade(c, -35);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-3.2, -4); ctx.lineTo(-3.2, 5.2);
+      ctx.moveTo(3.2, -4); ctx.lineTo(3.2, 5.2);
+      ctx.stroke();
+      break;
+    }
     case "tool":
       ctx.fillStyle = shade(c, -40);
       ctx.fillRect(-1, -1, 2.4, 7);

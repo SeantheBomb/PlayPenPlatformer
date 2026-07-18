@@ -140,7 +140,7 @@ export interface TileDef extends SpriteFields {
 export type ItemKind = "material" | "tool" | "consumable" | "curio";
 export type ItemShape =
   | "shard" | "plank" | "ring" | "cloth" | "ball" | "mushroom"
-  | "cog" | "spring" | "tool" | "bottle" | "torch" | "bucket" | "rod";
+  | "cog" | "spring" | "coil" | "tool" | "bottle" | "torch" | "bucket" | "rod";
 
 export type ItemUseMode = "swing" | "splash" | "place" | "burst";
 
