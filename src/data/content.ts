@@ -61,7 +61,32 @@ function deepDefaults<T>(base: T, override: unknown): T {
   return merged as T;
 }
 
-const BUNDLED_GAME_DEFAULT = bundledFiles()["game.json"];
+/**
+ * Same problem as deepDefaults but for id-keyed arrays (items.json, tiles.json,
+ * etc). A stale override array — from a published bundle, localStorage draft,
+ * or Electron disk copy predating a schema field — would otherwise silently
+ * carry old per-entry data forward wholesale (e.g. an unlit torch missing the
+ * `shape: "torch"` field added after that save, rendering as a generic tool
+ * again). Merges each override entry against its bundled counterpart by id,
+ * and keeps any bundled-only entries the override predates entirely.
+ */
+function mergeArrayById<T extends { id: string }>(base: T[], override: unknown): T[] {
+  if (!Array.isArray(override)) return base;
+  const baseById = new Map(base.map((b) => [b.id, b]));
+  const seen = new Set<string>();
+  const merged: T[] = override.map((entry) => {
+    const e = entry as T;
+    seen.add(e.id);
+    const baseEntry = baseById.get(e.id);
+    return baseEntry ? deepDefaults(baseEntry, e) : e;
+  });
+  for (const b of base) {
+    if (!seen.has(b.id)) merged.push(b);
+  }
+  return merged;
+}
+
+const BUNDLED = bundledFiles();
 
 function assemble(files: Record<string, unknown>): Content {
   const rooms: Record<string, RoomDef> = {};
@@ -72,15 +97,17 @@ function assemble(files: Record<string, unknown>): Content {
     }
   }
   return {
-    game: deepDefaults(BUNDLED_GAME_DEFAULT, files["game.json"]) as Content["game"],
-    elements: (files["elements.json"] ?? []) as Content["elements"],
-    rules: (files["rules.json"] ?? []) as Content["rules"],
-    achievements: (files["achievements.json"] ?? []) as Content["achievements"],
-    tiles: files["tiles.json"] as Content["tiles"],
-    items: files["items.json"] as Content["items"],
-    recipes: files["recipes.json"] as Content["recipes"],
-    enemies: files["enemies.json"] as Content["enemies"],
-    taunts: files["taunts.json"] as Content["taunts"],
+    game: deepDefaults(BUNDLED["game.json"], files["game.json"]) as Content["game"],
+    elements: mergeArrayById((BUNDLED["elements.json"] ?? []) as Content["elements"], files["elements.json"]),
+    rules: mergeArrayById((BUNDLED["rules.json"] ?? []) as Content["rules"], files["rules.json"]),
+    achievements: mergeArrayById(
+      (BUNDLED["achievements.json"] ?? []) as Content["achievements"], files["achievements.json"]
+    ),
+    tiles: mergeArrayById(BUNDLED["tiles.json"] as Content["tiles"], files["tiles.json"]),
+    items: mergeArrayById(BUNDLED["items.json"] as Content["items"], files["items.json"]),
+    recipes: mergeArrayById(BUNDLED["recipes.json"] as Content["recipes"], files["recipes.json"]),
+    enemies: mergeArrayById(BUNDLED["enemies.json"] as Content["enemies"], files["enemies.json"]),
+    taunts: mergeArrayById(BUNDLED["taunts.json"] as Content["taunts"], files["taunts.json"]),
     campaign: files["campaign.json"] as Content["campaign"],
     rooms,
   };

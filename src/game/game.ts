@@ -7,7 +7,7 @@ import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
 import { TILE } from "../engine/tilemap";
 import { drawBackdrop, drawItemIcon, drawMap, roundRect } from "../engine/renderer";
-import { rectsOverlap } from "../engine/math";
+import { rectsOverlap, randRange } from "../engine/math";
 import { RunState } from "./state";
 import { Player } from "./player";
 import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
@@ -65,6 +65,7 @@ export class Game {
   private winShownAt = 0;
   private finishedInMs = 0;
   private reportUI: import("./report").ReportUI | null = null;
+  private emberTimer = 0; // accumulator gating the lit-torch ember trail
 
   constructor(private ctx: CanvasRenderingContext2D, content: Content) {
     this.content = content;
@@ -422,6 +423,7 @@ export class Game {
 
   private updatePlay(dt: number): void {
     this.taunts.update();
+    this.emitTorchEmbers(dt);
 
     // ---- Overlays swallow input ----
     if (this.overlay === "craft") {
@@ -1410,6 +1412,37 @@ export class Game {
   }
 
   /** The selected hotbar item rides in the player's hand, state and all. */
+  /** A lit fire-shaped torch trails a steady stream of embers + faint smoke. */
+  private emitTorchEmbers(dt: number): void {
+    if (this.player.hiddenIn !== null) return;
+    const usable = this.state.usableItems();
+    if (usable.length === 0) return;
+    const item = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
+    if (item.shape !== "torch" || item.element !== "fire") {
+      this.emberTimer = 0;
+      return;
+    }
+    const p = this.player;
+    const tipX = p.centerX + p.facing * 5;
+    const tipY = p.centerY - 6;
+    this.emberTimer += dt;
+    const interval = 0.05;
+    while (this.emberTimer >= interval) {
+      this.emberTimer -= interval;
+      this.particles.burst({
+        x: tipX + randRange(-1.5, 1.5), y: tipY, count: 1,
+        color: Math.random() < 0.65 ? "#ff7043" : "#ffd166",
+        speed: 12, upBias: 50, life: 0.32, size: 2.2, gravity: -35,
+      });
+      if (Math.random() < 0.2) {
+        this.particles.burst({
+          x: tipX, y: tipY - 2, count: 1, color: "#6b6478",
+          speed: 8, upBias: 26, life: 0.5, size: 2.6, gravity: -16,
+        });
+      }
+    }
+  }
+
   private drawHeldItem(ctx: CanvasRenderingContext2D): void {
     if (this.player.hiddenIn !== null) return;
     const usable = this.state.usableItems();
