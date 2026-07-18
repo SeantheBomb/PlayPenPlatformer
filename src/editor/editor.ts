@@ -9,7 +9,7 @@ import {
 } from "../engine/renderer";
 import { autoForm, el, toast } from "./forms";
 import { RoomEditor } from "./roomeditor";
-import { openPixelEditor } from "./pixeleditor";
+import { openPixelEditor, rasterize } from "./pixeleditor";
 
 const SPRITE_KEYS = ["sprite", "spriteFrames", "spriteFps", "portraits"];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
@@ -126,15 +126,6 @@ interface ListSpec {
   spriteSize?: number;
   /** Draw the procedural art at `size` — used to seed the pixel editor. */
   procedural?: (item: Record<string, unknown>, ctx: CanvasRenderingContext2D, size: number) => void;
-}
-
-/** Rasterize a procedural draw call into a data-URI (pixel editor seed). */
-function rasterize(size: number, draw: (ctx: CanvasRenderingContext2D) => void): string {
-  const cv = document.createElement("canvas");
-  cv.width = size;
-  cv.height = size;
-  draw(cv.getContext("2d")!);
-  return cv.toDataURL("image/png");
 }
 
 let styleEl: HTMLStyleElement | null = null;

@@ -2,10 +2,17 @@
 import type { Content, RoomDef, RoomEntity } from "../data/types";
 import type { ContentStore } from "../data/content";
 import { TILE } from "../engine/tilemap";
-import { drawMap } from "../engine/renderer";
+import { drawBlob, drawMap } from "../engine/renderer";
 import { RoomRuntime } from "../game/room";
 import { autoForm, el, toast } from "./forms";
-import { openPixelEditor } from "./pixeleditor";
+import { openPixelEditor, rasterize } from "./pixeleditor";
+
+// Matches ENTITY_SIZES.npc in game/room.ts — used only to fit the procedural
+// pixel-editor seed and preview at the right aspect ratio.
+const NPC_W = 12, NPC_H = 16;
+
+// Raw data-URIs are edited via the dedicated panels below, not as text fields.
+const SPRITE_KEYS = ["portrait", "sprite", "spriteFrames", "spriteFps"];
 
 type Tool =
   | { kind: "select" }
@@ -348,8 +355,9 @@ export class RoomEditor {
       autoForm(sel as unknown as Record<string, unknown>, () => {
         this.markDirty();
         this.renderCanvas();
-      }, ["portrait"], () => this.pushUndoDebounced()),
+      }, SPRITE_KEYS, () => this.pushUndoDebounced()),
       sel.type === "npc" ? this.npcPortraitRow(sel) : el("span", {}),
+      sel.type === "npc" ? this.npcSpriteRow(sel) : el("span", {}),
       el("div", { className: "pp-btnrow" },
         el("button", {
           className: "pp-btn pp-danger",
@@ -363,6 +371,93 @@ export class RoomEditor {
           },
         }, "Delete entity")
       )
+    );
+  }
+
+  /** Upload / pixel-edit / clear this NPC's in-room body sprite (walk-cycle
+   *  capable) — distinct from the single-frame dialog portrait below. */
+  private npcSpriteRow(sel: RoomEntity): HTMLElement {
+    const preview = el("canvas", { width: 40, height: 40, className: "pp-spritepreview" });
+    const drawPreview = () => {
+      const ctx = preview.getContext("2d")!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, 40, 40);
+      const s = 40 / Math.max(NPC_W, NPC_H);
+      drawBlob(
+        ctx, (40 - NPC_W * s) / 2, 40 - NPC_H * s, NPC_W * s, NPC_H * s,
+        sel.color ?? "#7fd8e8", "#1a2530", -1,
+        { eyeStyle: "wide", sprite: sel }
+      );
+    };
+    drawPreview();
+    const frames = sel.spriteFrames ?? (sel.sprite ? [sel.sprite] : []);
+    const apply = (newFrames: string[], fps: number) => {
+      if (newFrames.length > 1) {
+        sel.spriteFrames = newFrames;
+        sel.spriteFps = fps;
+        delete sel.sprite;
+      } else {
+        sel.sprite = newFrames[0];
+        delete sel.spriteFrames;
+        delete sel.spriteFps;
+      }
+      this.markDirty();
+      this.renderInspector();
+    };
+    return el(
+      "div", { className: "pp-spritepanel" },
+      preview,
+      el("span", { className: "pp-hint" },
+        `body sprite — ${frames.length > 1 ? frames.length + " frames" : frames.length === 1 ? "1 image" : "procedural (none set)"}`),
+      el("button", {
+        className: "pp-btn",
+        onclick: () => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "image/png,image/gif,image/webp";
+          input.onchange = () => {
+            const f = input.files?.[0];
+            if (!f) return;
+            const r = new FileReader();
+            r.onload = () => { this.pushUndo(); apply([r.result as string], 6); };
+            r.readAsDataURL(f);
+          };
+          input.click();
+        },
+      }, "Upload PNG"),
+      el("button", {
+        className: "pp-btn",
+        onclick: () => {
+          this.pushUndo();
+          const seed = frames.length === 0
+            ? [rasterize(16, (ctx) => {
+                const s = 16 / Math.max(NPC_W, NPC_H);
+                ctx.translate((16 - NPC_W * s) / 2, 16 - NPC_H * s);
+                ctx.scale(s, s);
+                drawBlob(ctx, 0, 0, NPC_W, NPC_H, sel.color ?? "#7fd8e8", "#1a2530", 1, { eyeStyle: "wide" });
+              })]
+            : frames;
+          openPixelEditor({
+            title: `${sel.name ?? "NPC"} body sprite (16x16)`,
+            size: 16,
+            frames: seed,
+            fps: sel.spriteFps ?? 6,
+            multiFrame: true,
+            onSave: apply,
+          });
+        },
+      }, "Pixel editor"),
+      el("button", {
+        className: "pp-btn pp-danger",
+        onclick: () => {
+          this.pushUndo();
+          delete sel.sprite;
+          delete sel.spriteFrames;
+          delete sel.spriteFps;
+          this.markDirty();
+          this.renderInspector();
+        },
+      }, "Clear")
     );
   }
 

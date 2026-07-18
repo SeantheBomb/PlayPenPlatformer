@@ -245,7 +245,7 @@ export type EntityType =
   | "locker" | "enemy" | "npc" | "exit" | "hint"
   | "brazier" | "fusebox";
 
-export interface RoomEntity {
+export interface RoomEntity extends SpriteFields {
   type: EntityType;
   x: number; // tile coords
   y: number;
@@ -267,6 +267,8 @@ export interface RoomEntity {
   name?: string;
   color?: string;
   portrait?: string; // data-URI override for the dialog portrait
+  // `sprite`/`spriteFrames` (from SpriteFields, above) override this NPC's
+  // in-room body — separate from `portrait`, which is the dialog-box face.
   wants?: { item: string; count: number };
   rewardItems?: { item: string; count: number }[];
   rewardRecipes?: string[];

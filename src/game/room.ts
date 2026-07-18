@@ -857,7 +857,7 @@ export class RoomRuntime {
         drawBlob(
           ctx, e.x, e.y + bob * 0.3, e.w, e.h,
           e.def.color ?? "#7fd8e8", "#1a2530", -1,
-          { eyeStyle: e.helped ? "sleepy" : "wide" }
+          { eyeStyle: e.helped ? "sleepy" : "wide", sprite: e.def }
         );
         if (!e.helped) {
           ctx.fillStyle = "#ffffff";

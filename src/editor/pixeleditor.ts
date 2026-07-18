@@ -11,6 +11,15 @@ const PALETTE = [
   "#9b5de5", "#7fd8e8", "#5ad1a5", "#8bd44f", "#d98fb0", "#f4ead8",
 ];
 
+/** Rasterize a procedural draw call into a data-URI (pixel editor seed). */
+export function rasterize(size: number, draw: (ctx: CanvasRenderingContext2D) => void): string {
+  const cv = document.createElement("canvas");
+  cv.width = size;
+  cv.height = size;
+  draw(cv.getContext("2d")!);
+  return cv.toDataURL("image/png");
+}
+
 export interface PixelEditorOptions {
   title: string;
   size?: number; // grid size (default 16)
