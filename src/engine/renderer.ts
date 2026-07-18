@@ -228,18 +228,39 @@ export function drawTile(
       break;
     }
     case "fire": {
+      // Hazard fire: jagged, fast, white-hot tips, sparks — reads as "will hurt you."
+      ctx.fillStyle = "rgba(210,40,20,0.16)";
+      ctx.fillRect(px, py, TILE, TILE);
       for (let i = 0; i < 3; i++) {
         const fx = px + 3 + i * 5;
-        const hgt = 9 + Math.sin(animT * 8 + px + i * 2.3) * 3.5;
-        ctx.fillStyle = i % 2 ? "#ff7043" : "#ffb74d";
+        const jitter = Math.sin(animT * 17 + px + i * 2.7) * 1.3;
+        const hgt = 9 + Math.sin(animT * 12 + px + i * 3.1) * 3.5;
+        ctx.fillStyle = i % 2 ? "#d32f2f" : "#ff6d1f";
         ctx.beginPath();
-        ctx.moveTo(fx - 2.5, py + TILE);
-        ctx.quadraticCurveTo(fx, py + TILE - hgt * 1.7, fx + 2.5, py + TILE);
+        ctx.moveTo(fx - 2.8, py + TILE);
+        ctx.lineTo(fx - 1.2 + jitter * 0.4, py + TILE - hgt * 0.95);
+        ctx.lineTo(fx + jitter, py + TILE - hgt * 1.75);
+        ctx.lineTo(fx + 1.2 - jitter * 0.4, py + TILE - hgt * 0.95);
+        ctx.lineTo(fx + 2.8, py + TILE);
         ctx.closePath();
         ctx.fill();
+        if (Math.sin(animT * 23 + i * 5) > 0.5) {
+          ctx.fillStyle = "#fff3c4";
+          ctx.beginPath();
+          ctx.arc(fx + jitter * 0.5, py + TILE - hgt * 1.6, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-      ctx.fillStyle = "rgba(255,150,80,0.16)";
-      ctx.fillRect(px, py, TILE, TILE);
+      // A stray ember or two, popping up off the hazard.
+      for (let i = 0; i < 2; i++) {
+        const t = (animT * 0.7 + i * 0.6) % 1;
+        const ex = px + 4 + i * 8 + Math.sin(animT * 6 + i) * 2;
+        const ey = py + TILE - t * 14;
+        ctx.globalAlpha = 1 - t;
+        ctx.fillStyle = "#ffb74d";
+        ctx.fillRect(ex, ey, 1.4, 1.4);
+        ctx.globalAlpha = 1;
+      }
       break;
     }
     case "waterfall": {

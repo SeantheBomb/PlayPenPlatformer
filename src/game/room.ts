@@ -770,15 +770,55 @@ export class RoomRuntime {
     }
   }
 
+  /** Burning (dynamically ignited) tiles are a hazard — same jagged, hot-white
+   *  language as the "fire" tile style, so both read as "this will hurt you." */
   private drawFlames(ctx: CanvasRenderingContext2D, px: number, py: number, animT: number): void {
     for (let i = 0; i < 3; i++) {
       const fx = px + 3 + i * 5;
-      const hgt = 7 + Math.sin(animT * 9 + px + i * 2.1) * 3;
-      ctx.fillStyle = i % 2 ? "#ff7043" : "#ffb74d";
+      const jitter = Math.sin(animT * 16 + px + i * 2.7) * 1.2;
+      const hgt = 7 + Math.sin(animT * 11 + px + i * 2.1) * 3;
+      ctx.fillStyle = i % 2 ? "#d32f2f" : "#ff6d1f";
       ctx.beginPath();
       ctx.moveTo(fx - 2.5, py + 14);
-      ctx.quadraticCurveTo(fx, py + 14 - hgt * 1.6, fx + 2.5, py + 14);
+      ctx.lineTo(fx - 1 + jitter * 0.4, py + 14 - hgt * 0.9);
+      ctx.lineTo(fx + jitter, py + 14 - hgt * 1.6);
+      ctx.lineTo(fx + 1 - jitter * 0.4, py + 14 - hgt * 0.9);
+      ctx.lineTo(fx + 2.5, py + 14);
       ctx.closePath();
+      ctx.fill();
+      if (Math.sin(animT * 21 + i * 5) > 0.5) {
+        ctx.fillStyle = "#fff3c4";
+        ctx.beginPath();
+        ctx.arc(fx + jitter * 0.5, py + 14 - hgt * 1.45, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  /** The brazier is a safe, always-on lighting station — warm gold, rounded,
+   *  slow — the opposite visual language from hazard fire (never damages). */
+  private drawBrazierFlames(ctx: CanvasRenderingContext2D, px: number, py: number, animT: number): void {
+    for (let i = 0; i < 3; i++) {
+      const fx = px + 3 + i * 5;
+      const hgt = 6 + Math.sin(animT * 3 + i * 1.7) * 1.6;
+      ctx.fillStyle = i % 2 ? "#f4a531" : "#ffd166";
+      ctx.beginPath();
+      ctx.moveTo(fx - 3, py + 14);
+      ctx.quadraticCurveTo(fx - 2.4, py + 14 - hgt * 0.9, fx, py + 14 - hgt * 1.5);
+      ctx.quadraticCurveTo(fx + 2.4, py + 14 - hgt * 0.9, fx + 3, py + 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#ffe9a8";
+      ctx.beginPath();
+      ctx.arc(fx, py + 14 - hgt * 0.55, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Glowing coals at the base — steady, not flickery.
+    ctx.fillStyle = "rgba(255,120,60,0.6)";
+    for (let i = 0; i < 3; i++) {
+      const ex = px + 3 + i * 5;
+      ctx.beginPath();
+      ctx.arc(ex, py + 14.5, 1 + Math.sin(animT * 1.5 + i) * 0.25, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -893,11 +933,12 @@ export class RoomRuntime {
         ctx.fill();
         ctx.fillStyle = "#332d40";
         ctx.fillRect(e.x + e.w / 2 - 2, e.y + 13, 4, 3);
-        this.drawFlames(ctx, e.x, e.y - 6, animT);
-        ctx.fillStyle = "rgba(255,150,80,0.12)";
+        // A soft, slow-breathing halo reads as "warm hearth", not "heat haze".
+        ctx.fillStyle = "rgba(255,200,120,0.14)";
         ctx.beginPath();
-        ctx.arc(e.x + e.w / 2, e.y + 4, 14 + Math.sin(animT * 5) * 2, 0, Math.PI * 2);
+        ctx.arc(e.x + e.w / 2, e.y + 4, 15 + Math.sin(animT * 1.4) * 1.5, 0, Math.PI * 2);
         ctx.fill();
+        this.drawBrazierFlames(ctx, e.x, e.y - 6, animT);
         break;
       }
       case "fusebox": {
