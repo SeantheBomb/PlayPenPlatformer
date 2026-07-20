@@ -18,7 +18,8 @@ type Tool =
   | { kind: "select" }
   | { kind: "erase" }
   | { kind: "tile"; char: string }
-  | { kind: "entity"; type: RoomEntity["type"] };
+  | { kind: "entity"; type: RoomEntity["type"] }
+  | { kind: "marquee" };
 
 const ENTITY_TYPES: RoomEntity["type"][] = [
   "spawn", "checkpoint", "pickup", "note", "door", "locker", "enemy", "npc",
@@ -26,6 +27,23 @@ const ENTITY_TYPES: RoomEntity["type"][] = [
 ];
 
 const UNDO_CAP = 50;
+
+interface TileBox { x0: number; y0: number; x1: number; y1: number; }
+
+interface GroupClip {
+  w: number;
+  h: number;
+  tiles: string[];
+  entities: { dx: number; dy: number; entity: RoomEntity }[];
+}
+
+const ROOM_PRESETS: { label: string; w: number; h: number }[] = [
+  { label: "Small — 24×14", w: 24, h: 14 },
+  { label: "Medium — 44×24", w: 44, h: 24 },
+  { label: "Large — 64×32", w: 64, h: 32 },
+  { label: "Wide — 80×20", w: 80, h: 20 },
+  { label: "Tall — 32×48", w: 32, h: 48 },
+];
 
 export class RoomEditor {
   private roomId: string | null = null;
@@ -36,6 +54,24 @@ export class RoomEditor {
   private painting = false;
   private draggingEntity = false;
   private draggingHandle: "min" | "max" | null = null;
+  // Brush (freehand tile painting)
+  private brushShape: "square" | "circle" = "square";
+  private brushSize = 1; // 1 = single tile
+  // Rectangle paint mode (tile/erase tools)
+  private paintMode: "freehand" | "rect" = "freehand";
+  private rectStart: { tx: number; ty: number } | null = null;
+  private rectCurrent: { tx: number; ty: number } | null = null;
+  // Box select (marquee tool): a tile-region + the entities inside it,
+  // draggable as a group and copy/pasteable as a unit.
+  private groupBox: TileBox | null = null;
+  private groupEntities: RoomEntity[] = [];
+  private groupClipboard: GroupClip | null = null;
+  private marqueeStart: { tx: number; ty: number } | null = null;
+  private marqueeCurrent: { tx: number; ty: number } | null = null;
+  private draggingGroup = false;
+  private groupDragStart: { tx: number; ty: number } | null = null;
+  private groupDragOffset = { dx: 0, dy: 0 };
+  private lastCopyKind: "entity" | "group" | null = null;
   private dirty = false;
   private undoStack: { roomId: string; data: string }[] = [];
   private redoStack: { roomId: string; data: string }[] = [];
@@ -52,22 +88,35 @@ export class RoomEditor {
       this.redo();
     } else if (e.ctrlKey && e.code === "KeyC") {
       e.preventDefault();
-      this.copySelected();
+      if (this.groupBox) this.copyGroup(); else this.copySelected();
     } else if (e.ctrlKey && e.code === "KeyV") {
       e.preventDefault();
-      this.pasteClipboard();
-    } else if (e.ctrlKey && e.code === "KeyD" && this.selected) {
+      if (this.lastCopyKind === "group" && this.groupClipboard) this.pasteGroup();
+      else this.pasteClipboard();
+    } else if (e.ctrlKey && e.code === "KeyD" && (this.selected || this.groupBox)) {
       e.preventDefault();
-      this.copySelected();
-      this.pasteClipboard();
+      if (this.groupBox) { this.copyGroup(); this.pasteGroup(); }
+      else { this.copySelected(); this.pasteClipboard(); }
+    } else if ((e.code === "Delete" || e.code === "Backspace") && this.groupBox) {
+      e.preventDefault();
+      this.deleteGroup();
     }
   };
+
+  /** Clears every selection mode — used whenever a room/room-data swap could
+   *  leave stale entity references (undo/redo, room switch, delete). */
+  private clearSelection(): void {
+    this.selected = null;
+    this.groupBox = null;
+    this.groupEntities = [];
+  }
 
   /** Deep-clone the selected entity onto the clipboard — every field carries
    *  over (including sprite/portrait overrides), ready to paste elsewhere. */
   private copySelected(): void {
     if (!this.selected) return;
     this.clipboard = JSON.parse(JSON.stringify(this.selected)) as RoomEntity;
+    this.lastCopyKind = "entity";
     toast(`Copied ${this.clipboard.type}`);
   }
 
@@ -86,6 +135,111 @@ export class RoomEditor {
     this.renderInspector();
     this.renderCanvas();
     toast(`Pasted ${copy.type}`);
+  }
+
+  // ---------- Box select (marquee): tile region + entities as one group ----------
+
+  private extractSubgrid(room: RoomDef, box: TileBox): string[] {
+    const w = box.x1 - box.x0 + 1;
+    const rows: string[] = [];
+    for (let ty = box.y0; ty <= box.y1; ty++) {
+      const row = (room.tiles[ty] ?? "").padEnd(room.width, ".");
+      rows.push(row.slice(box.x0, box.x1 + 1).padEnd(w, "."));
+    }
+    return rows;
+  }
+
+  private stampSubgrid(room: RoomDef, ox: number, oy: number, tiles: string[]): void {
+    for (let ry = 0; ry < tiles.length; ry++) {
+      const ty = oy + ry;
+      if (ty < 0 || ty >= room.height) continue;
+      let row = (room.tiles[ty] ?? "").padEnd(room.width, ".");
+      for (let rx = 0; rx < tiles[ry].length; rx++) {
+        const tx = ox + rx;
+        if (tx < 0 || tx >= room.width) continue;
+        row = row.slice(0, tx) + tiles[ry][rx] + row.slice(tx + 1);
+      }
+      room.tiles[ty] = row;
+    }
+  }
+
+  private clearSubgrid(room: RoomDef, box: TileBox): void {
+    const blank = ".".repeat(box.x1 - box.x0 + 1);
+    this.stampSubgrid(room, box.x0, box.y0, new Array(box.y1 - box.y0 + 1).fill(blank));
+  }
+
+  /** Commit a group drag: cut the tile region from its old spot, restamp it
+   *  at the new one, and shift every contained entity by the same delta. */
+  private commitGroupMove(dx: number, dy: number): void {
+    const room = this.room;
+    if (!room || !this.groupBox || (dx === 0 && dy === 0)) return;
+    this.pushUndo();
+    const snapshot = this.extractSubgrid(room, this.groupBox);
+    this.clearSubgrid(room, this.groupBox);
+    const newBox: TileBox = {
+      x0: this.groupBox.x0 + dx, y0: this.groupBox.y0 + dy,
+      x1: this.groupBox.x1 + dx, y1: this.groupBox.y1 + dy,
+    };
+    this.stampSubgrid(room, newBox.x0, newBox.y0, snapshot);
+    for (const e of this.groupEntities) { e.x += dx; e.y += dy; }
+    this.groupBox = newBox;
+    this.markDirty();
+    this.normalizeTiles();
+    this.refreshAll();
+  }
+
+  private copyGroup(): void {
+    const room = this.room;
+    if (!room || !this.groupBox) return;
+    const { x0, y0, x1, y1 } = this.groupBox;
+    const tiles = this.extractSubgrid(room, this.groupBox);
+    const entities = this.groupEntities.map((e) => ({
+      dx: e.x - x0, dy: e.y - y0, entity: JSON.parse(JSON.stringify(e)) as RoomEntity,
+    }));
+    this.groupClipboard = { w: x1 - x0 + 1, h: y1 - y0 + 1, tiles, entities };
+    this.lastCopyKind = "group";
+    toast(`Copied ${this.groupClipboard.w}×${this.groupClipboard.h} selection (${entities.length} entities)`);
+  }
+
+  /** Paste the group clipboard offset one tile from the current box (or the
+   *  origin, if nothing is selected), then select the pasted copy as the
+   *  new group so it can be dragged straight into place. */
+  private pasteGroup(): void {
+    const room = this.room;
+    if (!room || !this.groupClipboard) return;
+    this.pushUndo();
+    const { w, h, tiles, entities } = this.groupClipboard;
+    const ox = (this.groupBox?.x0 ?? 0) + 1;
+    const oy = (this.groupBox?.y0 ?? 0) + 1;
+    this.stampSubgrid(room, ox, oy, tiles);
+    const newEntities: RoomEntity[] = [];
+    for (const { dx, dy, entity } of entities) {
+      const copy = JSON.parse(JSON.stringify(entity)) as RoomEntity;
+      copy.x = ox + dx;
+      copy.y = oy + dy;
+      room.entities.push(copy);
+      newEntities.push(copy);
+    }
+    this.groupBox = { x0: ox, y0: oy, x1: ox + w - 1, y1: oy + h - 1 };
+    this.groupEntities = newEntities;
+    this.markDirty();
+    this.normalizeTiles();
+    this.refreshAll();
+    toast(`Pasted ${w}×${h} selection`);
+  }
+
+  private deleteGroup(): void {
+    const room = this.room;
+    if (!room || !this.groupBox) return;
+    this.pushUndo();
+    this.clearSubgrid(room, this.groupBox);
+    const toRemove = new Set(this.groupEntities);
+    room.entities = room.entities.filter((e) => !toRemove.has(e));
+    this.groupBox = null;
+    this.groupEntities = [];
+    this.markDirty();
+    this.normalizeTiles();
+    this.refreshAll();
   }
 
   private rootEl!: HTMLElement;
@@ -182,7 +336,7 @@ export class RoomEditor {
     }
     this.content.rooms[snap.roomId] = JSON.parse(snap.data);
     this.roomId = snap.roomId;
-    this.selected = null;
+    this.clearSelection();
     this.markDirty();
     this.refreshAll();
   }
@@ -216,7 +370,7 @@ export class RoomEditor {
           className: "pp-roomitem" + (id === this.roomId ? " pp-active" : ""),
           onclick: () => {
             this.roomId = id;
-            this.selected = null;
+            this.clearSelection();
             this.refreshAll();
           },
         }, `${inCampaign ? "" : "· "}${id}`)
@@ -228,19 +382,95 @@ export class RoomEditor {
     this.propsEl.replaceChildren();
     const room = this.room;
     if (!room) return;
+
+    const wInput = el("input", { type: "number", min: 10, value: room.width });
+    const hInput = el("input", { type: "number", min: 8, value: room.height });
+    const presetSelect = el("select", {
+      onchange: (e) => {
+        const sel = e.target as HTMLSelectElement;
+        const preset = ROOM_PRESETS.find((p) => p.label === sel.value);
+        sel.value = "";
+        if (preset) this.resizeRoom(preset.w, preset.h);
+      },
+    },
+      el("option", { value: "" }, "Choose a preset…"),
+      ...ROOM_PRESETS.map((p) => el("option", { value: p.label }, p.label))
+    );
+
     this.propsEl.append(
       el("div", { className: "pp-sidehead" }, "Room"),
       autoForm(room as unknown as Record<string, unknown>, () => {
         this.markDirty();
-        this.normalizeTiles();
         this.renderCanvas();
-      }, ["tiles", "entities", "id"], () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
+      }, ["tiles", "entities", "id", "width", "height"], () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
+      el("div", { className: "pp-sidehead", style: "margin-top:10px" }, "Size"),
+      el("p", { className: "pp-hint" },
+        `Currently ${room.width} × ${room.height} tiles. Shrinking warns first — nothing ` +
+        "outside the new bounds is deleted without confirming."),
+      el("div", { className: "pp-form" },
+        el("div", { className: "pp-row" }, el("label", {}, "preset"), presetSelect),
+        el("div", { className: "pp-row" },
+          el("label", {}, "custom"),
+          wInput, el("span", { className: "pp-hint" }, "×"), hInput,
+          el("button", {
+            className: "pp-btn",
+            onclick: () => this.resizeRoom(
+              parseInt((wInput as HTMLInputElement).value) || room.width,
+              parseInt((hInput as HTMLInputElement).value) || room.height
+            ),
+          }, "Apply")
+        )
+      ),
       el("div", { className: "pp-btnrow" },
         el("button", { className: "pp-btn pp-primary", onclick: () => this.save() }, "Save room"),
         el("button", { className: "pp-btn", onclick: () => this.onTestRoom(room.id) }, "▶ Test"),
         el("button", { className: "pp-btn pp-danger", onclick: () => this.deleteRoom() }, "Delete")
       )
     );
+  }
+
+  /** Resize the room, warning (once, with a count) before any shrink that
+   *  would cut off painted tiles or entities — instead of silently
+   *  truncating them the moment a smaller number is typed. */
+  private resizeRoom(newW: number, newH: number): void {
+    const room = this.room;
+    if (!room) return;
+    newW = Math.max(10, Math.round(newW));
+    newH = Math.max(8, Math.round(newH));
+    if (newW === room.width && newH === room.height) return;
+
+    if (newW < room.width || newH < room.height) {
+      let tilesLost = 0;
+      for (let y = 0; y < room.height; y++) {
+        const row = room.tiles[y] ?? "";
+        for (let x = 0; x < row.length; x++) {
+          if ((x >= newW || y >= newH) && row[x] !== "." && row[x] !== undefined) tilesLost++;
+        }
+      }
+      const entitiesLost = room.entities.filter((e) => e.x >= newW || e.y >= newH).length;
+      if (tilesLost > 0 || entitiesLost > 0) {
+        const parts: string[] = [];
+        if (tilesLost > 0) parts.push(`${tilesLost} painted tile${tilesLost === 1 ? "" : "s"}`);
+        if (entitiesLost > 0) parts.push(`${entitiesLost} entit${entitiesLost === 1 ? "y" : "ies"}`);
+        if (!confirm(`Shrinking to ${newW}×${newH} will delete ${parts.join(" and ")} outside the new bounds. Continue?`)) {
+          return;
+        }
+      }
+    }
+
+    this.pushUndo();
+    const rows: string[] = [];
+    for (let y = 0; y < newH; y++) {
+      rows.push((room.tiles[y] ?? "").padEnd(newW, ".").slice(0, newW));
+    }
+    room.tiles = rows;
+    room.width = newW;
+    room.height = newH;
+    room.entities = room.entities.filter((e) => e.x < newW && e.y < newH);
+    this.clearSelection();
+    this.markDirty();
+    this.refreshAll();
+    toast(`Resized to ${newW}×${newH}`);
   }
 
   private renderPalette(): void {
@@ -253,6 +483,8 @@ export class RoomEditor {
 
     this.paletteEl.append(
       mk("select", this.tool.kind === "select", () => this.setTool({ kind: "select" })),
+      mk("▭ box select", this.tool.kind === "marquee", () => this.setTool({ kind: "marquee" }),
+        "drag to select a region · drag inside to move · Ctrl+C/V to copy/paste"),
       mk("erase", this.tool.kind === "erase", () => this.setTool({ kind: "erase" }))
     );
     for (const t of this.content.tiles) {
@@ -260,6 +492,30 @@ export class RoomEditor {
       const b = mk(t.name, active, () => this.setTool({ kind: "tile", char: t.char }), `char '${t.char}'`);
       b.style.borderBottom = `3px solid ${t.color}`;
       this.paletteEl.append(b);
+    }
+    if (this.tool.kind === "tile" || this.tool.kind === "erase") {
+      this.paletteEl.append(
+        el("span", { className: "pp-sep" }, "|"),
+        mk("freehand", this.paintMode === "freehand", () => { this.paintMode = "freehand"; this.renderPalette(); },
+          "paint one stroke at a time"),
+        mk("▭ rectangle", this.paintMode === "rect", () => { this.paintMode = "rect"; this.renderPalette(); },
+          "drag out a rectangle, release to fill it")
+      );
+      if (this.paintMode === "freehand") {
+        this.paletteEl.append(
+          el("span", { className: "pp-sep" }, "|"),
+          mk("■", this.brushShape === "square", () => { this.brushShape = "square"; this.renderPalette(); }, "square brush"),
+          mk("●", this.brushShape === "circle", () => { this.brushShape = "circle"; this.renderPalette(); }, "circle brush"),
+          el("input", {
+            type: "number", min: 1, max: 12, value: this.brushSize, title: "brush radius (tiles)",
+            style: "width:40px;padding:3px 4px;font-size:11px;background:#100e1a;color:#e8e2f4;" +
+              "border:1px solid #3a3550;border-radius:4px;",
+            oninput: (e) => {
+              this.brushSize = Math.max(1, Math.min(12, parseInt((e.target as HTMLInputElement).value) || 1));
+            },
+          })
+        );
+      }
     }
     this.paletteEl.append(el("span", { className: "pp-sep" }, "|"));
     for (const et of ENTITY_TYPES) {
@@ -282,11 +538,31 @@ export class RoomEditor {
     this.canvas.addEventListener("mousedown", (e) => {
       const { tx, ty, wx, wy } = this.mousePos(e);
       if (this.tool.kind === "tile" || this.tool.kind === "erase") {
-        this.pushUndo(); // one snapshot per paint stroke
-        this.painting = true;
-        this.paintAt(tx, ty);
+        if (this.paintMode === "rect") {
+          this.rectStart = { tx, ty };
+          this.rectCurrent = { tx, ty };
+          this.renderCanvas();
+        } else {
+          this.pushUndo(); // one snapshot per paint stroke
+          this.painting = true;
+          this.paintAt(tx, ty);
+        }
       } else if (this.tool.kind === "entity") {
         this.placeEntity(this.tool.type, tx, ty);
+      } else if (this.tool.kind === "marquee") {
+        if (this.groupBox && tx >= this.groupBox.x0 && tx <= this.groupBox.x1 &&
+            ty >= this.groupBox.y0 && ty <= this.groupBox.y1) {
+          this.draggingGroup = true;
+          this.groupDragStart = { tx, ty };
+          this.groupDragOffset = { dx: 0, dy: 0 };
+        } else {
+          this.marqueeStart = { tx, ty };
+          this.marqueeCurrent = { tx, ty };
+          this.groupBox = null;
+          this.groupEntities = [];
+          this.renderInspector();
+        }
+        this.renderCanvas();
       } else {
         const handle = this.patrolHandleAt(wx, wy);
         if (handle) {
@@ -294,6 +570,8 @@ export class RoomEditor {
           this.draggingHandle = handle;
         } else {
           this.selected = this.entityAt(wx, wy);
+          this.groupBox = null;
+          this.groupEntities = [];
           if (this.selected) this.pushUndo(); // pre-drag position
           this.draggingEntity = !!this.selected;
         }
@@ -303,8 +581,21 @@ export class RoomEditor {
     });
     this.canvas.addEventListener("mousemove", (e) => {
       const { tx, ty, wx } = this.mousePos(e);
-      if (this.painting) this.paintAt(tx, ty);
-      else if (this.draggingHandle && this.selected) {
+      if (this.rectStart) {
+        this.rectCurrent = { tx, ty };
+        this.renderCanvas();
+      } else if (this.painting) {
+        this.paintAt(tx, ty);
+      } else if (this.marqueeStart) {
+        this.marqueeCurrent = { tx, ty };
+        this.renderCanvas();
+      } else if (this.draggingGroup && this.groupDragStart) {
+        const dx = tx - this.groupDragStart.tx, dy = ty - this.groupDragStart.ty;
+        if (dx !== this.groupDragOffset.dx || dy !== this.groupDragOffset.dy) {
+          this.groupDragOffset = { dx, dy };
+          this.renderCanvas();
+        }
+      } else if (this.draggingHandle && this.selected) {
         const newTx = Math.round(wx / TILE);
         if (this.draggingHandle === "min") {
           this.selected.patrolMinX = Math.min(newTx, this.selected.patrolMaxX ?? newTx);
@@ -325,6 +616,33 @@ export class RoomEditor {
       }
     });
     window.addEventListener("mouseup", () => {
+      if (this.rectStart && this.rectCurrent) {
+        this.pushUndo();
+        this.paintRect(this.rectStart.tx, this.rectStart.ty, this.rectCurrent.tx, this.rectCurrent.ty);
+      }
+      this.rectStart = null;
+      this.rectCurrent = null;
+      if (this.marqueeStart && this.marqueeCurrent) {
+        const x0 = Math.min(this.marqueeStart.tx, this.marqueeCurrent.tx);
+        const x1 = Math.max(this.marqueeStart.tx, this.marqueeCurrent.tx);
+        const y0 = Math.min(this.marqueeStart.ty, this.marqueeCurrent.ty);
+        const y1 = Math.max(this.marqueeStart.ty, this.marqueeCurrent.ty);
+        this.groupBox = { x0, y0, x1, y1 };
+        const room = this.room;
+        this.groupEntities = room
+          ? room.entities.filter((e) => e.x >= x0 && e.x <= x1 && e.y >= y0 && e.y <= y1)
+          : [];
+        this.renderInspector();
+        this.renderCanvas();
+      }
+      this.marqueeStart = null;
+      this.marqueeCurrent = null;
+      if (this.draggingGroup) {
+        this.commitGroupMove(this.groupDragOffset.dx, this.groupDragOffset.dy);
+      }
+      this.draggingGroup = false;
+      this.groupDragStart = null;
+      this.groupDragOffset = { dx: 0, dy: 0 };
       this.painting = false;
       this.draggingEntity = false;
       this.draggingHandle = null;
@@ -356,16 +674,46 @@ export class RoomEditor {
     return { wx, wy, tx: Math.floor(wx / TILE), ty: Math.floor(wy / TILE) };
   }
 
+  /** Sets one cell, in place. Returns whether anything actually changed. */
+  private setTileChar(room: RoomDef, tx: number, ty: number, ch: string): boolean {
+    if (tx < 0 || ty < 0 || tx >= room.width || ty >= room.height) return false;
+    const row = (room.tiles[ty] ?? "").padEnd(room.width, ".");
+    if (row[tx] === ch) return false;
+    room.tiles[ty] = row.slice(0, tx) + ch + row.slice(tx + 1);
+    return true;
+  }
+
+  /** Freehand paint at (tx,ty), stamping the current brush shape/size. */
   private paintAt(tx: number, ty: number): void {
     const room = this.room;
     if (!room) return;
-    if (tx < 0 || ty < 0 || tx >= room.width || ty >= room.height) return;
     const ch = this.tool.kind === "tile" ? this.tool.char : ".";
-    const row = (room.tiles[ty] ?? "").padEnd(room.width, ".");
-    if (row[tx] === ch) return;
-    room.tiles[ty] = row.slice(0, tx) + ch + row.slice(tx + 1);
-    this.markDirty();
-    this.renderCanvas();
+    const r = this.brushSize - 1;
+    let changed = false;
+    for (let oy = -r; oy <= r; oy++) {
+      for (let ox = -r; ox <= r; ox++) {
+        if (this.brushShape === "circle" && Math.hypot(ox, oy) > r + 0.35) continue;
+        if (this.setTileChar(room, tx + ox, ty + oy, ch)) changed = true;
+      }
+    }
+    if (changed) { this.markDirty(); this.renderCanvas(); }
+  }
+
+  /** Fill the axis-aligned rectangle between two tile corners (inclusive)
+   *  with the current tool's char — the "drag a rectangle" paint mode. */
+  private paintRect(x0: number, y0: number, x1: number, y1: number): void {
+    const room = this.room;
+    if (!room) return;
+    const ch = this.tool.kind === "tile" ? this.tool.char : ".";
+    const lo = { x: Math.min(x0, x1), y: Math.min(y0, y1) };
+    const hi = { x: Math.max(x0, x1), y: Math.max(y0, y1) };
+    let changed = false;
+    for (let ty = lo.y; ty <= hi.y; ty++) {
+      for (let tx = lo.x; tx <= hi.x; tx++) {
+        if (this.setTileChar(room, tx, ty, ch)) changed = true;
+      }
+    }
+    if (changed) { this.markDirty(); this.renderCanvas(); }
   }
 
   private entityAt(wx: number, wy: number): RoomEntity | null {
@@ -413,12 +761,36 @@ export class RoomEditor {
     this.inspectorEl.replaceChildren();
     const room = this.room;
     if (!room) return;
+    if (this.groupBox) {
+      const w = this.groupBox.x1 - this.groupBox.x0 + 1;
+      const h = this.groupBox.y1 - this.groupBox.y0 + 1;
+      this.inspectorEl.append(
+        el("div", { className: "pp-hint" }, `Selection: ${w}×${h} tiles, ${this.groupEntities.length} entities`),
+        el("p", { className: "pp-hint" },
+          "Drag inside the box to move it. Ctrl+C / Ctrl+V — copy / paste the whole " +
+          "selection. Delete — clear the tiles and remove the entities."),
+        el("div", { className: "pp-btnrow" },
+          el("button", { className: "pp-btn", onclick: () => this.copyGroup() }, "Copy"),
+          el("button", {
+            className: "pp-btn",
+            onclick: () => { this.copyGroup(); this.pasteGroup(); },
+          }, "Duplicate"),
+          el("button", { className: "pp-btn pp-danger", onclick: () => this.deleteGroup() }, "Delete selection"),
+          el("button", {
+            className: "pp-btn",
+            onclick: () => { this.clearSelection(); this.renderInspector(); this.renderCanvas(); },
+          }, "Clear selection")
+        )
+      );
+      return;
+    }
     if (!this.selected) {
       this.inspectorEl.append(
         el("p", { className: "pp-hint" },
           "Select tool + click an entity to edit it. Entity tools place new ones. " +
-          "Drag to move. Ctrl+Z / Ctrl+Y — undo / redo. Ctrl+C / Ctrl+V — copy / paste " +
-          "(carries every field, including custom sprites).")
+          "Drag to move. Box select drags out a region of tiles + entities to move, " +
+          "copy, or delete as a group. Ctrl+Z / Ctrl+Y — undo / redo. Ctrl+C / Ctrl+V — " +
+          "copy / paste (carries every field, including custom sprites).")
       );
       if (this.clipboard) {
         this.inspectorEl.append(
@@ -455,7 +827,7 @@ export class RoomEditor {
           onclick: () => {
             this.pushUndo();
             room.entities = room.entities.filter((e) => e !== sel);
-            this.selected = null;
+            this.clearSelection();
             this.markDirty();
             this.renderInspector();
             this.renderCanvas();
@@ -664,6 +1036,66 @@ export class RoomEditor {
       ctx.fillText(e.type.slice(0, 4), x, y - 2);
     }
     if (this.selected) this.drawPatrolGizmo(ctx, this.selected);
+    this.drawPaintRectPreview(ctx);
+    this.drawGroupSelection(ctx);
+  }
+
+  /** Live preview of the rectangle a tile/erase drag will fill on release. */
+  private drawPaintRectPreview(ctx: CanvasRenderingContext2D): void {
+    if (!this.rectStart || !this.rectCurrent) return;
+    const tool = this.tool;
+    if (tool.kind !== "tile" && tool.kind !== "erase") return;
+    const x0 = Math.min(this.rectStart.tx, this.rectCurrent.tx);
+    const x1 = Math.max(this.rectStart.tx, this.rectCurrent.tx);
+    const y0 = Math.min(this.rectStart.ty, this.rectCurrent.ty);
+    const y1 = Math.max(this.rectStart.ty, this.rectCurrent.ty);
+    const color = tool.kind === "tile"
+      ? (this.content.tiles.find((t) => t.char === tool.char)?.color ?? "#ffffff")
+      : "#ff5470";
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.35;
+    ctx.fillRect(x0 * TILE, y0 * TILE, (x1 - x0 + 1) * TILE, (y1 - y0 + 1) * TILE);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5 / this.zoom;
+    ctx.strokeRect(x0 * TILE, y0 * TILE, (x1 - x0 + 1) * TILE, (y1 - y0 + 1) * TILE);
+  }
+
+  /** Marquee drag-in-progress, the committed group box, and a live preview
+   *  of where a group drag will land. */
+  private drawGroupSelection(ctx: CanvasRenderingContext2D): void {
+    if (this.marqueeStart && this.marqueeCurrent) {
+      const x0 = Math.min(this.marqueeStart.tx, this.marqueeCurrent.tx);
+      const x1 = Math.max(this.marqueeStart.tx, this.marqueeCurrent.tx);
+      const y0 = Math.min(this.marqueeStart.ty, this.marqueeCurrent.ty);
+      const y1 = Math.max(this.marqueeStart.ty, this.marqueeCurrent.ty);
+      ctx.fillStyle = "rgba(155,93,229,0.18)";
+      ctx.fillRect(x0 * TILE, y0 * TILE, (x1 - x0 + 1) * TILE, (y1 - y0 + 1) * TILE);
+      ctx.strokeStyle = "#9b5de5";
+      ctx.lineWidth = 1.5 / this.zoom;
+      ctx.strokeRect(x0 * TILE, y0 * TILE, (x1 - x0 + 1) * TILE, (y1 - y0 + 1) * TILE);
+      return;
+    }
+    if (!this.groupBox) return;
+    const b = this.groupBox;
+    ctx.strokeStyle = "#9b5de5";
+    ctx.lineWidth = 1.5 / this.zoom;
+    ctx.setLineDash([5 / this.zoom, 3 / this.zoom]);
+    ctx.strokeRect(b.x0 * TILE, b.y0 * TILE, (b.x1 - b.x0 + 1) * TILE, (b.y1 - b.y0 + 1) * TILE);
+    ctx.setLineDash([]);
+    const { dx, dy } = this.groupDragOffset;
+    if (this.draggingGroup && (dx !== 0 || dy !== 0)) {
+      ctx.globalAlpha = 0.7;
+      ctx.strokeRect(
+        (b.x0 + dx) * TILE, (b.y0 + dy) * TILE,
+        (b.x1 - b.x0 + 1) * TILE, (b.y1 - b.y0 + 1) * TILE
+      );
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(155,93,229,0.4)";
+      for (const e of this.groupEntities) {
+        ctx.fillRect((e.x + dx) * TILE, (e.y + dy) * TILE, TILE, TILE);
+      }
+    }
   }
 
   /** Draggable minX/maxX handles for a selected enemy's patrol range —
@@ -741,7 +1173,7 @@ export class RoomEditor {
     };
     await this.store.saveFile(`rooms/${id}.json`, room);
     this.roomId = id;
-    this.selected = null;
+    this.clearSelection();
     this.refreshAll();
     toast(`Created ${id}. Add it to the campaign order when ready.`);
   }
@@ -757,7 +1189,7 @@ export class RoomEditor {
       await this.store.saveFile("campaign.json", camp);
     }
     this.roomId = Object.keys(this.content.rooms)[0] ?? null;
-    this.selected = null;
+    this.clearSelection();
     this.refreshAll();
     toast("Room deleted.");
   }
