@@ -528,12 +528,10 @@ export class Game {
       const pty0 = Math.floor(this.player.y / TILE);
       const pty1 = Math.floor((this.player.feetY + 2) / TILE); // include tile underfoot
       let hazard: "burning" | "spark" | null = null;
-      let inWater = false;
       for (let ty = pty0; ty <= pty1; ty++) {
         for (let tx = ptx0; tx <= ptx1; tx++) {
           if (this.roomRt.isBurning(tx, ty)) hazard = hazard ?? "burning";
           if (this.roomRt.isEnergized(tx, ty)) hazard = "spark";
-          if (this.roomRt.map.at(tx, ty)?.element === "water") inWater = true;
         }
       }
       if (hazard && !this.player.invulnerable) {
@@ -542,6 +540,21 @@ export class Game {
           this.checkAchievements("counter");
         }
         this.damagePlayer(1, this.player.centerX, hazard);
+      }
+      // Water douse check uses the player's actual body box — exclusive right/
+      // bottom edges, no underfoot probe — unlike the hazard scan above, so a
+      // tile diagonally adjacent (never visually touched) can't douse a torch.
+      let inWater = false;
+      {
+        const wtx0 = Math.floor(this.player.x / TILE);
+        const wtx1 = Math.floor((this.player.x + this.player.w - 1) / TILE);
+        const wty0 = Math.floor(this.player.y / TILE);
+        const wty1 = Math.floor((this.player.feetY - 1) / TILE);
+        for (let ty = wty0; ty <= wty1; ty++) {
+          for (let tx = wtx0; tx <= wtx1; tx++) {
+            if (this.roomRt.map.at(tx, ty)?.element === "water") inWater = true;
+          }
+        }
       }
       // Water douses carried flames (torches revert to unlit)
       if (inWater) {

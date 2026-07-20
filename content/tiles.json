@@ -129,5 +129,15 @@
     "element": "metal",
     "conductive": true,
     "color": "#8a97a8"
+  },
+  {
+    "id": "drain",
+    "char": "D",
+    "name": "Drain",
+    "style": "drain",
+    "solid": true,
+    "element": "metal",
+    "conductive": true,
+    "color": "#59627f"
   }
 ]

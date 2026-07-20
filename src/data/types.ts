@@ -95,7 +95,7 @@ export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
 
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
-  | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall";
+  | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall" | "drain";
 
 /**
  * Optional custom art, available on tiles, items, enemies, the player, and

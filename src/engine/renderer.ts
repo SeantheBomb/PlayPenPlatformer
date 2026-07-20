@@ -294,6 +294,32 @@ export function drawTile(
       }
       break;
     }
+    case "drain": {
+      // A grate over a dark pit with slowly spinning slats — reads as
+      // "things go in here", the opposite motion language of flowing water.
+      ctx.fillStyle = shade(c, -20);
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = shade(c, 18);
+      ctx.fillRect(px, py, TILE, 2);
+      ctx.fillStyle = shade(c, -35);
+      ctx.fillRect(px, py + TILE - 2, TILE, 2);
+      const cx = px + TILE / 2, cy = py + TILE / 2;
+      ctx.fillStyle = "#12101c";
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = shade(c, 32);
+      ctx.lineWidth = 1;
+      const spin = animT * 1.1;
+      for (let i = 0; i < 5; i++) {
+        const a = spin + (i / 5) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a) * 5.5, cy + Math.sin(a) * 5.5);
+        ctx.stroke();
+      }
+      break;
+    }
   }
 }
 

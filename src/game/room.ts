@@ -184,6 +184,12 @@ export class RoomRuntime {
     // Persist (replace any earlier override for this index)
     this.muts.tileOverrides = this.muts.tileOverrides.filter(([i]) => i !== idx);
     this.muts.tileOverrides.push([idx, id || null]);
+    // Any transform that produces water (ice melting, etc.) joins the flow
+    // sim too, not just water poured by spreading — otherwise it sits inert,
+    // ignoring open space (and drains) right next to it.
+    if (this.waterFlowEnabled && def?.style === "water") {
+      this.waterFlowDist.set(idx, 0);
+    }
   }
 
   igniteTile(tx: number, ty: number): boolean {
@@ -255,6 +261,16 @@ export class RoomRuntime {
     return events;
   }
 
+  /** Is any orthogonal neighbor of (tx,ty) a drain tile? */
+  private tileTouchesDrain(tx: number, ty: number): boolean {
+    return (
+      this.map.at(tx - 1, ty)?.style === "drain" ||
+      this.map.at(tx + 1, ty)?.style === "drain" ||
+      this.map.at(tx, ty - 1)?.style === "drain" ||
+      this.map.at(tx, ty + 1)?.style === "drain"
+    );
+  }
+
   /**
    * Lightweight water physics: water falls into open shafts below it, and
    * spreads sideways along floors up to a limited distance from any source
@@ -270,6 +286,14 @@ export class RoomRuntime {
       const def = this.map.at(tx, ty);
       if (!def || def.style !== "water") {
         this.waterFlowDist.delete(idx);
+        continue;
+      }
+      // A drain tile touching this water removes it outright — the escape
+      // hatch for rooms where flow/melt would otherwise flood too much.
+      if (this.tileTouchesDrain(tx, ty)) {
+        this.setTileById(tx, ty, undefined);
+        this.waterFlowDist.delete(idx);
+        events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
         continue;
       }
       // Fall first: an open tile directly below always wins over spreading.
