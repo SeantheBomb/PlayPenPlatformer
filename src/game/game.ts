@@ -324,6 +324,20 @@ export class Game {
     this.loop.start();
   }
 
+  /** Freeze simulation + input while the editor owns the page — the game
+   *  canvas is hidden behind it, but without this the player keeps moving,
+   *  sfx keeps firing, and keyboard input meant for editor fields (Space,
+   *  Tab, arrows) leaks through as gameplay actions. */
+  pause(): void {
+    this.loop.stop();
+    this.input.setPaused(true);
+  }
+
+  resume(): void {
+    this.input.setPaused(false);
+    this.loop.start();
+  }
+
   /** Native-resolution viewport: logical 640x360 scaled/centered by main.ts. */
   setViewport(scale: number, ox: number, oy: number, compact = false): void {
     this.viewScale = scale;

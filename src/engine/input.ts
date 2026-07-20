@@ -28,9 +28,14 @@ export class Input {
   scheme: ControlScheme = "keyboard";
   gamepadConnected = false;
   onSchemeChange?: (s: ControlScheme) => void;
+  /** While true, keyboard events are ignored entirely (not even preventDefault)
+   *  — set while the editor owns the page, so typing Space/Tab/arrows into an
+   *  editor field doesn't jump the player or get eaten by the game. */
+  private paused = false;
 
   constructor(target: HTMLElement | Window = window) {
     target.addEventListener("keydown", (e) => {
+      if (this.paused) return;
       const ev = e as KeyboardEvent;
       // Keep browser shortcuts working, but stop page scroll keys.
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Tab"].includes(ev.key)) {
@@ -41,6 +46,7 @@ export class Input {
       this.markActivity("keyboard");
     });
     target.addEventListener("keyup", (e) => {
+      if (this.paused) return;
       this.down.delete((e as KeyboardEvent).code);
     });
     window.addEventListener("blur", () => {
@@ -67,6 +73,17 @@ export class Input {
   private markActivity(s: ControlScheme): void {
     this.lastInputAt = performance.now();
     this.setScheme(s);
+  }
+
+  /** Stop (or resume) reacting to keyboard input — used while the editor
+   *  owns the page. Clears held-key state so nothing "sticks" on resume. */
+  setPaused(p: boolean): void {
+    this.paused = p;
+    if (p) {
+      this.down.clear();
+      this.pressed.clear();
+      this.virtual.clear();
+    }
   }
 
   /** Touch buttons (and tests) push virtual codes through here. */

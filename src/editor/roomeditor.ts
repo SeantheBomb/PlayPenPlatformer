@@ -4,7 +4,7 @@ import type { ContentStore } from "../data/content";
 import { TILE } from "../engine/tilemap";
 import { drawBlob, drawMap } from "../engine/renderer";
 import { RoomRuntime } from "../game/room";
-import { autoForm, el, toast } from "./forms";
+import { autoForm, el, fieldOptionsFor, toast } from "./forms";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 
 // Matches ENTITY_SIZES.npc in game/room.ts — used only to fit the procedural
@@ -32,8 +32,10 @@ export class RoomEditor {
   private tool: Tool = { kind: "select" };
   private zoom = 2;
   private selected: RoomEntity | null = null;
+  private clipboard: RoomEntity | null = null;
   private painting = false;
   private draggingEntity = false;
+  private draggingHandle: "min" | "max" | null = null;
   private dirty = false;
   private undoStack: { roomId: string; data: string }[] = [];
   private redoStack: { roomId: string; data: string }[] = [];
@@ -41,15 +43,50 @@ export class RoomEditor {
   private keyHandler = (e: KeyboardEvent) => {
     if (!document.body.contains(this.rootEl)) return;
     const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return; // native undo in fields
+    if (tag === "INPUT" || tag === "TEXTAREA") return; // native undo/copy in fields
     if (e.ctrlKey && !e.shiftKey && e.code === "KeyZ") {
       e.preventDefault();
       this.undo();
     } else if ((e.ctrlKey && e.code === "KeyY") || (e.ctrlKey && e.shiftKey && e.code === "KeyZ")) {
       e.preventDefault();
       this.redo();
+    } else if (e.ctrlKey && e.code === "KeyC") {
+      e.preventDefault();
+      this.copySelected();
+    } else if (e.ctrlKey && e.code === "KeyV") {
+      e.preventDefault();
+      this.pasteClipboard();
+    } else if (e.ctrlKey && e.code === "KeyD" && this.selected) {
+      e.preventDefault();
+      this.copySelected();
+      this.pasteClipboard();
     }
   };
+
+  /** Deep-clone the selected entity onto the clipboard — every field carries
+   *  over (including sprite/portrait overrides), ready to paste elsewhere. */
+  private copySelected(): void {
+    if (!this.selected) return;
+    this.clipboard = JSON.parse(JSON.stringify(this.selected)) as RoomEntity;
+    toast(`Copied ${this.clipboard.type}`);
+  }
+
+  /** Paste the clipboard entity into the current room, offset one tile so it
+   *  doesn't land exactly on top of its source, then select the copy. */
+  private pasteClipboard(): void {
+    const room = this.room;
+    if (!room || !this.clipboard) return;
+    this.pushUndo();
+    const copy = JSON.parse(JSON.stringify(this.clipboard)) as RoomEntity;
+    copy.x += 1;
+    copy.y += 1;
+    room.entities.push(copy);
+    this.selected = copy;
+    this.markDirty();
+    this.renderInspector();
+    this.renderCanvas();
+    toast(`Pasted ${copy.type}`);
+  }
 
   private rootEl!: HTMLElement;
   private canvas!: HTMLCanvasElement;
@@ -197,7 +234,7 @@ export class RoomEditor {
         this.markDirty();
         this.normalizeTiles();
         this.renderCanvas();
-      }, ["tiles", "entities", "id"], () => this.pushUndoDebounced()),
+      }, ["tiles", "entities", "id"], () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
       el("div", { className: "pp-btnrow" },
         el("button", { className: "pp-btn pp-primary", onclick: () => this.save() }, "Save room"),
         el("button", { className: "pp-btn", onclick: () => this.onTestRoom(room.id) }, "▶ Test"),
@@ -251,17 +288,33 @@ export class RoomEditor {
       } else if (this.tool.kind === "entity") {
         this.placeEntity(this.tool.type, tx, ty);
       } else {
-        this.selected = this.entityAt(wx, wy);
-        if (this.selected) this.pushUndo(); // pre-drag position
-        this.draggingEntity = !!this.selected;
+        const handle = this.patrolHandleAt(wx, wy);
+        if (handle) {
+          this.pushUndo();
+          this.draggingHandle = handle;
+        } else {
+          this.selected = this.entityAt(wx, wy);
+          if (this.selected) this.pushUndo(); // pre-drag position
+          this.draggingEntity = !!this.selected;
+        }
         this.renderInspector();
         this.renderCanvas();
       }
     });
     this.canvas.addEventListener("mousemove", (e) => {
-      const { tx, ty } = this.mousePos(e);
+      const { tx, ty, wx } = this.mousePos(e);
       if (this.painting) this.paintAt(tx, ty);
-      else if (this.draggingEntity && this.selected) {
+      else if (this.draggingHandle && this.selected) {
+        const newTx = Math.round(wx / TILE);
+        if (this.draggingHandle === "min") {
+          this.selected.patrolMinX = Math.min(newTx, this.selected.patrolMaxX ?? newTx);
+        } else {
+          this.selected.patrolMaxX = Math.max(newTx, this.selected.patrolMinX ?? newTx);
+        }
+        this.markDirty();
+        this.renderInspector();
+        this.renderCanvas();
+      } else if (this.draggingEntity && this.selected) {
         if (this.selected.x !== tx || this.selected.y !== ty) {
           this.selected.x = tx;
           this.selected.y = ty;
@@ -274,7 +327,26 @@ export class RoomEditor {
     window.addEventListener("mouseup", () => {
       this.painting = false;
       this.draggingEntity = false;
+      this.draggingHandle = null;
     });
+  }
+
+  /** World-pixel span of an enemy's patrol gizmo, or null if not applicable. */
+  private patrolGizmo(sel: RoomEntity): { minX: number; maxX: number; y: number } | null {
+    if (sel.type !== "enemy") return null;
+    const minTx = sel.patrolMinX ?? sel.x - 3;
+    const maxTx = sel.patrolMaxX ?? sel.x + 3;
+    return { minX: minTx * TILE, maxX: maxTx * TILE, y: sel.y * TILE + TILE / 2 };
+  }
+
+  private patrolHandleAt(wx: number, wy: number): "min" | "max" | null {
+    if (!this.selected) return null;
+    const g = this.patrolGizmo(this.selected);
+    if (!g) return null;
+    const r = 6;
+    if (Math.hypot(wx - g.minX, wy - (g.y - 10)) <= r) return "min";
+    if (Math.hypot(wx - g.maxX, wy - (g.y - 10)) <= r) return "max";
+    return null;
   }
 
   private mousePos(e: MouseEvent): { tx: number; ty: number; wx: number; wy: number } {
@@ -345,8 +417,19 @@ export class RoomEditor {
       this.inspectorEl.append(
         el("p", { className: "pp-hint" },
           "Select tool + click an entity to edit it. Entity tools place new ones. " +
-          "Drag to move. Ctrl+Z / Ctrl+Y — undo / redo.")
+          "Drag to move. Ctrl+Z / Ctrl+Y — undo / redo. Ctrl+C / Ctrl+V — copy / paste " +
+          "(carries every field, including custom sprites).")
       );
+      if (this.clipboard) {
+        this.inspectorEl.append(
+          el("div", { className: "pp-btnrow" },
+            el("button", {
+              className: "pp-btn",
+              onclick: () => this.pasteClipboard(),
+            }, `Paste ${this.clipboard.type}`)
+          )
+        );
+      }
       return;
     }
     const sel = this.selected;
@@ -355,10 +438,18 @@ export class RoomEditor {
       autoForm(sel as unknown as Record<string, unknown>, () => {
         this.markDirty();
         this.renderCanvas();
-      }, SPRITE_KEYS, () => this.pushUndoDebounced()),
+      }, SPRITE_KEYS, () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
       sel.type === "npc" ? this.npcPortraitRow(sel) : el("span", {}),
       sel.type === "npc" ? this.npcSpriteRow(sel) : el("span", {}),
       el("div", { className: "pp-btnrow" },
+        el("button", {
+          className: "pp-btn",
+          onclick: () => { this.copySelected(); this.pasteClipboard(); },
+        }, "Duplicate"),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => this.copySelected(),
+        }, "Copy"),
         el("button", {
           className: "pp-btn pp-danger",
           onclick: () => {
@@ -571,6 +662,36 @@ export class RoomEditor {
       ctx.fillStyle = "rgba(255,255,255,0.55)";
       ctx.font = "6px monospace";
       ctx.fillText(e.type.slice(0, 4), x, y - 2);
+    }
+    if (this.selected) this.drawPatrolGizmo(ctx, this.selected);
+  }
+
+  /** Draggable minX/maxX handles for a selected enemy's patrol range —
+   *  the horizontal span it paces between, at a glance and editable by hand. */
+  private drawPatrolGizmo(ctx: CanvasRenderingContext2D, sel: RoomEntity): void {
+    const g = this.patrolGizmo(sel);
+    if (!g) return;
+    const handleY = g.y - 10;
+    ctx.strokeStyle = "#7fd8e8";
+    ctx.lineWidth = 1.5 / this.zoom;
+    ctx.setLineDash([4 / this.zoom, 3 / this.zoom]);
+    ctx.beginPath();
+    ctx.moveTo(g.minX, g.y);
+    ctx.lineTo(g.maxX, g.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const [x, active] of [[g.minX, this.draggingHandle === "min"], [g.maxX, this.draggingHandle === "max"]] as const) {
+      ctx.strokeStyle = "#7fd8e8";
+      ctx.lineWidth = 1.5 / this.zoom;
+      ctx.beginPath();
+      ctx.moveTo(x, g.y);
+      ctx.lineTo(x, handleY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, handleY, active ? 5 : 4, 0, Math.PI * 2);
+      ctx.fillStyle = active ? "#ffd166" : "#20304a";
+      ctx.fill();
+      ctx.stroke();
     }
   }
 

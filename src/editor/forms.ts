@@ -1,5 +1,6 @@
 // Tiny DOM + auto-form helpers for the editor. Forms are generated from the
 // current shape of the data, so new JSON fields show up without editor changes.
+import type { Content } from "../data/types";
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -31,14 +32,68 @@ const isColor = (v: unknown): v is string =>
   typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
 
 /**
+ * Maps well-known field key names — across every content schema — to the
+ * list of currently-valid values, so autoForm can offer them as a filterable
+ * dropdown (native <input list> + <datalist>: type to narrow, or open the
+ * arrow for the full list) instead of a bare text field prone to typos.
+ * Keyed by field name rather than schema, since the same name (item, enemy,
+ * element...) always references the same list everywhere it appears. The one
+ * genuine collision — "trigger" means different things on taunts vs.
+ * achievements — is resolved by offering the union of both; the field stays
+ * free text, so an unmatched suggestion never blocks saving.
+ */
+export function fieldOptionsFor(content: Content): (key: string) => string[] | undefined {
+  const itemIds = content.items.map((i) => i.id);
+  const roomIds = Object.keys(content.rooms);
+  const elementIds = content.elements.map((e) => e.id);
+  const enemyIds = content.enemies.map((e) => e.id);
+  const tileIds = ["", ...content.tiles.map((t) => t.id)]; // "" = becomes empty/none
+  const recipeIds = content.recipes.map((r) => r.id);
+
+  const map: Record<string, string[]> = {
+    // References to other content definitions
+    item: itemIds, itemId: itemIds, igniteTo: itemIds, dousesTo: itemIds,
+    fillsTo: itemIds, emptiesTo: itemIds, output: itemIds,
+    to: [...roomIds, "next"], roomId: roomIds,
+    element: elementIds, actor: elementIds, target: elementIds, dousedBy: elementIds,
+    enemy: enemyIds,
+    burnsTo: tileIds, meltsTo: tileIds, freezesTo: tileIds,
+    shattersTo: tileIds, dissolvesTo: tileIds, extinguishesTo: tileIds,
+    recipe: recipeIds,
+    // Closed enums from the schema itself
+    kind: ["material", "tool", "consumable", "curio"],
+    shape: ["shard", "plank", "ring", "cloth", "ball", "mushroom", "cog",
+      "spring", "coil", "tool", "bottle", "torch", "bucket", "rod"],
+    useMode: ["swing", "splash", "place", "burst"],
+    placeType: ["spring", "trap"],
+    effect: ["ignite", "melt", "extinguish", "dissolve", "freeze", "shatter",
+      "energize", "ignite_self", "fizzle"],
+    targetProperty: ["flammable", "brittle", "conductive"],
+    behavior: ["patrol", "chase"],
+    style: ["block", "platform", "spikes", "cracked", "spring", "goo",
+      "wood", "ice", "water", "fire", "metal", "waterfall"],
+    trigger: ["game_start", "room_enter", "first_death", "death", "craft_fail",
+      "first_craft", "craft_item", "idle", "hide_enter", "npc_help",
+      "confiscate", "warden_chase", "win", "pickup_item", "counter"],
+    emotion: ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"],
+  };
+  return (key) => map[key];
+}
+
+let datalistSeq = 0;
+
+/**
  * Build editable fields for every property of `obj`, writing changes back
- * into `obj` in place. `onChange` fires after any edit.
+ * into `obj` in place. `onChange` fires after any edit. `fieldOptions`
+ * (see fieldOptionsFor) turns matching string fields into filterable
+ * dropdowns instead of bare text inputs.
  */
 export function autoForm(
   obj: Record<string, unknown>,
   onChange: () => void,
   skipKeys: string[] = [],
-  onBefore?: () => void
+  onBefore?: () => void,
+  fieldOptions?: (key: string) => string[] | undefined
 ): HTMLElement {
   const wrap = el("div", { className: "pp-form" });
   if (onBefore) {
@@ -92,17 +147,32 @@ export function autoForm(
       });
       row.append(picker, text);
     } else if (typeof val === "string") {
-      const long = val.length > 42;
-      row.append(
-        el(long ? "textarea" : "input", {
-          ...(long ? { rows: 3 } : { type: "text" }),
-          value: val,
-          oninput: (e) => {
-            obj[key] = (e.target as HTMLInputElement).value;
-            onChange();
-          },
-        })
-      );
+      const options = fieldOptions?.(key);
+      if (options && options.length > 0) {
+        const listId = `pp-dl-${++datalistSeq}`;
+        row.append(
+          el("input", {
+            type: "text", value: val, list: listId,
+            oninput: (e) => {
+              obj[key] = (e.target as HTMLInputElement).value;
+              onChange();
+            },
+          }),
+          el("datalist", { id: listId }, ...options.map((o) => el("option", { value: o })))
+        );
+      } else {
+        const long = val.length > 42;
+        row.append(
+          el(long ? "textarea" : "input", {
+            ...(long ? { rows: 3 } : { type: "text" }),
+            value: val,
+            oninput: (e) => {
+              obj[key] = (e.target as HTMLInputElement).value;
+              onChange();
+            },
+          })
+        );
+      }
     } else if (Array.isArray(val) && val.every((v) => typeof v === "string")) {
       row.append(
         el("textarea", {
@@ -118,7 +188,7 @@ export function autoForm(
       );
     } else if (val !== null && typeof val === "object" && !Array.isArray(val)) {
       const fs = el("fieldset", {}, el("legend", {}, key));
-      fs.append(autoForm(val as Record<string, unknown>, onChange, [], onBefore));
+      fs.append(autoForm(val as Record<string, unknown>, onChange, [], onBefore, fieldOptions));
       wrap.append(fs);
       continue;
     } else {

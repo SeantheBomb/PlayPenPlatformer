@@ -7,7 +7,7 @@ import type { Game } from "../game/game";
 import {
   currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait,
 } from "../engine/renderer";
-import { autoForm, el, toast } from "./forms";
+import { autoForm, el, fieldOptionsFor, toast } from "./forms";
 import { RoomEditor } from "./roomeditor";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 
@@ -355,7 +355,7 @@ class EditorShell {
         panel.append(
           el("p", { className: "pp-hint" },
             "Global tuning: player feel, camera, juice, rules, audio. Changes apply on save."),
-          autoForm(c.game as unknown as Record<string, unknown>, () => {}, SPRITE_KEYS),
+          autoForm(c.game as unknown as Record<string, unknown>, () => {}, SPRITE_KEYS, undefined, fieldOptionsFor(c)),
           el("div", { className: "pp-sidehead", style: "margin-top:14px" }, "Player sprite"),
           this.spritePanel(
             c.game.player as unknown as Record<string, unknown>,
@@ -554,7 +554,7 @@ class EditorShell {
     const item = list[this.selectedIndex];
     if (item) {
       panel.append(
-        autoForm(item, () => {}, SPRITE_KEYS),
+        autoForm(item, () => {}, SPRITE_KEYS, undefined, fieldOptionsFor(this.store.content)),
         spec.sprites
           ? this.spritePanel(
               item, "Custom sprite", spec.spriteSize ?? 16, () => this.renderTab(),

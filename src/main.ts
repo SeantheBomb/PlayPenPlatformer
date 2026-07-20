@@ -40,6 +40,7 @@ async function boot() {
     editorOpen = !editorOpen;
     const root = document.getElementById("editor-root")!;
     if (editorOpen) {
+      game.pause();
       root.style.display = "block";
       editorModule.openEditor(root, store, game);
     } else {
@@ -47,6 +48,7 @@ async function boot() {
       root.style.display = "none";
       // Content may have changed on disk/overlay; re-apply to the running game.
       game.setContent(store.content);
+      game.resume();
       canvas.focus();
     }
   };
