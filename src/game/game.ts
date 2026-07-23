@@ -428,6 +428,7 @@ export class Game {
     if (!this.replay) {
       telemetry.roomEnter(roomId);
       recorder.markRoom(roomId, this.stepCount);
+      recorder.checkpoint();
     }
     this.roomRt = new RoomRuntime(room, this.content, this.state.mutations(roomId));
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);

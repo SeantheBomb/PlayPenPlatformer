@@ -188,6 +188,11 @@ class Recorder {
     if (this.meta) this.meta.deaths++;
   }
 
+  /** Force an upload now (e.g. room transitions) instead of waiting on the timer/threshold. */
+  checkpoint(): void {
+    if (this.meta) this.flush(false, false, true);
+  }
+
   private push(ev: SessionEvent): void {
     this.events.push(ev);
     if (this.events.length >= FLUSH_EVENTS) this.flush(false);
@@ -222,7 +227,7 @@ class Recorder {
     this.game = null;
   }
 
-  private flush(final: boolean, useBeacon = false): void {
+  private flush(final: boolean, useBeacon = false, force = false): void {
     const meta = this.meta;
     if (!meta) return;
     if (meta.tainted && !this.uploadTainted) {
@@ -230,7 +235,7 @@ class Recorder {
       this.events = [];
       return;
     }
-    if (!final && this.events.length === 0) return;
+    if (!final && !force && this.events.length === 0) return;
     this.syncStats(this.game ?? undefined);
     try {
       const body: Record<string, unknown> = {
