@@ -1,7 +1,10 @@
 # PlayPen — project conventions
 
 Comedic-menace escape platformer. Custom TS engine, Canvas2D, Vite + Electron shell.
-Docs: `docs/DESIGN.md` (vision/systems), `docs/OPPORTUNITY_MATRIX.md` (level design).
+Docs: `docs/DESIGN.md` (vision/systems), `docs/OPPORTUNITY_MATRIX.md` (level design),
+`docs/ELEMENTS.md` (the elemental kernel), `docs/HANDOFF.md` (chronological build log +
+locked decisions + new-machine setup — read this first if you're picking this project
+up cold).
 
 ## The one rule
 
@@ -35,22 +38,44 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   clear ~6) and ~5 tiles across.
 - Player is 12×14 px, fits through 1-tile gaps.
 
-## Cloud content + reports
+## Cloud content + reports + telemetry
 
 - Published content lives in Cloudflare KV (`CONTENT` binding): players load it via
   GET `/api/content` on boot (precedence bundled < published < local draft). Publish /
   history / restore via the editor's **publish** tab, gated by the `EDITOR_PASSWORD`
-  Pages secret (never hardcode it — the repo is public).
-- Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`.
-- Wrangler: use the pinned local version (4.112+); `kv key` commands need `--remote`.
+  Pages secret (never hardcode it — the repo is public; ask Sean for the value).
+- Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`
+  (add `-- --clear` to delete pulled reports from KV once they're fixed).
+- Anonymous gameplay telemetry (room attempts/completions/durations, deaths,
+  crafts/collects per item): batches POST to `/api/telemetry` → `TELEMETRY` KV
+  (90-day TTL) → `npm run analytics` aggregates a report (`-- --clear` / `-- --local`
+  work the same as reports). Client posts cross-origin from Electron's `file://`
+  origin too — the function answers the CORS preflight for that.
+- Wrangler: use the pinned local version (4.112+, devDependency — `npx wrangler`, not
+  a stray global; 4.54 silently no-ops on KV-bound Function deploys). `kv key`
+  commands need `--remote` or they read an always-empty local simulated store.
+  `wrangler login` and the GitHub auth (`gh`/git credentials) are per-machine —
+  redo both on a new computer; the KV namespace IDs themselves are already in
+  `wrangler.toml` (committed) and need no changes.
 
-## Mobile
+## Mobile (locked — Sean reversed the first two picks, don't re-litigate)
 
 - Compact screens (short side < 500 CSS px) get a zoomed world view (worldZoom 4/3),
-  up-biased camera, and 1.4x touch UI. Touch controls are a floating joystick (left
-  half) + jump + a context-smart action button + a branded CRAFT button (src/game/touch.ts).
+  up-biased camera, and 1.4x touch UI.
+- Controls are **discrete ◀ ▶ buttons + a ▼ drop-through**, NOT a joystick. **Separate
+  E (interact) and F (use) buttons**, NOT a combined smart-action button. E lights up
+  gold with a context verb when something's in reach; F shows the held item's icon.
+  Big branded gold CRAFT toggle + small pause chip, top-right. All in `src/game/touch.ts`.
+- Touch-button routing rule: a touch that **starts** on a button stays a button
+  interaction until release, regardless of what overlay opens mid-press — this is what
+  fixes "holding CRAFT" bugs where a release outside the panel reads as a close-tap.
 - Touch button drawing happens in raw canvas-pixel space AFTER resetting the transform
-  to identity — restore() alone rewinds only to the post-viewTransform save point.
+  to identity — `restore()` alone rewinds only to the post-viewTransform save point.
+- The craft workbench (`src/game/craftui.ts`) *also* draws and hit-tests in raw
+  canvas-pixel space, not the logical 640×360 view — that's what lets it be physically
+  large on a phone (logical-space UI downscales to ~60% there). Desktop maps the
+  classic layout 1:1 through the view scale; compact+touch gets a full-bleed
+  side-by-side layout via fixed vertical bands. Don't revert to logical-space drawing.
 
 ## Testing / verification workflow
 
@@ -58,15 +83,86 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   handle (`PP.state()`, `PP.give(id)`, `PP.warp(roomId)`).
 - Synthetic keys work (`new KeyboardEvent('keydown', {code})` on window) and the loop
   keeps running in hidden tabs, so fully scripted playtests are possible headlessly.
-- The Browser-pane `screenshot` tool times out on this page; instead POST
-  `canvas.toDataURL()` to a local receiver and Read the PNG
-  (see scratchpad pattern from the 2026-07-16 session).
+  Synthetic `Touch`/`TouchEvent` objects work the same way for mobile-input tests.
+- The Browser-pane `screenshot` tool times out on this page (and a hidden/background
+  tab won't render a fresh frame anyway). Instead run `npm run dev-receiver` (writes to
+  `./shots/`, gitignored) and from the page:
+  `fetch("http://localhost:5199/some_name", { method: "POST", body: canvas.toDataURL("image/png") })`,
+  then Read the PNG it wrote.
+- When testing multiple sequential `javascript_exec` calls in the same devtools
+  session, wrap each in an `(() => { ... })()` IIFE — top-level `const`/`let` persist
+  across separate calls and a repeated name throws `SyntaxError: already declared`.
+
+## Content-schema safety (don't regress this)
+
+`src/data/content.ts` `assemble()` deep-merges every content file against the freshly
+bundled default instead of taking it wholesale from whichever source loaded last
+(bundled < published KV < localStorage draft in browser; disk entirely in Electron).
+This matters because a stale save from *before* a schema field existed (an old
+localStorage editor draft, an old published bundle, an old on-disk copy) would
+otherwise silently drop that whole field/entry — and since most render code reads
+content fields unconditionally every frame, a missing one throws on every tick and
+kills the game loop outright (an uncaught exception in a rAF callback stops it from
+rescheduling). `game.json` merges by nested key (`deepDefaults`); id-keyed arrays
+(items/tiles/enemies/recipes/achievements/elements/rules/taunts) merge per-entry by id
+and keep any bundled-only entries a stale array predates (`mergeArrayById`). **If you
+add a new field to any content schema, this merge is what keeps old saves from
+crashing on it — don't revert to a flat `files[...] as Content[...]` assignment.**
+This only recovers *missing* fields, not values a stale save explicitly wrote —
+republishing/re-saving from the editor is still the fix for those.
+
+## Editor (src/editor/)
+
+- Opening the editor **pauses the game** (`game.pause()`/`resume()` in `main.ts`):
+  stops the loop and gates keyboard input entirely, so gameplay doesn't keep running
+  (sfx firing) behind it and keystrokes meant for editor text fields (Space, Tab,
+  arrows) don't leak through as jump/craft-toggle/movement. Keep this wired if you
+  touch the editor-toggle path.
+- `forms.ts` `autoForm()` renders string fields that reference other content (item,
+  enemy, room, element, tile ids, or a closed schema enum like kind/shape/style/
+  trigger) as filterable dropdowns via `fieldOptionsFor(content)` — a plain
+  `<input list>`/`<datalist>` combo, keyed by field *name* (not schema), so it stays
+  free text and never blocks an unusual value. Add new reference field names to the
+  map in `fieldOptionsFor` rather than hand-rolling a new widget.
+- Room editor (`roomeditor.ts`) has a **box-select ("▭ box select") tool**: drag to
+  select a tile region + the entities inside it, drag inside the box to translate the
+  whole group, Ctrl+C/Ctrl+V/Ctrl+D to copy/paste/duplicate it, Delete to clear it —
+  separate from the single-entity "select" tool's click/drag. Tile painting has
+  brush shape/size (square/circle, adjustable radius) and a rectangle paint mode
+  (drag out a rect, release to fill). Room width/height are **not** live-bound number
+  fields — they go through `resizeRoom()`, which warns (with a tile/entity count)
+  before any shrink that would cut something off, plus a preset dropdown. Don't
+  reintroduce a raw editable width/height field; that's the exact bug it fixed.
+- Selecting an enemy shows its patrol range as a draggable gizmo (dashed line +
+  handles at minX/maxX) on the canvas, not just two raw tile-index number fields.
+- NPCs have **two** separate custom-art slots: `portrait` (single-frame dialog-box
+  face) and `sprite`/`spriteFrames` (animated in-room body, `RoomEntity extends
+  SpriteFields`) — don't conflate them, they're edited in different inspector rows.
 
 ## Regenerating rooms
 
 Rooms were originally generated by a script (grid helpers + entity lists) rather than
 hand-typed strings — if making broad geometry changes across rooms, prefer writing a
 small generator script again; for local tweaks use the in-game editor or edit the JSON.
+
+## Visual-language rules (already fixed once — don't reintroduce the confusion)
+
+- **Brazier vs. hazard fire**: braziers are a safe, always-on ignition source (never
+  damages the player) and get a rounded, warm gold/amber, slow-breathing look. Fire
+  hazard tiles and dynamically-burning tiles (both deal damage) get a jagged, fast,
+  hot-white-tip look. If you add another fire-adjacent visual, pick a side rather than
+  reusing whichever `drawFlames`-style helper is closest — the two need to read as
+  opposite temperatures at a glance.
+- **Spring Coil vs. Spring**: the raw crafting material (`spring_coil`) and the
+  placeable bounce pad it crafts into (`spring`) must NOT share an icon shape/color —
+  they did once and were indistinguishable. Coil uses shape `"coil"` (stacked wire
+  rings, silver-grey); the pad keeps shape `"spring"` (the "boing" zigzag, green).
+- **Drain tile** (`content/tiles.json`, style `"drain"`, char `'D'`): any water tile
+  orthogonally touching it is removed every water-flow tick. A connected body drains
+  completely over time (draining a tile lets its neighbor flow in and reach the drain
+  next), not just the one tile against the grate — that's intentional, it's the
+  contain-a-flood escape valve. Only affects water registered with the flow sim
+  (`waterFlowEnabled` must be on); see `tickWaterFlow`/`tileTouchesDrain` in `room.ts`.
 
 ## Style
 
