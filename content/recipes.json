@@ -1,55 +1,82 @@
 [
   {
     "id": "recipe_hammer",
-    "inputs": ["scrap_metal", "plank"],
+    "inputs": [
+      "scrap_metal",
+      "plank"
+    ],
     "output": "hammer",
     "flavor": "Metal + wood = the oldest idea in the world. Still works."
   },
   {
     "id": "recipe_torch",
-    "inputs": ["plank", "cloth"],
+    "inputs": [
+      "plank",
+      "cloth"
+    ],
     "output": "torch",
     "flavor": "Wrap the cloth tight. Now find something already on fire."
   },
   {
     "id": "recipe_bucket",
-    "inputs": ["scrap_metal", "rope"],
+    "inputs": [
+      "scrap_metal",
+      "rope"
+    ],
     "output": "bucket",
     "flavor": "Bend the metal, tie the handle. Water goes in the hole. Revolutionary."
   },
   {
     "id": "recipe_frost_vial",
-    "inputs": ["glow_mushroom", "goo_blob"],
+    "inputs": [
+      "glow_mushroom",
+      "goo_blob"
+    ],
     "output": "frost_vial",
     "flavor": "The goo holds the mushroom's cold like a grudge."
   },
   {
     "id": "recipe_spark_rod",
-    "inputs": ["cog", "scrap_metal"],
+    "inputs": [
+      "cog",
+      "scrap_metal"
+    ],
     "output": "spark_rod",
     "flavor": "Spin the cog against the scrap and the air starts to bite."
   },
   {
     "id": "recipe_spring",
-    "inputs": ["spring_coil", "plank"],
+    "inputs": [
+      "spring_coil",
+      "plank"
+    ],
     "output": "spring",
     "flavor": "A board on a coil. Place it anywhere gravity is being a problem."
   },
   {
     "id": "recipe_smoke_bomb",
-    "inputs": ["glow_mushroom", "cloth"],
+    "inputs": [
+      "glow_mushroom",
+      "cloth"
+    ],
     "output": "smoke_bomb",
     "flavor": "Spores in a sock. Shake well. Regret nothing."
   },
   {
     "id": "recipe_sticky_trap",
-    "inputs": ["goo_blob", "plank"],
+    "inputs": [
+      "goo_blob",
+      "plank"
+    ],
     "output": "sticky_trap",
     "flavor": "Goo on a board. Engineering peaked here."
   },
   {
     "id": "recipe_sock_puppet",
-    "inputs": ["cloth", "rope"],
+    "inputs": [
+      "cloth",
+      "rope"
+    ],
     "output": "sock_puppet",
     "flavor": "You had materials. You made a friend instead."
   }

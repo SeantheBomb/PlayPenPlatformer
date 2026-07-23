@@ -23,7 +23,7 @@
     "#.......................#......................#",
     "#.....######............#......................#",
     "#.......................#......................#",
-    "#..........===..........#.................===..#",
+    "#..............===......#......................#",
     "#..............................................#",
     "#..............................................#",
     "##################IIMMMMMMMMM###################",
@@ -39,7 +39,7 @@
     {
       "type": "pickup",
       "item": "scrap_metal",
-      "x": 4,
+      "x": 15,
       "y": 20
     },
     {
@@ -70,30 +70,24 @@
       "type": "pickup",
       "item": "scrap_metal",
       "x": 10,
-      "y": 20
-    },
-    {
-      "type": "hint",
-      "x": 11,
-      "y": 15,
-      "text": "a cog doesn't roll uphill on its own"
+      "y": 15
     },
     {
       "type": "pickup",
       "item": "cog",
-      "x": 12,
-      "y": 17
+      "x": 7,
+      "y": 15
     },
     {
       "type": "pickup",
       "item": "plank",
-      "x": 15,
+      "x": 4,
       "y": 20
     },
     {
       "type": "hint",
-      "x": 14,
-      "y": 17,
+      "x": 16,
+      "y": 19,
       "text": "ice melts. ice shatters. treasure underneath"
     },
     {
@@ -104,14 +98,14 @@
     },
     {
       "type": "note",
-      "x": 18,
-      "y": 22,
+      "x": 22,
+      "y": 20,
       "recipe": "recipe_spark_rod",
       "text": "Every gate runs to a fuse box. A cog on scrap makes a rod that BITES. Zap the box — or any metal touching it. Don't be standing on that metal. — Subject #19"
     },
     {
       "type": "hint",
-      "x": 21,
+      "x": 28,
       "y": 17,
       "text": "charge follows metal"
     },
@@ -132,24 +126,6 @@
       "type": "checkpoint",
       "x": 30,
       "y": 20
-    },
-    {
-      "type": "pickup",
-      "item": "cog",
-      "x": 33,
-      "y": 20
-    },
-    {
-      "type": "hint",
-      "x": 42,
-      "y": 15,
-      "text": "something shines near the exit"
-    },
-    {
-      "type": "pickup",
-      "item": "scrap_metal",
-      "x": 43,
-      "y": 17
     },
     {
       "type": "door",

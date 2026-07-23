@@ -32,7 +32,7 @@
   },
   "juice": {
     "screenShake": true,
-    "shakeIntensity": 1.0,
+    "shakeIntensity": 1,
     "particles": true,
     "squashStretch": true,
     "hitStopMs": 70,

@@ -54,12 +54,6 @@
     {
       "type": "pickup",
       "item": "spring_coil",
-      "x": 6,
-      "y": 24
-    },
-    {
-      "type": "pickup",
-      "item": "spring_coil",
       "x": 8,
       "y": 22
     },

@@ -66,10 +66,10 @@
     "id": "spring_coil",
     "name": "Spring Coil",
     "kind": "material",
-    "shape": "coil",
-    "color": "#9aa7b8",
+    "shape": "spring",
+    "color": "#5ad1a5",
     "element": "metal",
-    "description": "Raw wound wire. Boing potential: considerable, but not yet installed."
+    "description": "Boing potential: considerable."
   },
   {
     "id": "hammer",
@@ -91,7 +91,7 @@
     "element": "wood",
     "useMode": "swing",
     "igniteTo": "torch_lit",
-    "description": "Cloth on a stick. Walk it up to any flame and it lights itself — no need to swing."
+    "description": "Cloth on a stick. Touch it to something burning and it becomes a very good stick."
   },
   {
     "id": "torch_lit",
@@ -104,7 +104,7 @@
     "dousedBy": "water",
     "dousesTo": "torch",
     "douseOnDeselect": true,
-    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out — so does putting it away."
+    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out."
   },
   {
     "id": "bucket",
