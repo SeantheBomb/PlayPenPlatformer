@@ -197,6 +197,11 @@ so drains flanking a melting ice tower fully contain the runoff (verified: 9-til
 burst melt, zero horizontal escape; fire tiles also became repelling barriers you
 can't invuln-tank through, earlier the same day). Conventions in `CLAUDE.md`.
 
+Also that day: a deliberately quiet **level select** on the main menu — dim
+"L · rooms" tag in the corner (L / Y-button / tap), room list with keyboard,
+gamepad, and touch nav. Intentionally subtle so the default flow still funnels
+players into room one; don't promote it to a big menu button.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

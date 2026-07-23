@@ -28,6 +28,10 @@ import {
 export const VIEW_W = 640;
 export const VIEW_H = 360;
 
+// Level-select list layout (shared by renderMenu and handleTap hit-testing).
+const LEVELS_TOP = 172;
+const LEVELS_ROW_H = 16;
+
 type Scene = "menu" | "play" | "win";
 type Overlay = "none" | "note" | "dialog" | "npcConfirm" | "craft" | "pause" | "report";
 
@@ -57,6 +61,10 @@ export class Game {
   loop: Loop;
 
   scene: Scene = "menu";
+  // Level select: a deliberately quiet power-user door on the main menu —
+  // most players should still just funnel into room one.
+  private menuMode: "main" | "levels" = "main";
+  private levelSel = 0;
   overlay: Overlay = "none";
   state!: RunState;
   player!: Player;
@@ -293,6 +301,24 @@ export class Game {
     // replays byte-identically on any screen.
     if (!this.replay) recorder.recordTap(x, y);
     if (this.scene === "menu") {
+      if (this.menuMode === "levels") {
+        const rooms = this.content.campaign.rooms;
+        const top = LEVELS_TOP;
+        const row = Math.floor((y - top) / LEVELS_ROW_H);
+        if (x >= VIEW_W / 2 - 110 && x <= VIEW_W / 2 + 110 && row >= 0 && row < rooms.length) {
+          sfx.play("uiSelect");
+          this.newRun(rooms[row]);
+        } else {
+          this.menuMode = "main"; // tap anywhere else backs out
+        }
+        return;
+      }
+      // The quiet corner door: bottom-left, same footprint as the label.
+      if (x < 90 && y > VIEW_H - 26) {
+        sfx.play("uiMove");
+        this.menuMode = "levels";
+        return;
+      }
       sfx.play("uiSelect");
       this.newRun();
       return;
@@ -415,6 +441,7 @@ export class Game {
     this.floaties = [];
     this.scene = "play";
     this.overlay = "none";
+    this.menuMode = "main";
     // Begin recording before loadRoom so the first room marker lands inside
     // the new session (also cleanly ends any session still open).
     if (!this.replay) recorder.begin(this, roomId);
@@ -513,6 +540,31 @@ export class Game {
   }
 
   private updateMenu(): void {
+    if (this.menuMode === "levels") {
+      const rooms = this.content.campaign.rooms;
+      if (this.input.navUp) {
+        this.levelSel = (this.levelSel + rooms.length - 1) % rooms.length;
+        sfx.play("uiMove");
+      }
+      if (this.input.navDown) {
+        this.levelSel = (this.levelSel + 1) % rooms.length;
+        sfx.play("uiMove");
+      }
+      if (this.input.confirmPressed) {
+        sfx.play("uiSelect");
+        this.newRun(rooms[this.levelSel]);
+        return;
+      }
+      if (this.input.pausePressed || this.input.justPressed("Backspace", "KeyL", "GpUse")) {
+        this.menuMode = "main";
+      }
+      return;
+    }
+    if (this.input.justPressed("KeyL", "GpCraft")) {
+      sfx.play("uiMove");
+      this.menuMode = "levels";
+      return;
+    }
     if (this.input.confirmPressed) {
       sfx.play("uiSelect");
       this.newRun();
@@ -1573,6 +1625,31 @@ export class Game {
     const sw = ctx.measureText(g.subtitle).width;
     ctx.fillText(g.subtitle, (VIEW_W - sw) / 2, 152);
 
+    if (this.menuMode === "levels") {
+      const rooms = this.content.campaign.rooms;
+      ctx.font = "10px monospace";
+      rooms.forEach((id, i) => {
+        const name = this.content.rooms[id]?.name ?? id;
+        const label = `${String(i + 1).padStart(2, " ")}. ${name}`;
+        const sel = i === this.levelSel;
+        ctx.fillStyle = sel ? "#ffd166" : "#8f87ad";
+        ctx.font = sel ? "bold 10px monospace" : "10px monospace";
+        const w = ctx.measureText(label).width;
+        const y = LEVELS_TOP + i * LEVELS_ROW_H + 11;
+        ctx.fillText(label, (VIEW_W - w) / 2, y);
+        if (sel) ctx.fillText("▸", (VIEW_W - w) / 2 - 14, y);
+      });
+      ctx.fillStyle = "rgba(143,135,173,0.5)";
+      ctx.font = "9px monospace";
+      const hint =
+        this.input.scheme === "gamepad" ? "d-pad — pick · A — go · B — back" :
+        this.input.scheme === "touch" ? "tap a room · tap elsewhere — back" :
+        "W/S — pick · ENTER — go · ESC — back";
+      const hw = ctx.measureText(hint).width;
+      ctx.fillText(hint, (VIEW_W - hw) / 2, VIEW_H - 12);
+      return;
+    }
+
     const blink = Math.floor(this.animT * 1.4) % 2 === 0;
     if (blink) {
       const startMsg =
@@ -1597,6 +1674,11 @@ export class Game {
     ctx.fillText(controls, (VIEW_W - cw) / 2, 250);
     ctx.fillStyle = "rgba(143,135,173,0.4)";
     ctx.fillText("v0.2.0", VIEW_W - 46, VIEW_H - 8);
+    // The quiet door: same dim register as the version tag, corner-tucked.
+    const roomsLabel =
+      this.input.scheme === "gamepad" ? "Y · rooms" :
+      this.input.scheme === "touch" ? "· rooms" : "L · rooms";
+    ctx.fillText(roomsLabel, 10, VIEW_H - 8);
     this.drawTip(ctx);
   }
 
