@@ -110,7 +110,8 @@
     "element": "fire",
     "spreads": true,
     "extinguishesTo": "",
-    "color": "#ff7043"
+    "color": "#ff7043",
+    "repels": true
   },
   {
     "id": "waterfall",

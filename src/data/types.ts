@@ -118,6 +118,7 @@ export interface TileDef extends SpriteFields {
   solid?: boolean;
   oneWay?: boolean;
   damage?: number;
+  repels?: boolean; // shoves the player back out (even on invuln frames) — an impassable hazard
   bounce?: number;  // upward launch velocity in px/s
   slow?: number;    // movement multiplier while overlapping (sticky)
   wade?: number;    // movement multiplier while overlapping (liquid)

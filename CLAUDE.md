@@ -207,6 +207,12 @@ small generator script again; for local tweaks use the in-game editor or edit th
   `dropsItem` field — any destructive transform pays it out as a bundle). The **melt
   effect no-ops on tiles without `meltsTo`** — that guard is what lets melt rules
   target a whole element (fire→stone) without erasing plain walls. Don't remove it.
+- **Fire is a wall, not a damage floor**: the fire tile has `repels: true` — a new
+  generic tile flag that shoves the player back out on every overlapping frame,
+  including invuln frames, so you can never tank through it; extinguish it instead.
+  Damage still applies on vulnerable contact, with knockback away from the tile
+  (`ev.repelFromX`), not the old always-rightward spike shove. Lava deliberately
+  does NOT repel — it's a wadeable damaging fluid.
 - **Braziers have a `lit` state** (entity field, default true; author `lit: false`
   for a bring-fire-here puzzle). Water contact (splash or flowing/fallen water tiles)
   douses; fire element or passive lit-torch contact relights. Unlit braziers don't

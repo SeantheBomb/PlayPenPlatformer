@@ -602,7 +602,9 @@ export class Game {
       });
     }
     if (ev.spikeDamage > 0) {
-      this.damagePlayer(ev.spikeDamage, this.player.centerX, "spikes");
+      // Repelling hazards report the tile's center so knockback pushes AWAY
+      // from it (centerX would always shove rightward — hurt()'s sign(0)||1).
+      this.damagePlayer(ev.spikeDamage, ev.repelFromX ?? this.player.centerX, "spikes");
     }
 
     // ---- Elemental hazards on the player (burning tiles, live charge) ----

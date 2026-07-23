@@ -13,6 +13,9 @@ export interface PlayerFrameEvents {
   landSpeed: number;
   bounced?: TileHit;
   spikeDamage: number;
+  /** Center-x of a repelling hazard tile overlapped this frame — knockback
+   *  should push away from HERE, not from the player's own center. */
+  repelFromX?: number;
   inLiquidOrGoo: boolean;
 }
 
@@ -131,6 +134,7 @@ export class Player {
       { dropThrough: input.downHeld }
     );
 
+    let repelHit: TileHit | null = null;
     for (const hit of res.overlapping) {
       const mult = hit.def.slow ?? hit.def.wade;
       if (mult) {
@@ -142,6 +146,7 @@ export class Player {
       if (hit.def.damage && !this.invulnerable) {
         ev.spikeDamage = Math.max(ev.spikeDamage, hit.def.damage);
       }
+      if (hit.def.repels) repelHit = hit;
     }
 
     this.x = res.x;
@@ -149,6 +154,16 @@ export class Player {
     this.vx = clamp(res.vx, -speedCap, speedCap);
     const fallSpeed = this.vy;
     this.vy = res.vy;
+
+    // Repelling hazards (fire) are walls of heat, not damage floors: shove
+    // the player back out every frame they overlap — invuln frames don't
+    // let you tank through. Put the fire out instead.
+    if (repelHit) {
+      const tcx = repelHit.tx * 16 + 8;
+      ev.repelFromX = tcx;
+      this.vx = (Math.sign(this.centerX - tcx) || -this.facing || 1) * cfg.knockbackX;
+      if (fallSpeed > 40) this.vy = -cfg.knockbackY * 0.6; // fell in — pop back up
+    }
 
     // Slippery check for next frame's friction
     if (res.onGround) {
