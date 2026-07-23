@@ -72,8 +72,8 @@ const SPREAD_INTERVAL = 0.7; // seconds between fire spread ticks
 const ENERGIZE_MS = 1500;
 const HAZARD_COOLDOWN_MS = 500;
 const WATER_FLOW_INTERVAL = 0.5; // seconds between fluid flow ticks
-const WATER_FLOW_MAX_DIST = 4;   // max tiles a poured/melted flow spreads sideways
-// Fall-fed fluid spreads with no distance cap — only walls or a drain stop it.
+// Fall-fed fluid spreads with no distance cap — only walls or a drain stop
+// it. Finite (melted/poured) fluid is conserved and never replicates at all.
 const SOURCED = -1;
 
 export class RoomRuntime {
@@ -344,8 +344,10 @@ export class RoomRuntime {
     //   2. below fluid  -> wait, unless the tile below rests on solid —
     //      then one diagonal slide into an open hole is allowed
     //   3. below solid, fluid above -> column pressure: MOVE sideways
-    //   4. below solid, surface tile -> replicate sideways (cap / sourced)
-    // Net effect: fluid never widens until it has fully fallen downward.
+    //   4. below solid, surface tile -> SOURCED replicates outward; finite
+    //      fluid only MOVES toward an adjacent hole (fully conserved)
+    // Net effect: fluid never widens until it has fully fallen downward,
+    // and a finite body slushes downhill as a body — it never multiplies.
     const sorted = [...this.waterFlowDist].sort((a, b) => b[0] - a[0]);
     for (const [idx, distance] of sorted) {
       const tx = idx % this.map.width;
@@ -406,15 +408,30 @@ export class RoomRuntime {
         }
         continue;
       }
-      // 4. Surface spread (replication, capped unless fall-fed).
-      if (distance !== SOURCED && distance >= WATER_FLOW_MAX_DIST) continue;
+      // 4. Surface tile, fully fallen.
+      if (distance === SOURCED) {
+        // Fall-fed fluid IS an infinite source — it replicates outward until
+        // walls or a drain stop it.
+        for (const nx of [tx - 1, tx + 1]) {
+          if (nx < 0 || nx >= this.map.width) continue;
+          if (this.map.at(nx, ty) !== null) continue;
+          const nIdx = this.map.index(nx, ty);
+          this.setTileById(nx, ty, def.id);
+          this.waterFlowDist.set(nIdx, SOURCED);
+          events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: def.color });
+        }
+        continue;
+      }
+      // Finite fluid (melted/poured) is CONSERVED — it never replicates.
+      // It only moves toward an adjacent hole it can fall into, so when a
+      // neighboring tile drops away the grounded body follows it down: the
+      // whole thing slushes downhill instead of becoming an infinite source.
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
         if (this.map.at(nx, ty) !== null) continue;
-        const nIdx = this.map.index(nx, ty);
-        this.setTileById(nx, ty, def.id);
-        this.waterFlowDist.set(nIdx, distance === SOURCED ? SOURCED : distance + 1);
-        events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: def.color });
+        if (ty + 1 >= this.map.height || this.map.at(nx, ty + 1) !== null) continue;
+        moveTo(nx, ty, distance);
+        break;
       }
     }
     this.douseBraziersTouchingWater(events);

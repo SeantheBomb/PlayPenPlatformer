@@ -199,14 +199,17 @@ small generator script again; for local tweaks use the in-game editor or edit th
   4-tile falloff. **A drain directly beneath a fall absorbs it entirely** (nothing
   pools) — every authored fall now needs either walls that genuinely contain the
   flood or a drain below it; greenhouse and the vault got drains for exactly this.
-- **Fluid never widens until it has fully fallen** (Sean's explicit rule): falling
-  MOVES the tile (no duplication trail), tiles resting on other fluid wait (at most
-  one diagonal slide into an open hole once their support column is grounded), a
-  column's base squeezes out sideways as a move under pressure, and only true
-  surface tiles replicate sideways. Drains run as a PRE-pass each tick so queued
-  water vanishes before anything can overflow around it — the combination is what
-  makes "drain on either side of a melting ice tower" fully contain the runoff
-  (verified: 9-tile burst melt, zero horizontal escape). Don't reorder these passes.
+- **Fluid never widens until it has fully fallen, and finite fluid is CONSERVED**
+  (Sean's explicit rules): falling MOVES the tile (no duplication trail), tiles
+  resting on other fluid wait (at most one diagonal slide into an open hole once
+  their support column is grounded), a column's base squeezes out sideways as a
+  move under pressure — and a surface tile of melted/poured fluid never
+  replicates: it only MOVES toward an adjacent hole it can fall into, so when a
+  neighbor drops away the grounded body follows it down ("the whole body slushes
+  downhill"). ONLY fall-fed (SOURCED) fluid replicates — falls are the one
+  infinite source. Drains run as a PRE-pass each tick so queued water vanishes
+  before anything can overflow around it. Verified: a 32-tile melted tower+shelves
+  body fully funneled into floor drains, zero left perched. Don't reorder these.
 - **Lava** (element `"lava"`, NOT `"fire"` — deliberately, so lava-only rules exist):
   flows exactly like water (`fluid: true`), damages like fire (tile `damage`, crawler
   reaction kill). Made by fire melting cracked stone (`cracked.meltsTo: "lava"`);
