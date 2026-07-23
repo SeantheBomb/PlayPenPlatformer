@@ -1,7 +1,7 @@
 // PlayPen Editor — hidden behind Ctrl+Shift+E. Every serialized content file
 // has a tab here: rooms, tiles, items, recipes, enemies, taunts, game, campaign.
 import type { ContentStore } from "../data/content";
-import { isElectron } from "../data/content";
+import { isElectron, mergedFiles } from "../data/content";
 import type { EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
 import {
@@ -419,6 +419,32 @@ class EditorShell {
           : "This session loaded no published version (bundled/local content only).")
     );
 
+    if (this.store.overlayFileNames.length > 0) {
+      panel.append(
+        el("div", {
+          style: "background:#3a2a1e;border:1px solid #7a5638;border-radius:4px;padding:8px;margin:8px 0",
+        },
+          el("p", { style: "margin:0 0 6px;color:#ffd166" },
+            `⚠ This browser has a local editing draft overriding: ${this.store.overlayFileNames.join(", ")}. ` +
+            "It sits on top of published/bundled content forever, in every future publish — including for " +
+            "fields a later code update changed, if this draft still has the old value. If you didn't mean " +
+            "to keep old edits to these files, clear the draft below before publishing."),
+          el("button", {
+            className: "pp-btn",
+            onclick: () => {
+              if (!confirm(
+                "Clear this browser's local editing draft? Unsaved/uncommitted edits to " +
+                `${this.store.overlayFileNames.join(", ")} will revert to published/bundled content. ` +
+                "This reloads the page."
+              )) return;
+              this.store.clearOverlay();
+              location.reload();
+            },
+          }, "clear local draft")
+        )
+      );
+    }
+
     const passInput = el("input", {
       type: "password",
       placeholder: "editor password",
@@ -504,7 +530,7 @@ class EditorShell {
                 method: "POST",
                 headers: auth(),
                 body: JSON.stringify({
-                  files: this.store.allFiles(),
+                  files: mergedFiles(this.store.allFiles()),
                   note: noteInput.value.trim(),
                 }),
               });

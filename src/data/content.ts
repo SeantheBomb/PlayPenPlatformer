@@ -123,6 +123,31 @@ function assemble(files: Record<string, unknown>): Content {
   };
 }
 
+/**
+ * Re-derive a publishable file map by running every id-array/game file back
+ * through the same bundled-defaults merge `assemble()` uses for gameplay.
+ * This is defense-in-depth for publish specifically: if a schema field was
+ * added since a file's local/published copy was last saved, publishing no
+ * longer ships that stale gap to every player — it self-heals the same way
+ * a stale save already self-heals at runtime. It can't fix a field whose
+ * *value* was explicitly saved (that's indistinguishable from an intentional
+ * edit) — see the stale-overlay warning in the editor's publish tab for that.
+ */
+export function mergedFiles(files: Record<string, unknown>): Record<string, unknown> {
+  const c = assemble(files);
+  const out: Record<string, unknown> = { ...files };
+  out["game.json"] = c.game;
+  out["elements.json"] = c.elements;
+  out["rules.json"] = c.rules;
+  out["achievements.json"] = c.achievements;
+  out["tiles.json"] = c.tiles;
+  out["items.json"] = c.items;
+  out["recipes.json"] = c.recipes;
+  out["enemies.json"] = c.enemies;
+  out["taunts.json"] = c.taunts;
+  return out;
+}
+
 export function isElectron(): boolean {
   return !!window.playpenFS;
 }
@@ -133,6 +158,10 @@ export class ContentStore {
   publishedInfo: { id: string; publishedAt: string; note?: string } | null = null;
   private files: Record<string, unknown> = {};
   private deletedInOverlay = new Set<string>();
+  /** Names of files a local (browser-only) editing draft overrides — surfaced
+   *  in the publish tab so a forgotten old draft doesn't silently ship stale
+   *  values on every future publish (see `mergedFiles`' limits above). */
+  overlayFileNames: string[] = [];
 
   async load(): Promise<Content> {
     this.files = bundledFiles();
@@ -174,6 +203,7 @@ export class ContentStore {
             deleted?: string[];
           };
           Object.assign(this.files, overlay.files);
+          this.overlayFileNames = Object.keys(overlay.files ?? {});
           for (const rel of overlay.deleted ?? []) {
             delete this.files[rel];
             this.deletedInOverlay.add(rel);
@@ -236,6 +266,7 @@ export class ContentStore {
 
   clearOverlay(): void {
     localStorage.removeItem(LS_KEY);
+    this.overlayFileNames = [];
   }
 }
 
