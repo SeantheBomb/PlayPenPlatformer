@@ -28,6 +28,13 @@ export class Input {
   scheme: ControlScheme = "keyboard";
   gamepadConnected = false;
   onSchemeChange?: (s: ControlScheme) => void;
+  /** Session recording taps every state transition here: (code, down,
+   *  trusted). `trusted` is false for synthetic KeyboardEvents (scripted
+   *  playtests) — the recorder uses that to mark a session bot-driven. */
+  onTransition?: (code: string, isDown: boolean, trusted: boolean) => void;
+  /** Set on any input activity, consumed once per sim step by the game —
+   *  the sim-clock-safe replacement for wall-clock idle detection. */
+  private activity = false;
   /** While true, keyboard events are ignored entirely (not even preventDefault)
    *  — set while the editor owns the page, so typing Space/Tab/arrows into an
    *  editor field doesn't jump the player or get eaten by the game. */
@@ -41,13 +48,18 @@ export class Input {
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Tab"].includes(ev.key)) {
         ev.preventDefault();
       }
-      if (!this.down.has(ev.code)) this.pressed.add(ev.code);
+      if (!this.down.has(ev.code)) {
+        this.pressed.add(ev.code);
+        this.onTransition?.(ev.code, true, ev.isTrusted);
+      }
       this.down.add(ev.code);
       this.markActivity("keyboard");
     });
     target.addEventListener("keyup", (e) => {
       if (this.paused) return;
-      this.down.delete((e as KeyboardEvent).code);
+      const ev = e as KeyboardEvent;
+      if (this.down.has(ev.code)) this.onTransition?.(ev.code, false, ev.isTrusted);
+      this.down.delete(ev.code);
     });
     window.addEventListener("blur", () => {
       this.down.clear();
@@ -72,7 +84,32 @@ export class Input {
 
   private markActivity(s: ControlScheme): void {
     this.lastInputAt = performance.now();
+    this.activity = true;
     this.setScheme(s);
+  }
+
+  /** True if any input arrived since last consumed (game reads per sim step). */
+  consumeActivity(): boolean {
+    const a = this.activity;
+    this.activity = false;
+    return a;
+  }
+
+  /** Replay injection: reproduce a recorded transition exactly — virtual
+   *  codes (Touch/Gp prefixes) through the virtual path, key codes through
+   *  the keyboard path — bypassing the DOM (and the paused gate) entirely. */
+  inject(code: string, isDown: boolean): void {
+    if (code.startsWith("Touch") || code.startsWith("Gp")) {
+      this.setVirtual(code, isDown);
+      return;
+    }
+    if (isDown) {
+      if (!this.down.has(code)) this.pressed.add(code);
+      this.down.add(code);
+      this.markActivity("keyboard");
+    } else {
+      this.down.delete(code);
+    }
   }
 
   /** Stop (or resume) reacting to keyboard input — used while the editor
@@ -87,12 +124,16 @@ export class Input {
   }
 
   /** Touch buttons (and tests) push virtual codes through here. */
-  setVirtual(code: string, isDown: boolean): void {
+  setVirtual(code: string, isDown: boolean, trusted = true): void {
     if (isDown) {
-      if (!this.virtual.has(code)) this.pressed.add(code);
+      if (!this.virtual.has(code)) {
+        this.pressed.add(code);
+        this.onTransition?.(code, true, trusted);
+      }
       this.virtual.add(code);
       this.markActivity(code.startsWith("Gp") ? "gamepad" : "touch");
     } else {
+      if (this.virtual.has(code)) this.onTransition?.(code, false, trusted);
       this.virtual.delete(code);
     }
   }
@@ -111,15 +152,22 @@ export class Input {
       if (isDown && !was) {
         this.pressed.add(code);
         this.virtual.add(code);
+        this.onTransition?.(code, true, true);
         this.markActivity("gamepad");
       } else if (!isDown && was) {
         this.virtual.delete(code);
+        this.onTransition?.(code, false, true);
       }
     }
   }
 
   isDown(...codes: string[]): boolean {
     return codes.some((c) => this.down.has(c) || this.virtual.has(c));
+  }
+
+  /** Everything currently held (replay viewer's live input readout). */
+  heldCodes(): string[] {
+    return [...this.down, ...this.virtual];
   }
 
   justPressed(...codes: string[]): boolean {

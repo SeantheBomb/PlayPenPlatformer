@@ -2,6 +2,7 @@
 // Editor access: Ctrl+Shift+E, or ?editor in the URL.
 import { store } from "./data/content";
 import { Game } from "./game/game";
+import { recorder } from "./game/recorder";
 
 async function boot() {
   const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -9,6 +10,14 @@ async function boot() {
 
   const content = await store.load();
   const game = new Game(ctx, content);
+
+  // ---- Session recording (deterministic input-replay telemetry) ----
+  // The recorder snapshots the content actually in play and streams every
+  // input transition; sessions surface in the editor's "sessions" tab.
+  recorder.contentFiles = () => store.allFiles();
+  recorder.apiBase = location.protocol === "file:" ? "https://playpen.pages.dev" : "";
+  game.input.onTransition = (code, down, trusted) =>
+    recorder.onInputTransition(code, down, trusted);
 
   // Render at native resolution: the backing store matches the window (x DPR)
   // and the 640x360 logical view is scaled up with a transform, so text and
@@ -40,6 +49,10 @@ async function boot() {
     editorOpen = !editorOpen;
     const root = document.getElementById("editor-root")!;
     if (editorOpen) {
+      // Opening the editor mid-run ends the session cleanly (design
+      // iteration, not organic play) and flags this page-load as dev.
+      recorder.devFlag = true;
+      recorder.end("editor", game);
       game.pause();
       root.style.display = "block";
       editorModule.openEditor(root, store, game);
@@ -64,8 +77,13 @@ async function boot() {
   (window as unknown as Record<string, unknown>).PP = {
     game,
     store,
-    give: (id: string, n = 1) => game.state?.add(id, n),
+    recorder,
+    give: (id: string, n = 1) => {
+      recorder.taint("debug-give"); // state mutated outside real play = bot session
+      return game.state?.add(id, n);
+    },
     warp: (roomId: string) => {
+      recorder.taint("debug-warp");
       if (game.scene !== "play") game.newRun(roomId);
       else {
         game.loadRoom(roomId);

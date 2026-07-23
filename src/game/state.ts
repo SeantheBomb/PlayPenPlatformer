@@ -1,5 +1,6 @@
 // Mutable state for a single run. Everything here resets on "New Game".
 import type { Content, ItemDef } from "../data/types";
+import { simNow } from "../engine/simclock";
 
 export interface PlacedItem {
   type: "spring" | "trap";
@@ -47,7 +48,7 @@ export class RunState {
   }
   stats: RunStats = {
     deaths: 0, crafts: 0, discoveries: 0, tauntsHeard: 0,
-    startedAt: performance.now(),
+    startedAt: simNow(),
   };
 
   constructor(private content: Content, startRoomId: string) {

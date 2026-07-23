@@ -88,6 +88,16 @@ function mergeArrayById<T extends { id: string }>(base: T[], override: unknown):
 
 const BUNDLED = bundledFiles();
 
+/**
+ * Assemble a raw content-file map into a usable Content bundle, deep-merged
+ * against current bundled defaults. Exported for session replay: a recorded
+ * session stores the file map as played, and merging it here means replays
+ * of old sessions survive future schema additions the same way stale saves do.
+ */
+export function assembleContent(files: Record<string, unknown>): Content {
+  return assemble(files);
+}
+
 function assemble(files: Record<string, unknown>): Content {
   const rooms: Record<string, RoomDef> = {};
   for (const [rel, data] of Object.entries(files)) {

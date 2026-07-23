@@ -58,6 +58,31 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   redo both on a new computer; the KV namespace IDs themselves are already in
   `wrangler.toml` (committed) and need no changes.
 
+## Session replay (deterministic input-replay telemetry)
+
+- Every real (non-bot) playsession records automatically: the content bundle as
+  played, the run's RNG seed, and every input tagged by fixed-step index —
+  chunk-uploaded to `/api/sessions` → `SESSIONS` KV (90-day TTL). The editor's
+  **sessions** tab lists them (filters, completion/outlier badges) and rewatches
+  any of them in a modal by re-running the actual simulation (`src/game/replay.ts`
+  drives a second `Game` in replay mode). Depth-first = one session across all
+  its rooms; breadth-first = every session's segment within one room (needs a
+  room filter). A drift indicator at the end proves determinism (0px = exact).
+- **Determinism rules this imposes on all future gameplay code**: never read
+  `performance.now()` or `Math.random()` for anything state-affecting. Use
+  `simNow()` (`src/engine/simclock.ts` — advances one fixed step per update,
+  frozen while paused) and the seeded RNG (taunts use it; add new gameplay
+  randomness there too). Wall clock + `Math.random` stay fine for pure cosmetics
+  (particles, blinks, shake, craft FX) and for pacing (loop hit-stop, touch tap
+  timing). New *input surfaces* must be captured: keys/virtual buttons flow
+  through `Input.onTransition` automatically; pointer-driven UI actions need
+  semantic recording (see `CraftUI.onPointerOp`) or logical-space taps
+  (`Game.handleTap`); blocking dialogs go through `Game.askConfirm`.
+- Bot detection: synthetic events (`isTrusted: false` — the scripted-playtest
+  workflow) and `PP.give`/`PP.warp` taint the session; tainted sessions are
+  dropped (set `PP.recorder.uploadTainted = true` to test the pipeline; they
+  arrive flagged bot and stay hidden behind the "show bot/dev sessions" toggle).
+
 ## Mobile (locked — Sean reversed the first two picks, don't re-litigate)
 
 - Compact screens (short side < 500 CSS px) get a zoomed world view (worldZoom 4/3),

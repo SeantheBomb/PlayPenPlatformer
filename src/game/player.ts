@@ -4,6 +4,7 @@ import type { Input } from "../engine/input";
 import { TileMap, type TileHit } from "../engine/tilemap";
 import { clamp, lerp } from "../engine/math";
 import { drawBlob } from "../engine/renderer";
+import { simNow } from "../engine/simclock";
 import type { RunState } from "./state";
 
 export interface PlayerFrameEvents {
@@ -36,7 +37,7 @@ export class Player {
   // Juice
   squashX = 1;
   squashY = 1;
-  private blinkAt = performance.now() + 2000;
+  private blinkAt = simNow() + 2000;
   private blinking = false;
 
   constructor(private cfg: GameConfig["player"]) {
@@ -62,18 +63,18 @@ export class Player {
   }
 
   get invulnerable() {
-    return performance.now() < this.invulnUntil || this.hiddenIn !== null;
+    return simNow() < this.invulnUntil || this.hiddenIn !== null;
   }
 
   hurt(fromX: number, invulnMs: number): void {
-    this.invulnUntil = performance.now() + invulnMs;
+    this.invulnUntil = simNow() + invulnMs;
     this.vx = Math.sign(this.centerX - fromX || 1) * this.cfg.knockbackX;
     this.vy = -this.cfg.knockbackY;
   }
 
   update(dt: number, input: Input, map: TileMap, state: RunState): PlayerFrameEvents {
     const cfg = this.cfg;
-    const now = performance.now();
+    const now = simNow();
     const ev: PlayerFrameEvents = {
       jumped: false, landed: false, landSpeed: 0,
       spikeDamage: 0, inLiquidOrGoo: false,
@@ -193,14 +194,14 @@ export class Player {
 
   /** Kick off the swing-tool visual (breaking logic lives in Game). */
   swing(): void {
-    this.swingUntil = performance.now() + 160;
+    this.swingUntil = simNow() + 160;
     this.squashX = 1.18;
     this.squashY = 0.88;
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
     if (this.hiddenIn !== null) return;
-    const flicker = this.invulnerable && Math.floor(performance.now() / 80) % 2 === 0;
+    const flicker = this.invulnerable && Math.floor(simNow() / 80) % 2 === 0;
     if (flicker) ctx.globalAlpha = 0.35;
     drawBlob(
       ctx, this.x, this.y, this.w, this.h,
@@ -208,7 +209,7 @@ export class Player {
       { squashX: this.squashX, squashY: this.squashY, blink: this.blinking, sprite: this.cfg }
     );
     // Swing swoosh arc in front of the player
-    const swingLeft = this.swingUntil - performance.now();
+    const swingLeft = this.swingUntil - simNow();
     if (swingLeft > 0) {
       const t = 1 - swingLeft / 160; // 0..1 through the swing
       ctx.save();

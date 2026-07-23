@@ -6,6 +6,7 @@ import type {
 import { TILE, TileMap } from "../engine/tilemap";
 import { drawBlob, drawItemIcon, drawTile, roundRect, shade } from "../engine/renderer";
 import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
+import { simNow } from "../engine/simclock";
 import type { PlacedItem, RoomMutations } from "./state";
 
 export interface EntityInstance extends Rect {
@@ -83,7 +84,7 @@ export class RoomRuntime {
 
   /** tile index -> seconds of burn left */
   burning = new Map<number, number>();
-  /** tile index -> performance.now() timestamp when charge dissipates */
+  /** tile index -> simNow() timestamp when charge dissipates */
   energized = new Map<number, number>();
   /** tile index -> tiles-from-source, for water tiles actively able to spread */
   private waterFlowDist = new Map<number, number>();
@@ -341,7 +342,7 @@ export class RoomRuntime {
 
   /** Flood charge through connected conductive tiles; trip fuse boxes. */
   private energizeFrom(tx: number, ty: number, events: ElementEvent[]): void {
-    const until = performance.now() + ENERGIZE_MS;
+    const until = simNow() + ENERGIZE_MS;
     const stack = [[tx, ty]];
     const seen = new Set<number>();
     let count = 0;
@@ -364,7 +365,7 @@ export class RoomRuntime {
 
   /** A fusebox trips if any energized tile touches it (or its neighbors). */
   private checkFuseboxes(events: ElementEvent[]): void {
-    const now = performance.now();
+    const now = simNow();
     for (const fb of this.entities) {
       if (fb.kind !== "fusebox" || fb.open) continue;
       const tx0 = Math.floor(fb.x / TILE) - 1;
@@ -430,7 +431,7 @@ export class RoomRuntime {
         break;
       case "stun":
         en.state = "stunned";
-        en.stunUntil = performance.now() + stunMs;
+        en.stunUntil = simNow() + stunMs;
         break;
       case "knockback":
         en.vx = en.facing * -120;
@@ -443,7 +444,7 @@ export class RoomRuntime {
 
   isEnergized(tx: number, ty: number): boolean {
     const until = this.energized.get(this.map.index(tx, ty));
-    return !!until && until > performance.now();
+    return !!until && until > simNow();
   }
 
   isBurning(tx: number, ty: number): boolean {
@@ -543,7 +544,7 @@ export class RoomRuntime {
       if (!en.def.stunnable || en.state === "trapped") continue;
       if (dist(x, y, en.x + en.def.width / 2, en.y + en.def.height / 2) <= radius) {
         en.state = "stunned";
-        en.stunUntil = performance.now() + durationMs;
+        en.stunUntil = simNow() + durationMs;
         hit++;
       }
     }
@@ -592,7 +593,7 @@ export class RoomRuntime {
     stunMs: number,
     onEvents: (events: ElementEvent[]) => void
   ): void {
-    const now = performance.now();
+    const now = simNow();
     const events: ElementEvent[] = [];
 
     // ---- Fire simulation ----
@@ -766,7 +767,7 @@ export class RoomRuntime {
   }
 
   private drawElementOverlays(ctx: CanvasRenderingContext2D, animT: number): void {
-    const now = performance.now();
+    const now = simNow();
     for (const idx of this.burning.keys()) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);

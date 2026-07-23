@@ -4,6 +4,7 @@
 // touching code.
 import type { GameConfig, WardenEmotion } from "../data/types";
 import { drawItemIcon, drawWardenPortrait, roundRect } from "../engine/renderer";
+import { simNow } from "../engine/simclock";
 import type { RunState } from "./state";
 import type { TauntManager } from "./taunts";
 import { wrapText } from "./craftui";
@@ -137,7 +138,7 @@ export function drawTauntBanner(
 }
 
 export function drawFloaties(ctx: CanvasRenderingContext2D, floaties: Floaty[]): void {
-  const now = performance.now();
+  const now = simNow();
   for (const f of floaties) {
     const age = (now - f.bornAt) / 1000;
     ctx.globalAlpha = Math.max(0, 1 - age / 1.1);

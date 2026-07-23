@@ -16,6 +16,9 @@ import { CraftUI } from "./craftui";
 import { TouchControls, type SmartContext } from "./touch";
 import { Warden } from "./warden";
 import { telemetry } from "./telemetry";
+import { simNow, setSimTime } from "../engine/simclock";
+import { randomSeed } from "../engine/rng";
+import { recorder, type CraftOp } from "./recorder";
 import {
   drawFloaties, drawHearts, drawHotbar, drawPrompt,
   drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
@@ -30,7 +33,17 @@ type Overlay = "none" | "note" | "dialog" | "npcConfirm" | "craft" | "pause" | "
 
 export class Game {
   content: Content;
-  input = new Input();
+  /** Replay-player instance: no real input, no recording, no telemetry. */
+  readonly replay: boolean;
+  /** Simulated ms elapsed (advances one fixed step per update; frozen on pause). */
+  simTime = 0;
+  /** Fixed-timestep updates executed so far — the replay event timeline unit. */
+  stepCount = 0;
+  private lastInputSim = 0; // simTime of the last real/injected input (idle logic)
+  runSeed = 0;
+  /** Confirm-dialog answers queued by the replay driver (see askConfirm). */
+  replayConfirms: boolean[] = [];
+  input: Input;
   camera = new Camera();
   particles = new Particles();
   taunts: TauntManager;
@@ -67,7 +80,15 @@ export class Game {
   private reportUI: import("./report").ReportUI | null = null;
   private emberTimer = 0; // accumulator gating the lit-torch ember trail
 
-  constructor(private ctx: CanvasRenderingContext2D, content: Content) {
+  constructor(
+    private ctx: CanvasRenderingContext2D,
+    content: Content,
+    opts: { replay?: boolean } = {}
+  ) {
+    this.replay = !!opts.replay;
+    // A replay Game must never see real keyboard/touch input — its Input
+    // listens on a detached element and is driven purely by inject().
+    this.input = new Input(this.replay ? document.createElement("div") : window);
     this.content = content;
     this.taunts = new TauntManager(content.taunts);
     this.taunts.onTauntShown = () => {
@@ -84,19 +105,27 @@ export class Game {
         if (result.outputId) {
           this.taunts.fire("craft_item", { itemId: result.outputId });
           this.checkAchievements("craft_item", { itemId: result.outputId });
-          telemetry.craft(this.currentRoomId, result.outputId);
+          if (!this.replay) telemetry.craft(this.currentRoomId, result.outputId);
         }
       } else {
         sfx.play("craftFail");
         this.taunts.fire("craft_fail");
       }
     });
+    // Pointer-driven craft actions are recorded semantically (which slot,
+    // which combine) rather than as raw coordinates, so replay is immune to
+    // viewport differences. Keyboard craft nav replays via key injection.
+    this.craftUI.onPointerOp = (op) => {
+      if (!this.replay) recorder.recordCraftOp(op);
+    };
     this.loop = new Loop(
       (dt) => this.update(dt),
       () => this.render()
     );
     this.touch = new TouchControls(
-      ctx.canvas as HTMLCanvasElement,
+      // Replay: listeners bind to a detached canvas so real touches on the
+      // replay viewport can never leak into the simulation.
+      this.replay ? document.createElement("canvas") : (ctx.canvas as HTMLCanvasElement),
       this.input,
       (cx, cy) => this.screenToLogical(cx, cy),
       (cx, cy) => this.screenToCanvasPixel(cx, cy),
@@ -107,6 +136,7 @@ export class Game {
       if (phase === "down") this.craftUI.pointerDown(x, y, this.state);
       else if (phase === "move") this.craftUI.pointerMove(x, y);
       else if (this.craftUI.pointerUp(x, y, this.state) === "close") {
+        if (!this.replay) recorder.recordCraftOp({ op: "close" });
         this.craftUI.hide();
         this.overlay = "none";
       }
@@ -139,6 +169,7 @@ export class Game {
       if (this.scene === "play" && this.overlay === "craft") {
         const p = this.screenToCanvasPixel(e.clientX, e.clientY);
         if (this.craftUI.pointerUp(p.x, p.y, this.state) === "close") {
+          if (!this.replay) recorder.recordCraftOp({ op: "close" });
           this.craftUI.hide();
           this.overlay = "none";
         }
@@ -186,9 +217,18 @@ export class Game {
     };
   }
 
+  /** Blocking confirm that records the player's answer — a replay consumes
+   *  the recorded answer instead of popping a real dialog. */
+  private askConfirm(msg: string): boolean {
+    if (this.replay) return this.replayConfirms.shift() ?? false;
+    const v = confirm(msg);
+    recorder.recordConfirm(v);
+    return v;
+  }
+
   /** Stuck? Put the whole room back the way it started (softlock escape). */
   private confirmResetRoom(): void {
-    if (!confirm("Reset this room? Items, doors, and your inventory go back to how the room began.")) {
+    if (!this.askConfirm("Reset this room? Items, doors, and your inventory go back to how the room began.")) {
       return;
     }
     this.overlay = "none";
@@ -220,7 +260,7 @@ export class Game {
 
   private tip(text: string): void {
     this.tipText = text;
-    this.tipUntil = performance.now() + 2500;
+    this.tipUntil = simNow() + 2500;
   }
 
   /** Client (CSS) coords -> raw canvas backing-store pixel coords. */
@@ -243,13 +283,16 @@ export class Game {
 
   /** Taps that didn't land on a touch button: UI navigation. */
   handleTap(x: number, y: number): void {
+    // Logical-space (640×360) coords — viewport-independent, so raw recording
+    // replays byte-identically on any screen.
+    if (!this.replay) recorder.recordTap(x, y);
     if (this.scene === "menu") {
       sfx.play("uiSelect");
       this.newRun();
       return;
     }
     if (this.scene === "win") {
-      if (performance.now() - this.winShownAt > 1200) this.scene = "menu";
+      if (simNow() - this.winShownAt > 1200) this.scene = "menu";
       return;
     }
     switch (this.overlay) {
@@ -350,8 +393,13 @@ export class Game {
     this.craftUI.setViewport(compact, this.ctx.canvas.width, this.ctx.canvas.height, scale, ox, oy);
   }
 
-  newRun(startRoomId?: string): void {
+  newRun(startRoomId?: string, seed?: number): void {
     const roomId = startRoomId ?? this.content.campaign.rooms[0];
+    // Seed gameplay randomness for this run; a recorded session stores the
+    // seed so its replay rolls the identical taunt sequence.
+    this.runSeed = seed ?? randomSeed();
+    this.taunts.reseed(this.runSeed);
+    this.replayConfirms.length = 0;
     this.state = new RunState(this.content, roomId);
     this.player = new Player(this.content.game.player);
     this.taunts.reset();
@@ -359,6 +407,9 @@ export class Game {
     this.floaties = [];
     this.scene = "play";
     this.overlay = "none";
+    // Begin recording before loadRoom so the first room marker lands inside
+    // the new session (also cleanly ends any session still open).
+    if (!this.replay) recorder.begin(this, roomId);
     this.loadRoom(roomId);
     this.state.checkpoint = {
       roomId, x: this.roomRt.spawnX, y: this.roomRt.spawnY,
@@ -374,7 +425,10 @@ export class Game {
     }
     this.currentRoomId = roomId;
     this.roomEnteredAt = Date.now();
-    telemetry.roomEnter(roomId);
+    if (!this.replay) {
+      telemetry.roomEnter(roomId);
+      recorder.markRoom(roomId, this.stepCount);
+    }
     this.roomRt = new RoomRuntime(room, this.content, this.state.mutations(roomId));
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
@@ -382,7 +436,7 @@ export class Game {
     this.warden.dissipate();
     this.idleWardenSummoned = false;
     this.wardenSpawnAt = room.wardenChase
-      ? performance.now() + room.wardenChase.delayMs
+      ? simNow() + room.wardenChase.delayMs
       : Infinity;
     this.camera.snapTo(
       this.player.centerX, this.player.centerY,
@@ -400,18 +454,26 @@ export class Game {
   }
 
   private floaty(text: string, x: number, y: number, color = "#ffd166"): void {
-    this.floaties.push({ text, x, y, bornAt: performance.now(), color });
+    this.floaties.push({ text, x, y, bornAt: simNow(), color });
     if (this.floaties.length > 12) this.floaties.shift();
   }
 
   // ================= UPDATE =================
 
   private update(dt: number): void {
-    this.input.pollGamepads();
+    // The deterministic-replay backbone: one fixed step per update, counted
+    // and clocked in sim time. All recorded input is tagged by stepCount, so
+    // a replay that applies the same events before the same step numbers
+    // reproduces the run exactly.
+    this.stepCount++;
+    this.simTime += dt * 1000;
+    setSimTime(this.simTime);
+    if (!this.replay) this.input.pollGamepads(); // replays never read real pads
+    if (this.input.consumeActivity()) this.lastInputSim = this.simTime;
     this.animT += dt;
     this.camera.update(dt);
     this.particles.update(dt);
-    this.floaties = this.floaties.filter((f) => performance.now() - f.bornAt < 1100);
+    this.floaties = this.floaties.filter((f) => simNow() - f.bornAt < 1100);
 
     switch (this.scene) {
       case "menu": this.updateMenu(); break;
@@ -419,6 +481,26 @@ export class Game {
       case "win": this.updateWin(); break;
     }
     this.input.endFrame();
+  }
+
+  /** Advance exactly one fixed sim step — the replay driver's clock tick. */
+  stepOnce(): void {
+    this.update(1 / 60);
+  }
+
+  /** Replay driver: re-apply a recorded semantic craft-menu action. */
+  applyCraftOp(op: CraftOp): void {
+    if (op.op === "close") {
+      this.craftUI.hide();
+      this.overlay = "none";
+    } else {
+      this.craftUI.applyPointerOp(op, this.state);
+    }
+  }
+
+  /** Draw the current state — replay driver calls this per display frame. */
+  renderOnce(): void {
+    this.render();
   }
 
   private updateMenu(): void {
@@ -430,7 +512,7 @@ export class Game {
 
   private updateWin(): void {
     this.taunts.update();
-    if (performance.now() - this.winShownAt > 1200 && this.input.confirmPressed) {
+    if (simNow() - this.winShownAt > 1200 && this.input.confirmPressed) {
       this.scene = "menu";
     }
   }
@@ -482,6 +564,7 @@ export class Game {
       if (this.input.justPressed("KeyQ")) {
         this.overlay = "none";
         this.scene = "menu";
+        if (!this.replay) recorder.end("quit", this);
       }
       return;
     }
@@ -659,7 +742,7 @@ export class Game {
         this.state.mutations(this.currentRoomId).collected.add(e.index);
         this.state.add(item.id, e.def.count ?? 1);
         this.checkAchievements("pickup_item", { itemId: item.id });
-        telemetry.collect(this.currentRoomId, item.id);
+        if (!this.replay) telemetry.collect(this.currentRoomId, item.id);
         sfx.play("pickup");
         this.floaty(`+${e.def.count ?? 1} ${item.name}`, e.x + e.w / 2, e.y);
         this.particles.burst({
@@ -709,7 +792,7 @@ export class Game {
     }
 
     // ---- Idle taunt, then idle CONSEQUENCES ----
-    const idleMs = performance.now() - this.input.lastInputAt;
+    const idleMs = this.simTime - this.lastInputSim;
     if (idleMs > this.content.game.rules.idleTauntSeconds * 1000) {
       this.taunts.fire("idle");
     }
@@ -737,7 +820,7 @@ export class Game {
 
     // ---- The Warden ----
     if (this.roomRt.room.wardenChase && !this.warden.active &&
-        performance.now() > this.wardenSpawnAt) {
+        simNow() > this.wardenSpawnAt) {
       this.warden.spawn(
         "boss",
         this.roomRt.spawnX - 80,
@@ -758,7 +841,7 @@ export class Game {
           this.state.health = 0;
           this.killPlayer();
           this.warden.dissipate();
-          this.wardenSpawnAt = performance.now() + 1500;
+          this.wardenSpawnAt = simNow() + 1500;
         } else {
           this.damagePlayer(1, this.warden.centerX, "warden");
           this.warden.dissipate();
@@ -879,7 +962,7 @@ export class Game {
     const target = e.def.to === "next" || !e.def.to ? this.nextRoomId() : e.def.to;
     if (target) {
       sfx.play("door");
-      telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
+      if (!this.replay) telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
       // The Warden confiscates your belongings between wings. Knowledge stays.
       if (
         this.content.game.rules.resetInventoryBetweenRooms &&
@@ -1075,7 +1158,7 @@ export class Game {
   }
 
   private useItem(item: ItemDef): void {
-    const now = performance.now();
+    const now = simNow(); // swing cooldown is gameplay state — sim clock
     const rules = this.content.game.rules;
     switch (item.useMode) {
       case "swing": {
@@ -1178,7 +1261,10 @@ export class Game {
     const g = this.content.game;
     this.state.stats.deaths++;
     sfx.play("death");
-    telemetry.death(this.currentRoomId);
+    if (!this.replay) {
+      telemetry.death(this.currentRoomId);
+      recorder.markDeath();
+    }
     this.camera.shake(6, 0.4);
     this.particles.burst({
       x: this.player.centerX, y: this.player.centerY,
@@ -1204,17 +1290,20 @@ export class Game {
       this.loadRoom(cp.roomId);
     }
     this.player.placeFeetAt(cp.x, cp.y);
-    this.player.invulnUntil = performance.now() + g.rules.respawnInvulnMs;
+    this.player.invulnUntil = simNow() + g.rules.respawnInvulnMs;
     this.player.hiddenIn = null;
     this.roomRt.resetEnemies();
   }
 
   private winGame(): void {
-    telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
-    telemetry.event("game_win");
-    this.finishedInMs = performance.now() - this.state.stats.startedAt;
+    if (!this.replay) {
+      telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
+      telemetry.event("game_win");
+      recorder.end("win", this);
+    }
+    this.finishedInMs = simNow() - this.state.stats.startedAt;
     this.scene = "win";
-    this.winShownAt = performance.now();
+    this.winShownAt = simNow();
     sfx.play("win");
     this.taunts.fire("win");
     this.checkAchievements("win");
@@ -1223,6 +1312,7 @@ export class Game {
   // ================= RENDER =================
 
   private render(): void {
+    setSimTime(this.simTime);
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#0d0b14"; // letterbox
@@ -1476,7 +1566,7 @@ export class Game {
     if (usable.length === 0) return;
     const item = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
     const p = this.player;
-    const swingLeft = p.swingUntil - performance.now();
+    const swingLeft = p.swingUntil - simNow();
     const swinging = swingLeft > 0;
     const t = swinging ? 1 - swingLeft / 160 : 0;
     // Resting: at the hip on the facing side. Swinging: sweeps up and forward.
@@ -1491,7 +1581,7 @@ export class Game {
   }
 
   private drawTip(ctx: CanvasRenderingContext2D): void {
-    if (performance.now() > this.tipUntil) return;
+    if (simNow() > this.tipUntil) return;
     ctx.font = "10px monospace";
     const w = ctx.measureText(this.tipText).width + 20;
     ctx.fillStyle = "rgba(16,12,24,0.85)";

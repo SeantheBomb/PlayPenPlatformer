@@ -46,6 +46,14 @@ interface Layout {
 
 interface Slot { item: ItemDef; count: number; }
 
+/** Pointer-originated craft actions, recorded semantically for replay. */
+export type CraftPointerOp =
+  | { op: "pick"; i: number }
+  | { op: "combine"; a: string; b: string }
+  | { op: "selequip"; id: string }
+  | { op: "dismantle"; id: string }
+  | { op: "close" };
+
 interface Spark { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; }
 
 const c1 = 1.70158;
@@ -59,6 +67,8 @@ function easeOutCubic(t: number): number {
 
 export class CraftUI {
   open = false;
+  /** Session recording taps pointer-originated craft actions here. */
+  onPointerOp?: (op: CraftPointerOp) => void;
   private cursor = 0;
   private firstPick: number | null = null;
   private message = "";
@@ -316,8 +326,10 @@ export class CraftUI {
       const target = this.slotIndexAt(x, y, state);
       const slots = this.materials(state);
       if (target !== null && target !== dragFrom && slots[dragFrom] && slots[target]) {
+        this.onPointerOp?.({ op: "combine", a: slots[dragFrom].item.id, b: slots[target].item.id });
         this.combine(state, slots[dragFrom].item.id, slots[target].item.id);
       } else if (target === dragFrom && slots[dragFrom]) {
+        this.onPointerOp?.({ op: "combine", a: slots[dragFrom].item.id, b: slots[dragFrom].item.id });
         this.combine(state, slots[dragFrom].item.id, slots[dragFrom].item.id);
       }
       return "handled";
@@ -325,25 +337,47 @@ export class CraftUI {
 
     // A click/tap (no drag)
     if (downWas !== null) {
+      this.onPointerOp?.({ op: "pick", i: downWas });
       this.pickAt(downWas, state);
       return "handled";
     }
     const eq = this.equipIndexAt(x, y, state);
     if (eq !== null) {
       const slot = this.equipment(state)[eq];
-      this.selectedEquip = slot.item.id;
-      this.message = `${slot.item.name}: ${slot.item.description}`;
-      this.messageColor = "#bbb3d6";
-      sfx.play("uiSelect");
+      this.onPointerOp?.({ op: "selequip", id: slot.item.id });
+      this.applySelectEquip(slot.item.id, state);
       return "handled";
     }
     if (this.selectedEquip && this.inRect(x, y, L.dismantle)) {
+      this.onPointerOp?.({ op: "dismantle", id: this.selectedEquip });
       this.dismantle(state, this.selectedEquip);
       return "handled";
     }
     // Outside the panel closes
     if (x < L.ox || x > L.ox + L.w || y < L.oy || y > L.oy + L.h) return "close";
     return "handled";
+  }
+
+  private applySelectEquip(id: string, _state: RunState): void {
+    const item = this.content.items.find((i) => i.id === id);
+    if (!item) return;
+    this.selectedEquip = id;
+    this.message = `${item.name}: ${item.description}`;
+    this.messageColor = "#bbb3d6";
+    sfx.play("uiSelect");
+  }
+
+  /** Replay: re-apply a recorded pointer-originated craft action. Keyboard
+   *  craft actions replay through key injection, so only pointer paths are
+   *  recorded semantically (viewport-independent by construction). */
+  applyPointerOp(op: CraftPointerOp, state: RunState): void {
+    switch (op.op) {
+      case "pick": this.pickAt(op.i, state); break;
+      case "combine": this.combine(state, op.a, op.b); break;
+      case "selequip": this.applySelectEquip(op.id, state); break;
+      case "dismantle": this.dismantle(state, op.id); break;
+      case "close": break; // handled at the Game level (overlay state)
+    }
   }
 
   // ---------- actions ----------

@@ -151,16 +151,20 @@ something looks the way it does from the diff alone.
   `npm run dev-receiver` (see `CLAUDE.md`'s testing section) since the Browser-pane
   screenshot tool times out on this page.
 
-## In-flight elsewhere: full session-replay telemetry
+## Session-replay telemetry (shipped 2026-07-23)
 
-A separate cloud/web session was mid-build on a much bigger feature — deterministic
-input-replay telemetry (record every real playsession precisely enough to rewatch it
-frame-by-frame) plus a new editor tab to browse/replay sessions — when it hung and
-never finished. Its work never reached this repo (no commit, no local files). Full
-transcription of the request, what it had built (a seeded RNG, an input capture/drive
-layer, sim-clock work on the taunt manager), and where to resume is in
-**`docs/TELEMETRY_REPLAY_HANDOFF.md`**. Check whether that other session is
-recoverable before rebuilding from scratch.
+The deterministic input-replay system described in `docs/TELEMETRY_REPLAY_HANDOFF.md`
+(originally attempted by a cloud session that hung; rebuilt from scratch here) is now
+live. Every real playsession records the content-as-played, the run's RNG seed, and
+every input tagged by fixed-step index; chunks upload to `/api/sessions` → `SESSIONS`
+KV. The editor's **sessions** tab lists sessions (filters, completion + outlier
+badges) and rewatches any of them by re-running the actual simulation in a modal —
+play/pause/speed/seek, live held-input readout, depth-first (whole session) and
+breadth-first (all sessions in one room) modes, and a drift indicator that proves
+determinism (verified 0px on the end-to-end test). The determinism ground rules this
+imposes on all future gameplay code (sim clock, seeded RNG, input-capture surfaces)
+are documented in `CLAUDE.md`'s "Session replay" section — read them before adding
+any new timer, randomness, or input path.
 
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 

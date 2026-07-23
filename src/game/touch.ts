@@ -96,9 +96,14 @@ export class TouchControls {
 
   // ---------- touch handling ----------
 
+  // Whether the touch event currently being handled came from a real finger
+  // (synthetic TouchEvents from scripted playtests are isTrusted: false) —
+  // threaded into setVirtual so session recording can flag bot input.
+  private trusted = true;
+
   private press(id: number, code: string): void {
     this.buttonTouches.set(id, code);
-    this.input.setVirtual(code, true);
+    this.input.setVirtual(code, true, this.trusted);
   }
 
   private releaseButton(id: number): boolean {
@@ -106,15 +111,16 @@ export class TouchControls {
     if (!code) return false;
     this.buttonTouches.delete(id);
     if (![...this.buttonTouches.values()].includes(code)) {
-      this.input.setVirtual(code, false);
+      this.input.setVirtual(code, false, this.trusted);
     }
     return true;
   }
 
   private onStart(e: TouchEvent): void {
     e.preventDefault();
-    this.input.setVirtual("TouchAny", true);
-    this.input.setVirtual("TouchAny", false);
+    this.trusted = e.isTrusted;
+    this.input.setVirtual("TouchAny", true, e.isTrusted);
+    this.input.setVirtual("TouchAny", false, e.isTrusted);
     const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
       const sp = this.toCanvasPixel(t.clientX, t.clientY);
@@ -145,6 +151,7 @@ export class TouchControls {
 
   private onMove(e: TouchEvent): void {
     e.preventDefault();
+    this.trusted = e.isTrusted;
     const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
       // Button touches remain button touches — allow sliding ◀ <-> ▶.
@@ -168,6 +175,7 @@ export class TouchControls {
 
   private onEnd(e: TouchEvent): void {
     e.preventDefault();
+    this.trusted = e.isTrusted;
     const mode = this.overlayMode();
     for (const t of Array.from(e.changedTouches)) {
       // Releasing a button never leaks into overlay/tap handling.

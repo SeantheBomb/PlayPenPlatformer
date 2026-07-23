@@ -13,3 +13,7 @@ id = "f76627198ee34df7b6b46e4256f6b4a4"
 [[kv_namespaces]]
 binding = "TELEMETRY"
 id = "25bfc4293c2c4e8fb00d3c3efab59a5b"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "b6bf50653e4f40588795c9248d4f1526"

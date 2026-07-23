@@ -4,6 +4,7 @@
 import type { GameConfig } from "../data/types";
 import { drawBlob, drawSprite, shade } from "../engine/renderer";
 import { dist } from "../engine/math";
+import { simNow } from "../engine/simclock";
 
 export type WardenMode = "idle" | "boss";
 
@@ -25,7 +26,7 @@ export class Warden {
     this.x = x;
     this.y = y;
     this.speed = speed;
-    this.spawnedAt = performance.now();
+    this.spawnedAt = simNow();
   }
 
   dissipate(): void {
@@ -60,7 +61,7 @@ export class Warden {
     animT: number
   ): void {
     if (!this.active) return;
-    const t = Math.min(1, (performance.now() - this.spawnedAt) / 800); // fade in
+    const t = Math.min(1, (simNow() - this.spawnedAt) / 800); // fade in
     const wob = Math.sin(animT * 5) * 0.06;
     ctx.globalAlpha = 0.25 * t;
     // Dark aura
