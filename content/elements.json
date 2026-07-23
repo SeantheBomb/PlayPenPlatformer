@@ -38,5 +38,10 @@
     "id": "stone",
     "name": "Stone (neutral)",
     "color": "#3d3a52"
+  },
+  {
+    "id": "lava",
+    "name": "Lava",
+    "color": "#ff5e2b"
   }
 ]

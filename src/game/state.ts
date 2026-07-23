@@ -17,6 +17,7 @@ export interface RoomMutations {
   disabledEnemies: Set<number>; // trapped/killed enemies stay gone
   bundles: { x: number; y: number; items: [string, number][] }[]; // death drops
   placedItems: PlacedItem[];  // player-placed springs and traps
+  brazierLit: [number, boolean][]; // entity index -> lit override (douse/relight)
 }
 
 export interface RunStats {
@@ -68,6 +69,7 @@ export class RunState {
         disabledEnemies: new Set(),
         bundles: [],
         placedItems: [],
+        brazierLit: [],
       };
       this.roomStates.set(roomId, m);
     }

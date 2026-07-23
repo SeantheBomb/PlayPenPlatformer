@@ -986,7 +986,7 @@ export class RoomEditor {
     const emptyMuts = {
       collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
       helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), bundles: [],
-      placedItems: [],
+      placedItems: [], brazierLit: [],
     };
     try {
       const rt = new RoomRuntime(room, this.content, emptyMuts);

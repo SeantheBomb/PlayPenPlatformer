@@ -18,7 +18,8 @@
       "water": "none",
       "ice": "stun",
       "spark": "none",
-      "metal": "knockback"
+      "metal": "knockback",
+      "lava": "kill"
     },
     "description": "A goo creature. Burns like a candle, laughs at electricity (goo insulates), freezes solid."
   },
@@ -44,7 +45,8 @@
       "water": "stun",
       "ice": "stun",
       "spark": "stun",
-      "metal": "knockback"
+      "metal": "knockback",
+      "lava": "none"
     },
     "description": "A metal drone. Fireproof, but water and charge short it out. If it sees you, it becomes extremely awake."
   }

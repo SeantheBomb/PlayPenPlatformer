@@ -656,8 +656,8 @@ export class Game {
       {
         const usable = this.state.usableItems();
         const held = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
+        const box = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
         if (held?.igniteTo) {
-          const box = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
           if (this.roomRt.boxTouchesFire(box)) {
             this.state.transform(held.id, held.igniteTo);
             sfx.play("ignite");
@@ -665,6 +665,14 @@ export class Game {
             const after = this.state.usableItems();
             const idx = after.findIndex((i) => i.id === held.igniteTo);
             if (idx >= 0) this.state.selectedConsumable = idx;
+          }
+        } else if (held?.element === "fire") {
+          // The reverse: carrying a lit torch into a cold brazier lights IT.
+          const litEvents = this.roomRt.applyElementToBraziers("fire", box);
+          if (litEvents.length > 0) {
+            sfx.play("ignite");
+            this.floaty("Brazier lit!", this.player.centerX, this.player.y - 8, "#ffc861");
+            this.handleElementEvents(litEvents);
           }
         }
       }
@@ -1184,6 +1192,7 @@ export class Game {
         const events = [
           ...this.roomRt.applyElementToTiles(item.element, box),
           ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
+          ...this.roomRt.applyElementToBraziers(item.element, box),
         ];
         this.handleElementEvents(events);
         if (item.kind === "consumable" && events.length > 0) {
@@ -1204,6 +1213,7 @@ export class Game {
         const events = [
           ...this.roomRt.applyElementToTiles(item.element, box),
           ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
+          ...this.roomRt.applyElementToBraziers(item.element, box),
         ];
         sfx.play("splash");
         this.particles.burst({

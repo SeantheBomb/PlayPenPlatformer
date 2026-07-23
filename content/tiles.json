@@ -37,7 +37,8 @@
     "element": "stone",
     "brittle": true,
     "shattersTo": "",
-    "color": "#57536e"
+    "color": "#57536e",
+    "meltsTo": "lava"
   },
   {
     "id": "spring",
@@ -97,7 +98,8 @@
     "conductive": true,
     "wade": 0.55,
     "freezesTo": "ice",
-    "color": "#4fc3f7"
+    "color": "#4fc3f7",
+    "fluid": true
   },
   {
     "id": "fire",
@@ -118,7 +120,8 @@
     "element": "water",
     "conductive": true,
     "wade": 0.8,
-    "color": "#4fc3f7"
+    "color": "#4fc3f7",
+    "fallSpawns": "water"
   },
   {
     "id": "metal",
@@ -128,7 +131,9 @@
     "solid": true,
     "element": "metal",
     "conductive": true,
-    "color": "#8a97a8"
+    "color": "#8a97a8",
+    "meltsTo": "",
+    "dropsItem": "scrap_metal"
   },
   {
     "id": "drain",
@@ -139,5 +144,30 @@
     "element": "metal",
     "conductive": true,
     "color": "#59627f"
+  },
+  {
+    "id": "lava",
+    "char": "L",
+    "name": "Lava",
+    "style": "lava",
+    "damage": 1,
+    "element": "lava",
+    "fluid": true,
+    "spreads": true,
+    "wade": 0.45,
+    "extinguishesTo": "cracked",
+    "color": "#ff5e2b"
+  },
+  {
+    "id": "lavafall",
+    "char": "J",
+    "name": "Lavafall",
+    "style": "lavafall",
+    "damage": 1,
+    "element": "lava",
+    "fallSpawns": "lava",
+    "wade": 0.7,
+    "extinguishesTo": "cracked",
+    "color": "#ff5e2b"
   }
 ]

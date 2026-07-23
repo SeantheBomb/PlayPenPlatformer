@@ -67,5 +67,39 @@
     "target": "fire",
     "effect": "ignite_self",
     "note": "A wood carrier (torch) touched to fire becomes its lit form."
+  },
+  {
+    "id": "fire_melts_cracked_to_lava",
+    "actor": "fire",
+    "target": "stone",
+    "effect": "melt",
+    "note": "Only stone with a meltsTo (cracked) responds — solid wall shrugs it off."
+  },
+  {
+    "id": "water_quenches_lava",
+    "actor": "water",
+    "target": "lava",
+    "effect": "extinguish",
+    "note": "Lava hardens back into cracked stone. The water survives."
+  },
+  {
+    "id": "lava_ignites_flammable",
+    "actor": "lava",
+    "targetProperty": "flammable",
+    "effect": "ignite",
+    "note": "Lava is fire, but more so."
+  },
+  {
+    "id": "lava_melts_ice",
+    "actor": "lava",
+    "target": "ice",
+    "effect": "melt"
+  },
+  {
+    "id": "lava_melts_metal",
+    "actor": "lava",
+    "target": "metal",
+    "effect": "melt",
+    "note": "Especially hot: a metal block runs out as scrap. Torches can't do this."
   }
 ]

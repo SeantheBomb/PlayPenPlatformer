@@ -95,7 +95,8 @@ export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
 
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
-  | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall" | "drain";
+  | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall" | "drain"
+  | "lava" | "lavafall";
 
 /**
  * Optional custom art, available on tiles, items, enemies, the player, and
@@ -135,6 +136,11 @@ export interface TileDef extends SpriteFields {
   shattersTo?: string;
   dissolvesTo?: string;
   extinguishesTo?: string;
+  // Fluid dynamics
+  fluid?: boolean;      // participates in the flow sim (falls, spreads)
+  fallSpawns?: string;  // a fall tile: grows downward, emits this tile id at its base
+  // Loot: destructive transforms (melt/shatter/dissolve/burn) drop this item
+  dropsItem?: string;
 }
 
 export type ItemKind = "material" | "tool" | "consumable" | "curio";
@@ -263,6 +269,8 @@ export interface RoomEntity extends SpriteFields {
   enemy?: string;
   patrolMinX?: number;
   patrolMaxX?: number;
+  // brazier
+  lit?: boolean; // default true; author false for a cold brazier the player must light
   // npc
   name?: string;
   color?: string;

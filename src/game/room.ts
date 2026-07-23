@@ -17,6 +17,7 @@ export interface EntityInstance extends Rect {
   open?: boolean;
   helped?: boolean;
   occupied?: boolean; // locker with player inside
+  lit?: boolean;      // brazier flame state (water douses, fire relights)
 }
 
 export interface EnemyInstance {
@@ -70,8 +71,10 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
 const SPREAD_INTERVAL = 0.7; // seconds between fire spread ticks
 const ENERGIZE_MS = 1500;
 const HAZARD_COOLDOWN_MS = 500;
-const WATER_FLOW_INTERVAL = 0.5; // seconds between water flow ticks
-const WATER_FLOW_MAX_DIST = 4;   // max tiles a flow can spread sideways from a source
+const WATER_FLOW_INTERVAL = 0.5; // seconds between fluid flow ticks
+const WATER_FLOW_MAX_DIST = 4;   // max tiles a poured/melted flow spreads sideways
+// Fall-fed fluid spreads with no distance cap — only walls or a drain stop it.
+const SOURCED = -1;
 
 export class RoomRuntime {
   map: TileMap;
@@ -86,8 +89,10 @@ export class RoomRuntime {
   burning = new Map<number, number>();
   /** tile index -> simNow() timestamp when charge dissipates */
   energized = new Map<number, number>();
-  /** tile index -> tiles-from-source, for water tiles actively able to spread */
+  /** tile index -> tiles-from-source (SOURCED = fall-fed, uncapped spread) */
   private waterFlowDist = new Map<number, number>();
+  /** tile indexes of fall tiles (waterfall/lavafall) that grow + emit fluid */
+  private fallTiles = new Set<number>();
   private waterFlowEnabled: boolean;
   private spreadClock = 0;
   private waterFlowClock = 0;
@@ -108,9 +113,11 @@ export class RoomRuntime {
     if (this.waterFlowEnabled) {
       for (let ty = 0; ty < this.map.height; ty++) {
         for (let tx = 0; tx < this.map.width; tx++) {
-          if (this.map.at(tx, ty)?.style === "water") {
-            this.waterFlowDist.set(this.map.index(tx, ty), 0);
-          }
+          const def = this.map.at(tx, ty);
+          if (!def) continue;
+          const idx = this.map.index(tx, ty);
+          if (this.isFluid(def)) this.waterFlowDist.set(idx, 0);
+          if (def.fallSpawns) this.fallTiles.add(idx);
         }
       }
     }
@@ -141,12 +148,14 @@ export class RoomRuntime {
         return;
       }
       const [w, h] = ENTITY_SIZES[def.type] ?? [16, 16];
+      const litOverride = muts.brazierLit.find(([i]) => i === index);
       this.entities.push({
         index, def, kind: def.type,
         x: cx - w / 2, y: feetY - h, w, h,
         collected: muts.collected.has(index),
         open: muts.openedDoors.has(index),
         helped: muts.helpedNpcs.has(index),
+        lit: litOverride ? litOverride[1] : def.lit ?? true,
       });
     });
 
@@ -185,12 +194,34 @@ export class RoomRuntime {
     // Persist (replace any earlier override for this index)
     this.muts.tileOverrides = this.muts.tileOverrides.filter(([i]) => i !== idx);
     this.muts.tileOverrides.push([idx, id || null]);
-    // Any transform that produces water (ice melting, etc.) joins the flow
-    // sim too, not just water poured by spreading — otherwise it sits inert,
-    // ignoring open space (and drains) right next to it.
-    if (this.waterFlowEnabled && def?.style === "water") {
-      this.waterFlowDist.set(idx, 0);
+    // Any transform that produces a fluid (ice melting, cracked stone
+    // lava-ing) joins the flow sim too, not just fluid poured by spreading —
+    // otherwise it sits inert, ignoring open space (and drains) next to it.
+    if (this.waterFlowEnabled && def && this.isFluid(def)) {
+      if (!this.waterFlowDist.has(idx)) this.waterFlowDist.set(idx, 0);
     }
+    if (def?.fallSpawns) this.fallTiles.add(idx);
+    else this.fallTiles.delete(idx);
+  }
+
+  /** Water/lava — anything that falls and spreads. `fluid` in tiles.json;
+   *  style "water" kept as a fallback so stale content keeps flowing. */
+  private isFluid(def: TileDef): boolean {
+    return !!def.fluid || def.style === "water";
+  }
+
+  /**
+   * Transform a tile via a rule effect (melt/shatter/dissolve/burn/quench).
+   * Unlike raw setTileById this also pays out the tile's `dropsItem` as a
+   * recoverable bundle — how a metal block melted by lava becomes scrap.
+   */
+  private transformTile(tx: number, ty: number, next: string | undefined): void {
+    const def = this.map.at(tx, ty);
+    if (def?.dropsItem) {
+      this.bundles.push({ x: tx * TILE + 1, y: ty * TILE + 4, w: 14, h: 12, items: [[def.dropsItem, 1]] });
+      this.muts.bundles.push({ x: tx * TILE + 1, y: ty * TILE + 4, items: [[def.dropsItem, 1]] });
+    }
+    this.setTileById(tx, ty, next);
   }
 
   igniteTile(tx: number, ty: number): boolean {
@@ -231,22 +262,26 @@ export class RoomRuntime {
             }
             break;
           case "melt":
-            this.setTileById(tx, ty, def.meltsTo);
+            // No meltsTo = this tile doesn't melt. Guard matters: melt rules
+            // can target a whole element (fire→stone hits walls too) and
+            // only the tiles that opt in (cracked→lava) should respond.
+            if (def.meltsTo === undefined) break;
+            this.transformTile(tx, ty, def.meltsTo);
             events.push({ effect: "melt", x: cx, y: cy, color: "#b3e5fc" });
             break;
           case "extinguish":
-            this.setTileById(tx, ty, def.extinguishesTo);
+            this.transformTile(tx, ty, def.extinguishesTo);
             events.push({ effect: "extinguish", x: cx, y: cy, color: "#8f9bb3" });
             break;
           case "dissolve":
-            this.setTileById(tx, ty, def.dissolvesTo);
+            this.transformTile(tx, ty, def.dissolvesTo);
             events.push({ effect: "dissolve", x: cx, y: cy, color: def.color });
             break;
           case "freeze":
             this.freezeFrom(tx, ty, events);
             break;
           case "shatter":
-            this.setTileById(tx, ty, def.shattersTo);
+            this.transformTile(tx, ty, def.shattersTo);
             events.push({ effect: "shatter", x: cx, y: cy, color: def.color });
             break;
           case "energize":
@@ -273,23 +308,25 @@ export class RoomRuntime {
   }
 
   /**
-   * Lightweight water physics: water falls into open shafts below it, and
-   * spreads sideways along floors up to a limited distance from any source
-   * (Minecraft-style falloff). Only ever fills genuinely empty tiles — never
-   * overwrites goo/wood/fire/etc — so existing rooms are unaffected unless
-   * they have real open space for water to move into.
+   * Fluid physics (water AND lava): fluids fall into open shafts and spread
+   * sideways along floors. Poured/melted fluid keeps the Minecraft-style
+   * distance cap; fall-fed (SOURCED) fluid spreads uncapped until walls
+   * contain it or a drain eats it. Only ever fills genuinely empty tiles.
+   * Water and lava meeting quenches the lava into its extinguishesTo
+   * (cracked stone) — the water survives.
    */
   private tickWaterFlow(events: ElementEvent[]): void {
     if (!this.waterFlowEnabled) return;
+    this.tickFalls(events);
     for (const [idx, distance] of [...this.waterFlowDist]) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
       const def = this.map.at(tx, ty);
-      if (!def || def.style !== "water") {
+      if (!def || !this.isFluid(def)) {
         this.waterFlowDist.delete(idx);
         continue;
       }
-      // A drain tile touching this water removes it outright — the escape
+      // A drain tile touching this fluid removes it outright — the escape
       // hatch for rooms where flow/melt would otherwise flood too much.
       if (this.tileTouchesDrain(tx, ty)) {
         this.setTileById(tx, ty, undefined);
@@ -297,25 +334,138 @@ export class RoomRuntime {
         events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
         continue;
       }
+      // Lava beside water hardens (extinguishesTo, i.e. cracked stone).
+      if (def.element === "lava" && def.extinguishesTo !== undefined) {
+        const touchingWater = [[tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]]
+          .some(([nx, ny]) => this.map.at(nx, ny)?.element === "water");
+        if (touchingWater) {
+          this.transformTile(tx, ty, def.extinguishesTo);
+          this.waterFlowDist.delete(idx);
+          events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
+          continue;
+        }
+      }
       // Fall first: an open tile directly below always wins over spreading.
       if (ty + 1 < this.map.height && this.map.at(tx, ty + 1) === null) {
         const belowIdx = this.map.index(tx, ty + 1);
-        this.setTileById(tx, ty + 1, "water");
-        this.waterFlowDist.set(belowIdx, 0);
-        events.push({ effect: "flow", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: "#4fc3f7" });
+        this.setTileById(tx, ty + 1, def.id);
+        this.waterFlowDist.set(belowIdx, distance === SOURCED ? SOURCED : 0);
+        events.push({ effect: "flow", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: def.color });
         continue;
       }
-      // Resting on something solid (or more water): spread sideways, falling off.
-      if (distance >= WATER_FLOW_MAX_DIST) continue;
+      // Resting on something solid (or more fluid): spread sideways.
+      if (distance !== SOURCED && distance >= WATER_FLOW_MAX_DIST) continue;
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
         if (this.map.at(nx, ty) !== null) continue; // occupied — nothing to flow into
         const nIdx = this.map.index(nx, ty);
-        this.setTileById(nx, ty, "water");
-        this.waterFlowDist.set(nIdx, distance + 1);
-        events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: "#4fc3f7" });
+        this.setTileById(nx, ty, def.id);
+        this.waterFlowDist.set(nIdx, distance === SOURCED ? SOURCED : distance + 1);
+        events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: def.color });
       }
     }
+    this.douseBraziersTouchingWater(events);
+  }
+
+  /**
+   * Fall tiles (waterfall/lavafall) are self-sustaining sources. Each tick,
+   * one tile per fall: open space below grows the fall downward (a whole
+   * fall from one authored tile); a drain directly below absorbs everything
+   * (the authored escape valve); anything else makes this the fall's base —
+   * it emits its fluid into open side tiles as SOURCED (uncapped) flow, and
+   * keeps any fluid pool directly below topped up as a source. A fall
+   * meeting the opposite liquid caps it into the lava's hardened form.
+   */
+  private tickFalls(events: ElementEvent[]): void {
+    for (const idx of [...this.fallTiles]) {
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      const def = this.map.at(tx, ty);
+      if (!def?.fallSpawns) {
+        this.fallTiles.delete(idx);
+        continue;
+      }
+      if (ty + 1 >= this.map.height) continue;
+      const below = this.map.at(tx, ty + 1);
+      // Mid-fall tiles (another fall tile below) do nothing; the base acts.
+      if (below?.id === def.id) continue;
+      if (below === null) {
+        this.setTileById(tx, ty + 1, def.id);
+        events.push({ effect: "flow", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: def.color });
+        continue;
+      }
+      if (below.style === "drain") continue; // fully absorbed, nothing pools
+      const fluidDef = this.tilesById.get(def.fallSpawns);
+      if (!fluidDef) continue;
+      // Fall landing on the opposite liquid: quench into hardened stone.
+      if (this.isFluid(below) && below.element !== fluidDef.element) {
+        const lavaSide = below.element === "lava" ? below : fluidDef;
+        this.transformTile(tx, ty + 1, lavaSide.extinguishesTo ?? "");
+        events.push({ effect: "extinguish", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: "#8f9bb3" });
+        continue;
+      }
+      // Keep the pool below topped up as a source.
+      if (this.isFluid(below)) {
+        this.waterFlowDist.set(this.map.index(tx, ty + 1), SOURCED);
+      }
+      // Emit into open side tiles beside the fall's base.
+      for (const nx of [tx - 1, tx + 1]) {
+        if (nx < 0 || nx >= this.map.width) continue;
+        if (this.map.at(nx, ty) !== null) continue;
+        this.setTileById(nx, ty, fluidDef.id);
+        this.waterFlowDist.set(this.map.index(nx, ty), SOURCED);
+        events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: fluidDef.color });
+      }
+    }
+  }
+
+  /** Water reaching a brazier puts it out (steam, no drama). */
+  private douseBraziersTouchingWater(events: ElementEvent[]): void {
+    for (const e of this.entities) {
+      if (e.kind !== "brazier" || e.lit === false) continue;
+      const tx0 = Math.floor(e.x / TILE);
+      const tx1 = Math.floor((e.x + e.w - 1) / TILE);
+      const ty0 = Math.floor(e.y / TILE);
+      const ty1 = Math.floor((e.y + e.h - 1) / TILE);
+      let wet = false;
+      for (let ty = ty0; ty <= ty1 && !wet; ty++) {
+        for (let tx = tx0; tx <= tx1 && !wet; tx++) {
+          if (this.map.at(tx, ty)?.element === "water") wet = true;
+        }
+      }
+      if (wet) {
+        this.setBrazierLit(e, false);
+        events.push({ effect: "extinguish", x: e.x + e.w / 2, y: e.y, color: "#8f9bb3" });
+      }
+    }
+  }
+
+  /** Flip a brazier's flame and persist it in the room mutations. */
+  setBrazierLit(e: EntityInstance, lit: boolean): void {
+    e.lit = lit;
+    this.muts.brazierLit = this.muts.brazierLit.filter(([i]) => i !== e.index);
+    this.muts.brazierLit.push([e.index, lit]);
+  }
+
+  /**
+   * Water douses lit braziers, fire relights cold ones. Called for tool
+   * swings/splashes (alongside applyElementToTiles) and for passive
+   * lit-torch contact. Returns events for feedback.
+   */
+  applyElementToBraziers(element: string | undefined, box: Rect): ElementEvent[] {
+    const events: ElementEvent[] = [];
+    if (element !== "water" && element !== "fire") return events;
+    for (const e of this.entities) {
+      if (e.kind !== "brazier" || !rectsOverlap(e, box)) continue;
+      if (element === "water" && e.lit !== false) {
+        this.setBrazierLit(e, false);
+        events.push({ effect: "extinguish", x: e.x + e.w / 2, y: e.y, color: "#8f9bb3" });
+      } else if (element === "fire" && e.lit === false) {
+        this.setBrazierLit(e, true);
+        events.push({ effect: "ignite", x: e.x + e.w / 2, y: e.y, color: "#ffc861" });
+      }
+    }
+    return events;
   }
 
   /** Cold propagates across a connected body of water: one vial, one bridge. */
@@ -460,11 +610,12 @@ export class RoomRuntime {
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
         if (this.isBurning(tx, ty)) return true;
-        if (this.map.at(tx, ty)?.element === "fire") return true;
+        const el = this.map.at(tx, ty)?.element;
+        if (el === "fire" || el === "lava") return true;
       }
     }
     return this.entities.some(
-      (e) => e.kind === "brazier" && rectsOverlap(e, box)
+      (e) => e.kind === "brazier" && e.lit !== false && rectsOverlap(e, box)
     );
   }
 
@@ -603,7 +754,7 @@ export class RoomRuntime {
         const tx = idx % this.map.width;
         const ty = Math.floor(idx / this.map.width);
         const def = this.map.at(tx, ty);
-        this.setTileById(tx, ty, def?.burnsTo);
+        this.transformTile(tx, ty, def?.burnsTo);
         events.push({ effect: "burnout", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
       } else {
         this.burning.set(idx, next);
@@ -612,32 +763,39 @@ export class RoomRuntime {
     this.spreadClock += dt;
     if (this.spreadClock >= SPREAD_INTERVAL) {
       this.spreadClock = 0;
-      const igniters: [number, number][] = [];
+      // element -> heat sources of that element. Fire tiles/burning tiles/lit
+      // braziers radiate "fire"; lava tiles radiate "lava" (their own,
+      // hotter ruleset — it can melt metal where a torch can't).
+      const igniters: [number, number, string][] = [];
       for (let ty = 0; ty < this.map.height; ty++) {
         for (let tx = 0; tx < this.map.width; tx++) {
           const def = this.map.at(tx, ty);
           if ((def?.spreads && def.element === "fire") || this.isBurning(tx, ty)) {
-            igniters.push([tx, ty]);
+            igniters.push([tx, ty, "fire"]);
+          } else if (def?.spreads && def.element === "lava") {
+            igniters.push([tx, ty, "lava"]);
           }
         }
       }
       for (const e of this.entities) {
-        if (e.kind === "brazier") {
-          igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE)]);
+        if (e.kind === "brazier" && e.lit !== false) {
+          igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE), "fire"]);
         }
       }
-      // Neighbors get the full fire ruleset — flammables ignite, ice melts.
-      // (A lit goo line can melt a distant ice wall.)
-      for (const [tx, ty] of igniters) {
+      // Neighbors get the source's full ruleset — flammables ignite, ice
+      // melts. (A lit goo line can melt a distant ice wall.)
+      for (const [tx, ty, elem] of igniters) {
         for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
-          if (this.igniteTile(nx, ny)) {
-            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043", element: "fire" });
+          const ndef = this.map.at(nx, ny);
+          if (!ndef) continue;
+          const rule = this.findRule(elem, ndef);
+          if (rule?.effect === "ignite" && this.igniteTile(nx, ny)) {
+            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043", element: elem });
             continue;
           }
-          const ndef = this.map.at(nx, ny);
-          if (ndef && this.findRule("fire", ndef)?.effect === "melt") {
-            this.setTileById(nx, ny, ndef.meltsTo);
-            events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: "fire" });
+          if (rule?.effect === "melt" && ndef.meltsTo !== undefined) {
+            this.transformTile(nx, ny, ndef.meltsTo);
+            events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: elem });
           }
         }
       }
@@ -665,6 +823,7 @@ export class RoomRuntime {
           for (let tx = tx0; tx <= tx1 && !applied; tx++) {
             const tdef = this.map.at(tx, ty);
             if (this.isBurning(tx, ty) || tdef?.element === "fire") applied = "fire";
+            else if (tdef?.element === "lava") applied = "lava";
             else if (this.isEnergized(tx, ty)) applied = "spark";
           }
         }
@@ -958,6 +1117,19 @@ export class RoomRuntime {
         ctx.fill();
         ctx.fillStyle = "#332d40";
         ctx.fillRect(e.x + e.w / 2 - 2, e.y + 13, 4, 3);
+        if (e.lit === false) {
+          // Cold: dark coals, no halo, no flame — clearly "bring fire here".
+          ctx.fillStyle = "#2a2536";
+          ctx.beginPath();
+          ctx.ellipse(e.x + e.w / 2, e.y + 7, 5.5, 2.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#3d3750";
+          ctx.beginPath();
+          ctx.arc(e.x + e.w / 2 - 2.5, e.y + 6.5, 1.6, 0, Math.PI * 2);
+          ctx.arc(e.x + e.w / 2 + 2, e.y + 6, 1.9, 0, Math.PI * 2);
+          ctx.fill();
+          break;
+        }
         // A soft, slow-breathing halo reads as "warm hearth", not "heat haze".
         ctx.fillStyle = "rgba(255,200,120,0.14)";
         ctx.beginPath();

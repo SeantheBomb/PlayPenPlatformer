@@ -279,6 +279,58 @@ export function drawTile(
       }
       break;
     }
+    case "lava": {
+      // Molten rock: reads hot/dangerous like hazard fire — dark crust,
+      // bright churning seams, popping white-hot flecks.
+      const wave = Math.sin(animT * 3.1 + px * 0.4) * 1.2;
+      ctx.fillStyle = "rgba(120,28,10,0.92)";
+      ctx.beginPath();
+      ctx.moveTo(px, py + 3 + wave);
+      ctx.quadraticCurveTo(px + 8, py + 1.5 - wave, px + TILE, py + 3 + wave * 0.6);
+      ctx.lineTo(px + TILE, py + TILE);
+      ctx.lineTo(px, py + TILE);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(px + 1, py + 4 + wave);
+      ctx.quadraticCurveTo(px + 8, py + 2 - wave, px + TILE - 1, py + 4 + wave * 0.6);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,150,60,0.55)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + 2, py + 9 + Math.sin(animT * 2.2 + px) * 1.5);
+      ctx.quadraticCurveTo(px + 9, py + 11 - wave, px + TILE - 2, py + 9 + wave);
+      ctx.stroke();
+      if (Math.sin(animT * 9 + px * 1.3) > 0.55) {
+        ctx.fillStyle = "#ffe9a8";
+        const fx = px + 4 + ((px * 7) % 8);
+        ctx.fillRect(fx, py + 5 + Math.sin(animT * 5 + px) * 2, 1.6, 1.6);
+      }
+      break;
+    }
+    case "lavafall": {
+      // Falling lava: waterfall's motion language, ember-hot palette.
+      const t = animT * 34;
+      ctx.fillStyle = "rgba(200,60,20,0.38)";
+      ctx.fillRect(px + 1, py, TILE - 2, TILE);
+      ctx.strokeStyle = "rgba(255,180,80,0.75)";
+      ctx.lineWidth = 1.6;
+      for (let i = 0; i < 3; i++) {
+        const sx = px + 3 + i * 5;
+        const off = (t + i * 7 + px) % TILE;
+        ctx.beginPath();
+        ctx.moveTo(sx, py + off - 6);
+        ctx.lineTo(sx, py + off);
+        ctx.stroke();
+      }
+      if (Math.sin(animT * 11 + px * 2.1) > 0.6) {
+        ctx.fillStyle = "#fff3c4";
+        ctx.fillRect(px + 4 + ((px * 5) % 8), py + ((t * 1.3 + px) % TILE), 1.4, 1.4);
+      }
+      break;
+    }
     case "metal": {
       ctx.fillStyle = c;
       ctx.fillRect(px, py, TILE, TILE);

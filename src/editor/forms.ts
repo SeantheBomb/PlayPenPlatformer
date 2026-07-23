@@ -59,6 +59,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     enemy: enemyIds,
     burnsTo: tileIds, meltsTo: tileIds, freezesTo: tileIds,
     shattersTo: tileIds, dissolvesTo: tileIds, extinguishesTo: tileIds,
+    fallSpawns: tileIds, dropsItem: itemIds,
     recipe: recipeIds,
     // Closed enums from the schema itself
     kind: ["material", "tool", "consumable", "curio"],
@@ -71,7 +72,8 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     targetProperty: ["flammable", "brittle", "conductive"],
     behavior: ["patrol", "chase"],
     style: ["block", "platform", "spikes", "cracked", "spring", "goo",
-      "wood", "ice", "water", "fire", "metal", "waterfall"],
+      "wood", "ice", "water", "fire", "metal", "waterfall", "drain",
+      "lava", "lavafall"],
     trigger: ["game_start", "room_enter", "first_death", "death", "craft_fail",
       "first_craft", "craft_item", "idle", "hide_enter", "npc_help",
       "confiscate", "warden_chase", "win", "pickup_item", "counter"],

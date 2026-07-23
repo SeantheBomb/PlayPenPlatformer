@@ -166,6 +166,24 @@ imposes on all future gameplay code (sim clock, seeded RNG, input-capture surfac
 are documented in `CLAUDE.md`'s "Session replay" section — read them before adding
 any new timer, randomness, or input path.
 
+## Fluids/lava/braziers round (2026-07-23)
+
+Git `content/` was first synced to the live published bundle (the web editor
+publishes straight to KV without writing back to the repo — after an incident where
+republishing from stale git content reverted Sean's level design, git is now the
+snapshot of live truth; keep them in step when publishing). Then, per Sean's spec:
+waterfalls (and new lavafalls) became self-sustaining sources — one authored tile
+grows the whole fall and floods uncapped until walls or a drain contain it
+(greenhouse + vault got drains under their falls); braziers gained a lit/unlit
+state (water douses, fire or carried-lit-torch contact relights, `lit: false`
+authorable as a puzzle); and lava arrived as its own element — made from
+fire + cracked stone, quenched back to cracked by water, flows like water, damages
+like fire, and melts metal blocks into dropped scrap via the new generic `dropsItem`
+tile field. Details and don't-regress notes in `CLAUDE.md`'s "Fluids, falls, lava,
+braziers" section. Verified by scripted playtest: 21-tile fall from one tile,
+wall-to-wall sourced pool, drain equilibrium, fire→lava→quench cycle, 9 metal
+blocks → 9 scrap bundles, ice-melt → water → lava-hardening cascade.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

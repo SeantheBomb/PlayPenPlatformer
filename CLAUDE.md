@@ -182,12 +182,38 @@ small generator script again; for local tweaks use the in-game editor or edit th
   placeable bounce pad it crafts into (`spring`) must NOT share an icon shape/color —
   they did once and were indistinguishable. Coil uses shape `"coil"` (stacked wire
   rings, silver-grey); the pad keeps shape `"spring"` (the "boing" zigzag, green).
-- **Drain tile** (`content/tiles.json`, style `"drain"`, char `'D'`): any water tile
-  orthogonally touching it is removed every water-flow tick. A connected body drains
+- **Drain tile** (`content/tiles.json`, style `"drain"`, char `'D'`): any fluid tile
+  orthogonally touching it is removed every flow tick. A connected body drains
   completely over time (draining a tile lets its neighbor flow in and reach the drain
   next), not just the one tile against the grate — that's intentional, it's the
-  contain-a-flood escape valve. Only affects water registered with the flow sim
+  contain-a-flood escape valve. Only affects fluid registered with the flow sim
   (`waterFlowEnabled` must be on); see `tickWaterFlow`/`tileTouchesDrain` in `room.ts`.
+
+## Fluids, falls, lava, braziers (the 2026-07-23 systemic round)
+
+- **Falls are sources** (`fallSpawns` tile field: waterfall spawns `"water"`, lavafall
+  `"lava"`): one authored fall tile grows the whole column downward one tile per flow
+  tick, and the base (first non-empty tile below) emits its fluid into open side
+  tiles. Fall-fed fluid is **sourced** — it spreads with NO distance cap until side
+  walls contain it or a drain eats it; bucket-poured/melted fluid keeps the old
+  4-tile falloff. **A drain directly beneath a fall absorbs it entirely** (nothing
+  pools) — every authored fall now needs either walls that genuinely contain the
+  flood or a drain below it; greenhouse and the vault got drains for exactly this.
+- **Lava** (element `"lava"`, NOT `"fire"` — deliberately, so lava-only rules exist):
+  flows exactly like water (`fluid: true`), damages like fire (tile `damage`, crawler
+  reaction kill). Made by fire melting cracked stone (`cracked.meltsTo: "lava"`);
+  water contact hardens it back to cracked (rule + flow-adjacency both). Lava melts
+  metal blocks into a dropped scrap (`metal.dropsItem: "scrap_metal"` via the generic
+  `dropsItem` field — any destructive transform pays it out as a bundle). The **melt
+  effect no-ops on tiles without `meltsTo`** — that guard is what lets melt rules
+  target a whole element (fire→stone) without erasing plain walls. Don't remove it.
+- **Braziers have a `lit` state** (entity field, default true; author `lit: false`
+  for a bring-fire-here puzzle). Water contact (splash or flowing/fallen water tiles)
+  douses; fire element or passive lit-torch contact relights. Unlit braziers don't
+  ignite neighbors, don't light torches (`boxTouchesFire` gates on it), and draw as
+  cold dark coals — keep that read unambiguous vs. the lit warm-gold breathing look.
+- Sim caveat: these changed simulation code, so **replay of sessions recorded before
+  this round will show drift** — expected; sessions record content but not code.
 
 ## Style
 
