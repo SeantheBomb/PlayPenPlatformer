@@ -43,6 +43,32 @@ export function drawHearts(
   ctx.restore();
 }
 
+/** Breath bubbles beside the hearts — shown while underwater / not full. */
+export function drawAir(
+  ctx: CanvasRenderingContext2D, air: number, max: number, hud: HudLayout,
+  uiScale = 1
+): void {
+  ctx.save();
+  ctx.translate(hud.airX, hud.airY);
+  ctx.scale(uiScale, uiScale);
+  for (let i = 0; i < max; i++) {
+    const x = i * hud.airSpacing;
+    const full = i < air;
+    ctx.fillStyle = full ? hud.airColor : hud.airEmptyColor;
+    ctx.beginPath();
+    ctx.arc(x + 5, 5, 4.6, 0, Math.PI * 2);
+    ctx.fill();
+    if (full) {
+      // a little shine so it reads "bubble", not "dot"
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.beginPath();
+      ctx.arc(x + 3.4, 3.2, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 export function drawToolbelt(
   ctx: CanvasRenderingContext2D, state: RunState, viewW: number, hud: HudLayout
 ): void {

@@ -29,6 +29,15 @@ export interface GameConfig {
     invulnMs: number;
     knockbackX: number;
     knockbackY: number;
+    /** Swimming (engages in water ≥3 tiles deep — shallower stays wading). */
+    swim: {
+      gravity: number;        // slow sink pull, px/s²
+      maxSink: number;        // terminal sink speed, px/s
+      stroke: number;         // upward impulse per jump press, px/s
+      holdLift: number;       // gentle upward accel while jump held, px/s²
+      accelFactor: number;    // horizontal accel multiplier (floaty)
+      frictionFactor: number; // horizontal friction multiplier (drifty)
+    };
   };
   camera: { lerp: number; lookaheadX: number; lookaheadY: number };
   juice: {
@@ -50,12 +59,17 @@ export interface GameConfig {
     idleChaseSeconds: number;   // idle this long and the Warden comes for you
     wardenIdleSpeed: number;    // px/s while punishing idlers
     waterFlowEnabled: boolean;  // water falls into open shafts, spreads along floors
+    airBlips: number;           // breath capacity while underwater
+    airLossSeconds: number;     // seconds per blip lost while submerged
+    drownSeconds: number;       // seconds per heart lost once air runs out
   };
   audio: { sfxVolume: number; muted: boolean };
   /** HUD layout — editable in the editor's "game" tab, no code changes needed. */
   hud: {
     heartsX: number; heartsY: number; heartSpacing: number;
     heartColor: string; heartEmptyColor: string;
+    airX: number; airY: number; airSpacing: number;
+    airColor: string; airEmptyColor: string;
     toolbeltRightOffset: number; toolbeltTopOffset: number; toolbeltSpacing: number;
     hotbarLeftOffset: number; hotbarBottomOffset: number;
     hotbarSlotSize: number; hotbarSpacing: number; hotbarSelectedColor: string;

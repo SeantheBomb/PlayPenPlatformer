@@ -23,7 +23,15 @@
     "maxHealth": 3,
     "invulnMs": 1200,
     "knockbackX": 160,
-    "knockbackY": 220
+    "knockbackY": 220,
+    "swim": {
+      "gravity": 260,
+      "maxSink": 65,
+      "stroke": 185,
+      "holdLift": 520,
+      "accelFactor": 0.55,
+      "frictionFactor": 0.35
+    }
   },
   "camera": {
     "lerp": 0.14,
@@ -48,7 +56,10 @@
     "idleTauntSeconds": 45,
     "idleChaseSeconds": 75,
     "wardenIdleSpeed": 70,
-    "waterFlowEnabled": true
+    "waterFlowEnabled": true,
+    "airBlips": 3,
+    "airLossSeconds": 3,
+    "drownSeconds": 3
   },
   "audio": {
     "sfxVolume": 0.5,
@@ -68,6 +79,11 @@
     "hotbarSlotSize": 22,
     "hotbarSpacing": 4,
     "hotbarSelectedColor": "#ffd166",
-    "bannerTopOffset": 8
+    "bannerTopOffset": 8,
+    "airX": 12,
+    "airY": 32,
+    "airSpacing": 14,
+    "airColor": "#7fd8ff",
+    "airEmptyColor": "#3a4a5c"
   }
 }

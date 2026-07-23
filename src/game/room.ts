@@ -318,7 +318,12 @@ export class RoomRuntime {
   private tickWaterFlow(events: ElementEvent[]): void {
     if (!this.waterFlowEnabled) return;
     this.tickFalls(events);
-    for (const [idx, distance] of [...this.waterFlowDist]) {
+
+    // Pre-pass: drains eat every adjacent fluid tile BEFORE anything moves,
+    // so water queued above a drain vanishes instead of overflowing around
+    // the queue. This ordering is what lets base-side drains fully contain
+    // a melting tower's runoff.
+    for (const [idx] of [...this.waterFlowDist]) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
       const def = this.map.at(tx, ty);
@@ -326,12 +331,28 @@ export class RoomRuntime {
         this.waterFlowDist.delete(idx);
         continue;
       }
-      // A drain tile touching this fluid removes it outright — the escape
-      // hatch for rooms where flow/melt would otherwise flood too much.
       if (this.tileTouchesDrain(tx, ty)) {
         this.setTileById(tx, ty, undefined);
         this.waterFlowDist.delete(idx);
         events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
+      }
+    }
+
+    // Main pass, bottom-up (lower tiles vacate first so columns funnel
+    // downward in single file). Movement rules, in order:
+    //   1. below empty  -> MOVE down (falling never leaves a copy behind)
+    //   2. below fluid  -> wait, unless the tile below rests on solid —
+    //      then one diagonal slide into an open hole is allowed
+    //   3. below solid, fluid above -> column pressure: MOVE sideways
+    //   4. below solid, surface tile -> replicate sideways (cap / sourced)
+    // Net effect: fluid never widens until it has fully fallen downward.
+    const sorted = [...this.waterFlowDist].sort((a, b) => b[0] - a[0]);
+    for (const [idx, distance] of sorted) {
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      const def = this.map.at(tx, ty);
+      if (!def || !this.isFluid(def)) {
+        this.waterFlowDist.delete(idx);
         continue;
       }
       // Lava beside water hardens (extinguishesTo, i.e. cracked stone).
@@ -345,19 +366,51 @@ export class RoomRuntime {
           continue;
         }
       }
-      // Fall first: an open tile directly below always wins over spreading.
+      const moveTo = (nx: number, ny: number, d: number) => {
+        this.setTileById(nx, ny, def.id);
+        this.waterFlowDist.set(this.map.index(nx, ny), d);
+        this.setTileById(tx, ty, undefined);
+        this.waterFlowDist.delete(idx);
+        events.push({ effect: "flow", x: nx * TILE + 8, y: ny * TILE + 8, color: def.color });
+      };
+      // 1. Fall (as a move).
       if (ty + 1 < this.map.height && this.map.at(tx, ty + 1) === null) {
-        const belowIdx = this.map.index(tx, ty + 1);
-        this.setTileById(tx, ty + 1, def.id);
-        this.waterFlowDist.set(belowIdx, distance === SOURCED ? SOURCED : 0);
-        events.push({ effect: "flow", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: def.color });
+        moveTo(tx, ty + 1, distance === SOURCED ? SOURCED : 0);
         continue;
       }
-      // Resting on something solid (or more fluid): spread sideways.
+      const below = ty + 1 < this.map.height ? this.map.at(tx, ty + 1) : null;
+      // 2. Part of a column still settling.
+      if (below && this.isFluid(below)) {
+        const belowBelow = ty + 2 < this.map.height ? this.map.at(tx, ty + 2) : undefined;
+        const columnGrounded = belowBelow !== null && !(belowBelow && this.isFluid(belowBelow));
+        if (columnGrounded) {
+          for (const nx of [tx - 1, tx + 1]) {
+            if (nx < 0 || nx >= this.map.width) continue;
+            if (this.map.at(nx, ty) !== null || this.map.at(nx, ty + 1) !== null) continue;
+            moveTo(nx, ty, distance);
+            break;
+          }
+        }
+        continue;
+      }
+      // Fully fallen from here down.
+      const hasFluidAbove = ty > 0 && !!this.map.at(tx, ty - 1) && this.isFluid(this.map.at(tx, ty - 1)!);
+      if (hasFluidAbove) {
+        // 3. Column pressure: the base squeezes out sideways (a move), the
+        // column above falls into the vacated space next tick.
+        for (const nx of [tx - 1, tx + 1]) {
+          if (nx < 0 || nx >= this.map.width) continue;
+          if (this.map.at(nx, ty) !== null) continue;
+          moveTo(nx, ty, distance);
+          break;
+        }
+        continue;
+      }
+      // 4. Surface spread (replication, capped unless fall-fed).
       if (distance !== SOURCED && distance >= WATER_FLOW_MAX_DIST) continue;
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
-        if (this.map.at(nx, ty) !== null) continue; // occupied — nothing to flow into
+        if (this.map.at(nx, ty) !== null) continue;
         const nIdx = this.map.index(nx, ty);
         this.setTileById(nx, ty, def.id);
         this.waterFlowDist.set(nIdx, distance === SOURCED ? SOURCED : distance + 1);

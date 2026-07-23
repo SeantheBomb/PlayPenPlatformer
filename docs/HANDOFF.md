@@ -184,6 +184,19 @@ braziers" section. Verified by scripted playtest: 21-tile fall from one tile,
 wall-to-wall sourced pool, drain equilibrium, fire→lava→quench cycle, 9 metal
 blocks → 9 scrap bundles, ice-melt → water → lava-hardening cascade.
 
+## Swimming + flow-ordering round (2026-07-23, same day as fluids)
+
+Two Sean requests landed together. **Swimming**: water columns ≥3 tiles deep put
+the player in a Mario-style swim state — slow sink, jump-press strokes, hold-jump
+lift, floaty horizontals, full-strength jump out at the surface — with a 3-blip air
+meter under the hearts (blip per 3s submerged, then a heart per 3s at zero, refill
+at surface/respawn; all tunable in game.json). **Flow ordering**: fluid never
+widens until fully fallen — falls move instead of duplicating, settling columns
+wait their turn, bases squeeze out under pressure, and drains run as a pre-pass —
+so drains flanking a melting ice tower fully contain the runoff (verified: 9-tile
+burst melt, zero horizontal escape; fire tiles also became repelling barriers you
+can't invuln-tank through, earlier the same day). Conventions in `CLAUDE.md`.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

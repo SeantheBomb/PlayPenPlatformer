@@ -199,6 +199,14 @@ small generator script again; for local tweaks use the in-game editor or edit th
   4-tile falloff. **A drain directly beneath a fall absorbs it entirely** (nothing
   pools) — every authored fall now needs either walls that genuinely contain the
   flood or a drain below it; greenhouse and the vault got drains for exactly this.
+- **Fluid never widens until it has fully fallen** (Sean's explicit rule): falling
+  MOVES the tile (no duplication trail), tiles resting on other fluid wait (at most
+  one diagonal slide into an open hole once their support column is grounded), a
+  column's base squeezes out sideways as a move under pressure, and only true
+  surface tiles replicate sideways. Drains run as a PRE-pass each tick so queued
+  water vanishes before anything can overflow around it — the combination is what
+  makes "drain on either side of a melting ice tower" fully contain the runoff
+  (verified: 9-tile burst melt, zero horizontal escape). Don't reorder these passes.
 - **Lava** (element `"lava"`, NOT `"fire"` — deliberately, so lava-only rules exist):
   flows exactly like water (`fluid: true`), damages like fire (tile `damage`, crawler
   reaction kill). Made by fire melting cracked stone (`cracked.meltsTo: "lava"`);
@@ -218,6 +226,16 @@ small generator script again; for local tweaks use the in-game editor or edit th
   douses; fire element or passive lit-torch contact relights. Unlit braziers don't
   ignite neighbors, don't light torches (`boxTouchesFire` gates on it), and draw as
   cold dark coals — keep that read unambiguous vs. the lit warm-gold breathing look.
+- **Swimming** engages only in water-style columns **≥3 tiles deep** (`Player.
+  swimState`: "surface"/"under"; shallower stays plain wading — don't lower that
+  threshold, puddles aren't pools). Tunables in `game.json` `player.swim` (slow-sink
+  gravity, stroke impulse per jump press, hold-jump lift, floaty accel/friction) and
+  `rules.airBlips/airLossSeconds/drownSeconds`. Submerged: jump = stroke, air drains
+  a blip per `airLossSeconds`; at zero air a heart per `drownSeconds` (ignores invuln
+  frames deliberately). At the surface: full normal-strength jump out, instant air
+  refill. Air also refills on respawn — a checkpoint inside floodwater would
+  otherwise re-drown on an empty meter. HUD bubbles sit under the hearts (`hud.air*`),
+  drawn only while underwater or not-full.
 - Sim caveat: these changed simulation code, so **replay of sessions recorded before
   this round will show drift** — expected; sessions record content but not code.
 

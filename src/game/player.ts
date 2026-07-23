@@ -30,6 +30,9 @@ export class Player {
   onGround = false;
   hiddenIn: number | null = null; // entity index of locker
   invulnUntil = 0;
+  /** Deep-water (≥3 tiles) state this frame: "under" drains air, "surface"
+   *  allows a full normal jump out. Shallow water never engages this. */
+  swimState: "none" | "surface" | "under" = "none";
 
   swingUntil = 0; // swing-tool animation window
   private onIce = false; // standing on a slippery tile last frame
@@ -69,6 +72,26 @@ export class Player {
     return simNow() < this.invulnUntil || this.hiddenIn !== null;
   }
 
+  /**
+   * Deep-water detection: the body sits in a column of water-style tiles at
+   * least 3 tall ("deeper than two tiles" — shallow pools keep plain wading).
+   * "surface" = head within a few px of the waterline (jump leaps out);
+   * "under" = properly submerged (strokes, sinking, air drain).
+   * Style "water" only — waterfalls stay pass-through, not swimmable.
+   */
+  private waterStateAt(map: TileMap): "none" | "surface" | "under" {
+    const cx = Math.floor(this.centerX / 16);
+    const midY = Math.floor((this.y + this.h * 0.6) / 16);
+    const isWater = (tx: number, ty: number) => map.at(tx, ty)?.style === "water";
+    if (!isWater(cx, midY)) return "none";
+    let top = midY;
+    while (top > 0 && isWater(cx, top - 1)) top--;
+    let bot = midY;
+    while (isWater(cx, bot + 1)) bot++;
+    if (bot - top + 1 < 3) return "none";
+    return this.y - top * 16 > 4 ? "under" : "surface";
+  }
+
   hurt(fromX: number, invulnMs: number): void {
     this.invulnUntil = simNow() + invulnMs;
     this.vx = Math.sign(this.centerX - fromX || 1) * this.cfg.knockbackX;
@@ -90,24 +113,43 @@ export class Player {
       return ev;
     }
 
-    // ---- Horizontal intent (ice makes everything mushy) ----
+    this.swimState = this.waterStateAt(map);
+    const swim = cfg.swim;
+    const under = this.swimState === "under";
+    const inDeepWater = this.swimState !== "none";
+
+    // ---- Horizontal intent (ice makes everything mushy, water floaty) ----
     const want = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     if (want !== 0) this.facing = want;
     const iceAccel = this.onIce && this.onGround ? 0.45 : 1;
     const iceFriction = this.onIce && this.onGround ? 0.1 : 1;
-    const control = this.onGround ? 1 : cfg.airControl;
+    const swimAccel = inDeepWater ? swim.accelFactor : 1;
+    const swimFriction = inDeepWater ? swim.frictionFactor : 1;
+    const control = this.onGround || inDeepWater ? 1 : cfg.airControl;
     if (want !== 0) {
-      this.vx += want * cfg.acceleration * control * iceAccel * dt;
+      this.vx += want * cfg.acceleration * control * iceAccel * swimAccel * dt;
     } else {
-      const f = cfg.friction * control * iceFriction * dt;
+      const f = cfg.friction * control * iceFriction * swimFriction * dt;
       if (Math.abs(this.vx) <= f) this.vx = 0;
       else this.vx -= Math.sign(this.vx) * f;
     }
 
     // ---- Jump: buffer + coyote + variable height ----
-    if (this.onGround) this.coyoteUntil = now + cfg.coyoteTimeMs;
+    // At the surface of deep water the player counts as grounded for jump
+    // purposes — a full-strength leap out, Mario-style.
+    if (this.onGround || this.swimState === "surface") this.coyoteUntil = now + cfg.coyoteTimeMs;
     if (input.jumpPressed) this.jumpBufferedUntil = now + cfg.jumpBufferMs;
-    if (now < this.jumpBufferedUntil && now < this.coyoteUntil) {
+    if (under) {
+      // Submerged: jump presses are swim strokes, not jumps.
+      if (input.jumpPressed) {
+        this.vy = -swim.stroke;
+        this.jumpBufferedUntil = 0;
+        ev.jumped = true;
+        this.squashX = 0.85;
+        this.squashY = 1.15;
+      }
+      if (input.jumpDown) this.vy -= swim.holdLift * dt;
+    } else if (now < this.jumpBufferedUntil && now < this.coyoteUntil) {
       this.vy = -cfg.jumpVelocity;
       this.jumpBufferedUntil = 0;
       this.coyoteUntil = 0;
@@ -122,8 +164,12 @@ export class Player {
     }
     if (this.vy >= 0) this.jumpHeld = false;
 
-    // ---- Gravity ----
-    this.vy = Math.min(this.vy + cfg.gravity * dt, cfg.maxFallSpeed);
+    // ---- Gravity (a slow settling pull while swimming) ----
+    if (inDeepWater && !this.jumpHeld) {
+      this.vy = Math.min(this.vy + swim.gravity * dt, swim.maxSink);
+    } else {
+      this.vy = Math.min(this.vy + cfg.gravity * dt, cfg.maxFallSpeed);
+    }
 
     // ---- Goo slow (sample where we stand before moving) ----
     let speedCap = cfg.runSpeed;

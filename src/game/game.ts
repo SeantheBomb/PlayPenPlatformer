@@ -20,7 +20,7 @@ import { simNow, setSimTime } from "../engine/simclock";
 import { randomSeed } from "../engine/rng";
 import { recorder, type CraftOp } from "./recorder";
 import {
-  drawFloaties, drawHearts, drawHotbar, drawPrompt,
+  drawAir, drawFloaties, drawHearts, drawHotbar, drawPrompt,
   drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
   type Floaty, type OverlayButton,
 } from "./hud";
@@ -43,6 +43,12 @@ export class Game {
   runSeed = 0;
   /** Confirm-dialog answers queued by the replay driver (see askConfirm). */
   replayConfirms: boolean[] = [];
+  // Breath while submerged in deep water (rules.airBlips / airLossSeconds /
+  // drownSeconds). Sim-time driven, so replays reproduce it exactly.
+  private air = 0;
+  private nextAirLossAt = 0;
+  private nextDrownAt = 0;
+  private prevSwim: "none" | "surface" | "under" = "none";
   input: Input;
   camera = new Camera();
   particles = new Particles();
@@ -402,6 +408,8 @@ export class Game {
     this.replayConfirms.length = 0;
     this.state = new RunState(this.content, roomId);
     this.player = new Player(this.content.game.player);
+    this.air = this.content.game.rules.airBlips;
+    this.prevSwim = "none";
     this.taunts.reset();
     this.particles.clear();
     this.floaties = [];
@@ -689,6 +697,51 @@ export class Game {
           this.checkAchievements("counter");
         }
       }
+    }
+
+    // ---- Breath: submerged in deep water drains air, then hearts ----
+    {
+      const rules = this.content.game.rules;
+      const swim = this.player.swimState;
+      if (swim === "under") {
+        if (this.prevSwim !== "under") {
+          this.nextAirLossAt = this.simTime + rules.airLossSeconds * 1000;
+          this.nextDrownAt = this.simTime + rules.drownSeconds * 1000;
+        }
+        if (this.air > 0) {
+          if (this.simTime >= this.nextAirLossAt) {
+            this.air--;
+            this.nextAirLossAt = this.simTime + rules.airLossSeconds * 1000;
+            this.nextDrownAt = this.simTime + rules.drownSeconds * 1000;
+            this.particles.burst({
+              x: this.player.centerX, y: this.player.y,
+              count: 5, color: "#7fd8ff", speed: 40, upBias: 50, life: 0.5,
+            });
+            if (this.air === 0) {
+              this.floaty("Out of air!", this.player.centerX, this.player.y - 10, "#7fd8ff");
+            }
+          }
+        } else if (this.simTime >= this.nextDrownAt) {
+          // Drowning ignores invuln frames — hit-invulnerability shouldn't
+          // buy extra lungs. No knockback either; just the slow bad news.
+          this.nextDrownAt = this.simTime + rules.drownSeconds * 1000;
+          this.state.health -= 1;
+          sfx.play("hurt");
+          this.camera.shake(3, 0.2);
+          this.particles.burst({
+            x: this.player.centerX, y: this.player.y,
+            count: 10, color: "#7fd8ff", speed: 60, upBias: 60, life: 0.6,
+          });
+          this.floaty("Drowning!", this.player.centerX, this.player.y - 10, "#ff5470");
+          if (this.state.health <= 0) {
+            this.killPlayer();
+            return;
+          }
+        }
+      } else if (this.air < rules.airBlips) {
+        this.air = rules.airBlips; // surfaced — instant lungful
+      }
+      this.prevSwim = swim;
     }
 
     // ---- Placed springs launch whatever falls on them ----
@@ -1296,8 +1349,11 @@ export class Game {
       this.state.hasDiedOnce = true;
       this.taunts.fire("first_death");
     }
-    // Respawn
+    // Respawn — fresh lungs too, else a checkpoint inside water (flooded
+    // rooms make that possible) re-drowns you instantly on an empty meter.
     this.state.health = this.state.maxHealth;
+    this.air = this.content.game.rules.airBlips;
+    this.prevSwim = "none";
     const cp = this.state.checkpoint;
     if (cp.roomId !== this.currentRoomId) {
       this.loadRoom(cp.roomId);
@@ -1423,6 +1479,9 @@ export class Game {
     const hud = this.content.game.hud;
     const uiScale = this.uiScale();
     drawHearts(ctx, this.state.health, this.state.maxHealth, hud, uiScale);
+    if (this.player.swimState === "under" || this.air < this.content.game.rules.airBlips) {
+      drawAir(ctx, this.air, this.content.game.rules.airBlips, hud, uiScale);
+    }
     drawToolbelt(ctx, this.state, VIEW_W, hud);
     const hotbarHint =
       this.input.scheme === "gamepad" ? "LB/RB cycle · B use" :
