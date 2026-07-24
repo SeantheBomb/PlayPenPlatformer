@@ -217,12 +217,27 @@ small generator script again; for local tweaks use the in-game editor or edit th
   body fully funneled into floor drains, zero left perched. Don't reorder these.
 - **Lava** (element `"lava"`, NOT `"fire"` — deliberately, so lava-only rules exist):
   flows exactly like water (`fluid: true`), damages like fire (tile `damage`, crawler
-  reaction kill). Made by fire melting cracked stone (`cracked.meltsTo: "lava"`);
-  water contact hardens it back to cracked (rule + flow-adjacency both). Lava melts
-  metal blocks into a dropped scrap (`metal.dropsItem: "scrap_metal"` via the generic
-  `dropsItem` field — any destructive transform pays it out as a bundle). The **melt
-  effect no-ops on tiles without `meltsTo`** — that guard is what lets melt rules
-  target a whole element (fire→stone) without erasing plain walls. Don't remove it.
+  reaction kill). Made by fire melting cracked stone (`cracked.meltsTo: "lava"`).
+  Lava melts metal blocks into a dropped scrap (`metal.dropsItem: "scrap_metal"` via
+  the generic `dropsItem` field — any destructive transform pays it out as a bundle).
+  The **melt effect no-ops on tiles without `meltsTo`** — that guard is what lets melt
+  rules target a whole element (fire→stone) without erasing plain walls. Don't remove it.
+- **Water/lava contact destroys BOTH, leaving cracked stone only at the STATIONARY
+  side** (Sean's explicit rule — not "lava always hardens, water always survives").
+  `resolveFluidContact` in `room.ts` finds whichever of the two just tried to
+  move/replicate into contact (fall, diagonal slide, column-pressure squeeze, or
+  SOURCED replication) and destroys THAT one outright (no tile placed); the
+  neighbor it touched — which wasn't moving this tick — hardens into cracked stone.
+  Whichever side happens to be moving determines the outcome, not the element. A
+  passive fallback (top of the main tick loop) covers rare non-move-caused adjacency
+  (e.g. authored placement) by defaulting to lava-hardens/water-destroyed.
+- **Metal grates (`platform` style) are transparent to fluid** — fluid falls and
+  flows straight through them instead of resting on top, "as if they weren't
+  there" (grates stay visible/usable as one-way platforms for the player; this
+  only affects the fluid sim). `realTileBelow` walks through consecutive platform
+  tiles to find the first genuine cell for every fall/settle/pressure check in
+  `tickWaterFlow` and `tickFalls` — don't reintroduce a raw `map.at(tx,ty+1)`
+  check there or fluid will start pooling on grates again.
 - **Fire is a wall, not a damage floor**: the fire tile has `repels: true` — a new
   generic tile flag that shoves the player back out on every overlapping frame,
   including invuln frames, so you can never tank through it; extinguish it instead.

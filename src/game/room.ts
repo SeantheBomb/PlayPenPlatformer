@@ -213,6 +213,47 @@ export class RoomRuntime {
   }
 
   /**
+   * Metal grates are transparent to fluid — flow "through them as if they
+   * weren't there" instead of resting on top. Walks downward from (tx,ty),
+   * skipping consecutive platform-style tiles, and reports the first REAL
+   * (non-platform) tile it reaches: null def means genuinely open (fluid can
+   * fall all the way there in one move, leaving every grate along the way
+   * untouched); off the map reports height === map.height.
+   */
+  private realTileBelow(tx: number, ty: number): { ty: number; def: TileDef | null } {
+    let y = ty;
+    while (y < this.map.height && this.map.at(tx, y)?.style === "platform") y++;
+    return { ty: y, def: y < this.map.height ? this.map.at(tx, y) : null };
+  }
+
+  /**
+   * Water/lava contact: both are destroyed, leaving only cracked stone at
+   * the STATIONARY side's position (Sean's rule). Checks (nx,ny)'s
+   * neighbors — excluding the mover's own vacated cell — for the opposite
+   * fluid; if found, hardens that stationary neighbor into cracked stone
+   * and reports true so the caller skips placing the mover there at all
+   * (the mover is destroyed rather than relocating/replicating into it).
+   */
+  private resolveFluidContact(
+    nx: number, ny: number, moverDef: TileDef, fromTx: number, fromTy: number, events: ElementEvent[]
+  ): boolean {
+    if (moverDef.element !== "water" && moverDef.element !== "lava") return false;
+    const opposite = moverDef.element === "water" ? "lava" : "water";
+    const neighbors = [[nx - 1, ny], [nx + 1, ny], [nx, ny - 1], [nx, ny + 1]] as const;
+    for (const [ox, oy] of neighbors) {
+      if (ox === fromTx && oy === fromTy) continue;
+      const odef = this.map.at(ox, oy);
+      if (!odef || odef.element !== opposite || !this.isFluid(odef)) continue;
+      const lavaDef = moverDef.element === "lava" ? moverDef : odef;
+      this.transformTile(ox, oy, lavaDef.extinguishesTo ?? "cracked");
+      this.waterFlowDist.delete(this.map.index(ox, oy));
+      events.push({ effect: "extinguish", x: ox * TILE + 8, y: oy * TILE + 8, color: "#8f9bb3" });
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Transform a tile via a rule effect (melt/shatter/dissolve/burn/quench).
    * Unlike raw setTileById this also pays out the tile's `dropsItem` as a
    * recoverable bundle — how a metal block melted by lava becomes scrap.
@@ -385,10 +426,19 @@ export class RoomRuntime {
         continue;
       }
       // Lava beside water hardens (extinguishesTo, i.e. cracked stone).
+      // Fallback path only: real movement-caused contact is resolved at the
+      // moment of the move/replicate below via resolveFluidContact, which
+      // correctly destroys the MOVING side. A lava tile that's already
+      // sitting still next to water (e.g. authored adjacent) has no mover
+      // to blame, so it defaults to hardening itself and destroying the
+      // water — still "one side cracked, the other gone", just a fixed
+      // default absent better information.
       if (def.element === "lava" && def.extinguishesTo !== undefined) {
-        const touchingWater = [[tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]]
-          .some(([nx, ny]) => this.map.at(nx, ny)?.element === "water");
-        if (touchingWater) {
+        const waterNeighbor = ([[tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]] as const)
+          .find(([nx, ny]) => this.map.at(nx, ny)?.element === "water");
+        if (waterNeighbor) {
+          this.setTileById(waterNeighbor[0], waterNeighbor[1], undefined);
+          this.waterFlowDist.delete(this.map.index(waterNeighbor[0], waterNeighbor[1]));
           this.transformTile(tx, ty, def.extinguishesTo);
           this.waterFlowDist.delete(idx);
           events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
@@ -396,26 +446,35 @@ export class RoomRuntime {
         }
       }
       const moveTo = (nx: number, ny: number, d: number) => {
+        if (this.resolveFluidContact(nx, ny, def, tx, ty, events)) {
+          // Contact: the mover is destroyed instead of relocating.
+          this.setTileById(tx, ty, undefined);
+          this.waterFlowDist.delete(idx);
+          return;
+        }
         this.setTileById(nx, ny, def.id);
         this.waterFlowDist.set(this.map.index(nx, ny), d);
         this.setTileById(tx, ty, undefined);
         this.waterFlowDist.delete(idx);
         events.push({ effect: "flow", x: nx * TILE + 8, y: ny * TILE + 8, color: def.color });
       };
-      // 1. Fall (as a move).
-      if (ty + 1 < this.map.height && this.map.at(tx, ty + 1) === null) {
-        moveTo(tx, ty + 1, distance === SOURCED ? SOURCED : 0);
+      // 1. Fall (as a move) — metal grates are transparent, so this skips
+      // straight through any directly beneath to the first real open cell.
+      const belowInfo = this.realTileBelow(tx, ty + 1);
+      if (belowInfo.def === null && belowInfo.ty < this.map.height) {
+        moveTo(tx, belowInfo.ty, distance === SOURCED ? SOURCED : 0);
         continue;
       }
-      const below = ty + 1 < this.map.height ? this.map.at(tx, ty + 1) : null;
+      const below = belowInfo.def;
       // 2. Part of a column still settling.
       if (below && this.isFluid(below)) {
-        const belowBelow = ty + 2 < this.map.height ? this.map.at(tx, ty + 2) : undefined;
-        const columnGrounded = belowBelow !== null && !(belowBelow && this.isFluid(belowBelow));
+        const belowBelowInfo = this.realTileBelow(tx, belowInfo.ty + 1);
+        const columnGrounded = belowBelowInfo.ty >= this.map.height ||
+          (belowBelowInfo.def !== null && !this.isFluid(belowBelowInfo.def));
         if (columnGrounded) {
           for (const nx of [tx - 1, tx + 1]) {
             if (nx < 0 || nx >= this.map.width) continue;
-            if (this.map.at(nx, ty) !== null || this.map.at(nx, ty + 1) !== null) continue;
+            if (this.map.at(nx, ty) !== null || this.map.at(nx, belowInfo.ty) !== null) continue;
             moveTo(nx, ty, distance);
             break;
           }
@@ -442,6 +501,7 @@ export class RoomRuntime {
         for (const nx of [tx - 1, tx + 1]) {
           if (nx < 0 || nx >= this.map.width) continue;
           if (this.map.at(nx, ty) !== null) continue;
+          if (this.resolveFluidContact(nx, ty, def, tx, ty, events)) continue;
           const nIdx = this.map.index(nx, ty);
           this.setTileById(nx, ty, def.id);
           this.waterFlowDist.set(nIdx, SOURCED);
@@ -456,7 +516,8 @@ export class RoomRuntime {
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
         if (this.map.at(nx, ty) !== null) continue;
-        if (ty + 1 >= this.map.height || this.map.at(nx, ty + 1) !== null) continue;
+        const holeBelow = this.realTileBelow(nx, ty + 1);
+        if (holeBelow.ty >= this.map.height || holeBelow.def !== null) continue;
         moveTo(nx, ty, distance);
         break;
       }
@@ -483,39 +544,48 @@ export class RoomRuntime {
         continue;
       }
       if (ty + 1 >= this.map.height) continue;
-      const below = this.map.at(tx, ty + 1);
+      // Metal grates are transparent to fluid — a fall skips straight
+      // through any directly below instead of resting on them.
+      const belowInfo = this.realTileBelow(tx, ty + 1);
+      if (belowInfo.ty >= this.map.height) continue;
+      const below = belowInfo.def;
+      const belowTy = belowInfo.ty;
       // Mid-fall tiles (another fall tile below) do nothing; the base acts.
       if (below?.id === def.id) continue;
       if (below === null) {
-        this.setTileById(tx, ty + 1, def.id);
-        events.push({ effect: "flow", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: def.color });
+        this.setTileById(tx, belowTy, def.id);
+        events.push({ effect: "flow", x: tx * TILE + 8, y: belowTy * TILE + 8, color: def.color });
         continue;
       }
       if (below.style === "drain") continue; // fully absorbed, nothing pools
       const fluidDef = this.tilesById.get(def.fallSpawns);
       if (!fluidDef) continue;
-      // Fall landing on the opposite liquid: quench into hardened stone.
+      // Fall landing on the opposite liquid: both destroyed, the STATIONARY
+      // pool below hardens into cracked stone (the fall never gets a tile).
       if (this.isFluid(below) && below.element !== fluidDef.element) {
         const lavaSide = below.element === "lava" ? below : fluidDef;
-        this.transformTile(tx, ty + 1, lavaSide.extinguishesTo ?? "");
-        events.push({ effect: "extinguish", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: "#8f9bb3" });
+        this.transformTile(tx, belowTy, lavaSide.extinguishesTo ?? "");
+        events.push({ effect: "extinguish", x: tx * TILE + 8, y: belowTy * TILE + 8, color: "#8f9bb3" });
         continue;
       }
       // The pool has risen to meet the fall: keep it topped up as a source
       // (so it keeps refilling if drained elsewhere) but STOP here — the
       // fall doesn't also spill sideways over the top of its own pool.
       if (this.isFluid(below)) {
-        this.waterFlowDist.set(this.map.index(tx, ty + 1), SOURCED);
+        this.waterFlowDist.set(this.map.index(tx, belowTy), SOURCED);
         continue;
       }
       // First landing on solid ground: this is the fall's true base — start
-      // the pool by emitting into open side tiles.
+      // the pool by emitting into open side tiles, one row above the solid
+      // (which may be several rows below the fall if grates were skipped).
+      const baseTy = belowTy - 1;
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
-        if (this.map.at(nx, ty) !== null) continue;
-        this.setTileById(nx, ty, fluidDef.id);
-        this.waterFlowDist.set(this.map.index(nx, ty), SOURCED);
-        events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: fluidDef.color });
+        if (this.map.at(nx, baseTy) !== null) continue;
+        if (this.resolveFluidContact(nx, baseTy, fluidDef, tx, baseTy, events)) continue;
+        this.setTileById(nx, baseTy, fluidDef.id);
+        this.waterFlowDist.set(this.map.index(nx, baseTy), SOURCED);
+        events.push({ effect: "flow", x: nx * TILE + 8, y: baseTy * TILE + 8, color: fluidDef.color });
       }
     }
   }
