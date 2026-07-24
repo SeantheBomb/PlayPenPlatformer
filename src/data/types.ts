@@ -268,7 +268,7 @@ export interface TauntDef {
 // ---- Rooms ----
 
 export type EntityType =
-  | "spawn" | "checkpoint" | "pickup" | "note" | "door"
+  | "spawn" | "checkpoint" | "pickup" | "note" | "door" | "trapdoor"
   | "locker" | "enemy" | "npc" | "exit" | "hint"
   | "brazier" | "fusebox";
 

@@ -883,6 +883,17 @@ export class Game {
           this.player.vx = 0;
         }
       }
+      // Trapdoors are the vertical counterpart: a closed one blocks
+      // up/down passage through its tile instead of sideways passage
+      // through a wall gap.
+      if (e.kind === "trapdoor" && e.def.gate && !e.open) {
+        const prect = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
+        if (rectsOverlap(prect, e)) {
+          if (this.player.centerY < e.y + e.h / 2) this.player.y = e.y - this.player.h - 0.5;
+          else this.player.y = e.y + e.h + 0.5;
+          this.player.vy = 0;
+        }
+      }
     }
 
     // ---- Pickups / bundles / checkpoints (walk-over) ----
@@ -1046,6 +1057,7 @@ export class Game {
     if (near) {
       const verbs: Record<string, string> = {
         note: "read", door: near.def.gate && !near.open ? "look" : "go",
+        trapdoor: near.def.gate && !near.open ? "look" : "go",
         locker: "hide", npc: "talk", exit: "EXIT",
       };
       return { kind: "interact", label: verbs[near.kind] ?? "use" };
@@ -1114,7 +1126,7 @@ export class Game {
         this.taunts.fire("hide_enter");
         break;
       }
-      case "door": this.useDoor(e); break;
+      case "door": case "trapdoor": this.useDoor(e); break;
       case "npc": this.talkToNpc(e); break;
       case "exit": this.winGame(); break;
     }
@@ -1619,6 +1631,7 @@ export class Game {
         if (near) {
           const verbs: Record<string, string> = {
             note: "read", door: near.def.gate && !near.open ? "inspect" : "open",
+            trapdoor: near.def.gate && !near.open ? "inspect" : "open",
             locker: "hide", npc: "talk", exit: "ESCAPE",
           };
           drawPrompt(ctx, `${iKey} — ${verbs[near.kind] ?? "use"}`, near.x + near.w / 2, near.y - 6);

@@ -22,8 +22,8 @@ type Tool =
   | { kind: "marquee" };
 
 const ENTITY_TYPES: RoomEntity["type"][] = [
-  "spawn", "checkpoint", "pickup", "note", "door", "locker", "enemy", "npc",
-  "exit", "hint", "brazier", "fusebox",
+  "spawn", "checkpoint", "pickup", "note", "door", "trapdoor", "locker", "enemy",
+  "npc", "exit", "hint", "brazier", "fusebox",
 ];
 
 const UNDO_CAP = 50;

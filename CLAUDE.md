@@ -238,6 +238,21 @@ small generator script again; for local tweaks use the in-game editor or edit th
   tiles to find the first genuine cell for every fall/settle/pressure check in
   `tickWaterFlow` and `tickFalls` — don't reintroduce a raw `map.at(tx,ty+1)`
   check there or fluid will start pooling on grates again.
+- **Closed gates (doors AND trapdoors) block fluid** the same way they block the
+  player — open gates and plain (non-gated) teleport doors don't. `doorBlocksFluid`
+  in `room.ts` checks entity rects, not tiles (doors/trapdoors aren't part of the
+  tile grid); `realTileBelow`'s `solid` flag folds this in for the vertical fall
+  path, and `fluidOccupied` folds it in for every horizontal spread/replicate
+  check. A closed gate over otherwise-open space reads as solid to fluid even
+  though the tile underneath is `null` — don't go back to bare `map.at(...) !==
+  null` checks or fluid will leak straight through shut doors again.
+- **Trapdoor** (new entity type, `ENTITY_SIZES.trapdoor = [16,16]`, one tile):
+  the vertical counterpart to `door` — same `gate`/`fuseId`/`to` fields and the
+  same `useDoor` interact logic, but a closed one blocks the player's vertical
+  passage (push out along Y) instead of horizontal (push out along X), drawn as
+  a horizontal hatch instead of a vertical panel. Reuses every door mechanism
+  (fusebox wiring, interactableNear, prompts) via `e.kind === "door" ||
+  e.kind === "trapdoor"` checks — extend that pattern, don't fork a parallel path.
 - **Fire is a wall, not a damage floor**: the fire tile has `repels: true` — a new
   generic tile flag that shoves the player back out on every overlapping frame,
   including invuln frames, so you can never tank through it; extinguish it instead.

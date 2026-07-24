@@ -59,6 +59,7 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   pickup: [14, 14],
   note: [12, 12],
   door: [16, 32],
+  trapdoor: [16, 16], // horizontal hatch — blocks/passes vertically, not sideways
   locker: [16, 32],
   npc: [12, 16],
   checkpoint: [8, 24],
@@ -212,18 +213,38 @@ export class RoomRuntime {
     return !!def.fluid || def.style === "water";
   }
 
+  /** A closed gate (door + trapdoor) blocks fluid exactly like it blocks the
+   *  player — open gates and plain (non-gated) teleport doors don't. */
+  private doorBlocksFluid(tx: number, ty: number): boolean {
+    const box = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE };
+    return this.entities.some(
+      (e) => (e.kind === "door" || e.kind === "trapdoor") && e.def.gate && !e.open && rectsOverlap(e, box)
+    );
+  }
+
+  /** Is (tx,ty) occupied for fluid purposes — a real tile, or a closed gate
+   *  sitting over otherwise-open space? Used for horizontal spread/replicate
+   *  targets, which (unlike falling) don't pass through metal grates either. */
+  private fluidOccupied(tx: number, ty: number): boolean {
+    return this.map.at(tx, ty) !== null || this.doorBlocksFluid(tx, ty);
+  }
+
   /**
    * Metal grates are transparent to fluid — flow "through them as if they
    * weren't there" instead of resting on top. Walks downward from (tx,ty),
-   * skipping consecutive platform-style tiles, and reports the first REAL
-   * (non-platform) tile it reaches: null def means genuinely open (fluid can
-   * fall all the way there in one move, leaving every grate along the way
-   * untouched); off the map reports height === map.height.
+   * skipping consecutive platform-style tiles, and reports the first cell
+   * that actually stops it: `solid` false + `def` null means genuinely open
+   * (fluid can fall all the way there in one move, leaving every grate along
+   * the way untouched); `solid` true covers both real tiles AND a closed
+   * gate blocking otherwise-empty space (a door is solid ground to fluid
+   * even though grates are not). Off the map reports ty === map.height.
    */
-  private realTileBelow(tx: number, ty: number): { ty: number; def: TileDef | null } {
+  private realTileBelow(tx: number, ty: number): { ty: number; def: TileDef | null; solid: boolean } {
     let y = ty;
-    while (y < this.map.height && this.map.at(tx, y)?.style === "platform") y++;
-    return { ty: y, def: y < this.map.height ? this.map.at(tx, y) : null };
+    while (y < this.map.height && this.map.at(tx, y)?.style === "platform" && !this.doorBlocksFluid(tx, y)) y++;
+    if (y >= this.map.height) return { ty: y, def: null, solid: false };
+    const def = this.map.at(tx, y);
+    return { ty: y, def, solid: def !== null || this.doorBlocksFluid(tx, y) };
   }
 
   /**
@@ -461,7 +482,7 @@ export class RoomRuntime {
       // 1. Fall (as a move) — metal grates are transparent, so this skips
       // straight through any directly beneath to the first real open cell.
       const belowInfo = this.realTileBelow(tx, ty + 1);
-      if (belowInfo.def === null && belowInfo.ty < this.map.height) {
+      if (!belowInfo.solid && belowInfo.ty < this.map.height) {
         moveTo(tx, belowInfo.ty, distance === SOURCED ? SOURCED : 0);
         continue;
       }
@@ -470,11 +491,11 @@ export class RoomRuntime {
       if (below && this.isFluid(below)) {
         const belowBelowInfo = this.realTileBelow(tx, belowInfo.ty + 1);
         const columnGrounded = belowBelowInfo.ty >= this.map.height ||
-          (belowBelowInfo.def !== null && !this.isFluid(belowBelowInfo.def));
+          (belowBelowInfo.solid && !(belowBelowInfo.def && this.isFluid(belowBelowInfo.def)));
         if (columnGrounded) {
           for (const nx of [tx - 1, tx + 1]) {
             if (nx < 0 || nx >= this.map.width) continue;
-            if (this.map.at(nx, ty) !== null || this.map.at(nx, belowInfo.ty) !== null) continue;
+            if (this.fluidOccupied(nx, ty) || this.fluidOccupied(nx, belowInfo.ty)) continue;
             moveTo(nx, ty, distance);
             break;
           }
@@ -488,7 +509,7 @@ export class RoomRuntime {
         // column above falls into the vacated space next tick.
         for (const nx of [tx - 1, tx + 1]) {
           if (nx < 0 || nx >= this.map.width) continue;
-          if (this.map.at(nx, ty) !== null) continue;
+          if (this.fluidOccupied(nx, ty)) continue;
           moveTo(nx, ty, distance);
           break;
         }
@@ -500,7 +521,7 @@ export class RoomRuntime {
         // walls or a drain stop it.
         for (const nx of [tx - 1, tx + 1]) {
           if (nx < 0 || nx >= this.map.width) continue;
-          if (this.map.at(nx, ty) !== null) continue;
+          if (this.fluidOccupied(nx, ty)) continue;
           if (this.resolveFluidContact(nx, ty, def, tx, ty, events)) continue;
           const nIdx = this.map.index(nx, ty);
           this.setTileById(nx, ty, def.id);
@@ -515,9 +536,9 @@ export class RoomRuntime {
       // whole thing slushes downhill instead of becoming an infinite source.
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
-        if (this.map.at(nx, ty) !== null) continue;
+        if (this.fluidOccupied(nx, ty)) continue;
         const holeBelow = this.realTileBelow(nx, ty + 1);
-        if (holeBelow.ty >= this.map.height || holeBelow.def !== null) continue;
+        if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
         moveTo(nx, ty, distance);
         break;
       }
@@ -545,18 +566,21 @@ export class RoomRuntime {
       }
       if (ty + 1 >= this.map.height) continue;
       // Metal grates are transparent to fluid — a fall skips straight
-      // through any directly below instead of resting on them.
+      // through any directly below instead of resting on them. A closed
+      // gate is the opposite: solid to fluid even where the tile itself is
+      // empty, so the fall just stops and waits rather than growing past it.
       const belowInfo = this.realTileBelow(tx, ty + 1);
       if (belowInfo.ty >= this.map.height) continue;
       const below = belowInfo.def;
       const belowTy = belowInfo.ty;
-      // Mid-fall tiles (another fall tile below) do nothing; the base acts.
-      if (below?.id === def.id) continue;
       if (below === null) {
+        if (belowInfo.solid) continue; // blocked by a closed door — wait
         this.setTileById(tx, belowTy, def.id);
         events.push({ effect: "flow", x: tx * TILE + 8, y: belowTy * TILE + 8, color: def.color });
         continue;
       }
+      // Mid-fall tiles (another fall tile below) do nothing; the base acts.
+      if (below.id === def.id) continue;
       if (below.style === "drain") continue; // fully absorbed, nothing pools
       const fluidDef = this.tilesById.get(def.fallSpawns);
       if (!fluidDef) continue;
@@ -581,7 +605,7 @@ export class RoomRuntime {
       const baseTy = belowTy - 1;
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
-        if (this.map.at(nx, baseTy) !== null) continue;
+        if (this.fluidOccupied(nx, baseTy)) continue;
         if (this.resolveFluidContact(nx, baseTy, fluidDef, tx, baseTy, events)) continue;
         this.setTileById(nx, baseTy, fluidDef.id);
         this.waterFlowDist.set(this.map.index(nx, baseTy), SOURCED);
@@ -709,7 +733,7 @@ export class RoomRuntime {
     this.muts.openedDoors.add(fb.index);
     events.push({ effect: "fuse", x: fb.x + fb.w / 2, y: fb.y, color: "#ffe95a" });
     for (const e of this.entities) {
-      if (e.kind === "door" && e.def.fuseId && e.def.fuseId === fb.def.fuseId && !e.open) {
+      if ((e.kind === "door" || e.kind === "trapdoor") && e.def.fuseId && e.def.fuseId === fb.def.fuseId && !e.open) {
         e.open = true;
         this.muts.openedDoors.add(e.index);
         events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#9be8b0" });
@@ -833,8 +857,8 @@ export class RoomRuntime {
     let bestD = range;
     for (const e of this.entities) {
       if (e.collected) continue;
-      if (!["note", "door", "locker", "npc", "exit"].includes(e.kind)) continue;
-      if (e.kind === "door" && e.def.gate && e.open) continue; // open gates are scenery
+      if (!["note", "door", "trapdoor", "locker", "npc", "exit"].includes(e.kind)) continue;
+      if ((e.kind === "door" || e.kind === "trapdoor") && e.def.gate && e.open) continue; // open gates are scenery
       const nx = Math.max(e.x, Math.min(px, e.x + e.w));
       const ny = Math.max(e.y, Math.min(py, e.y + e.h));
       const d = dist(px, py, nx, ny);
@@ -1257,6 +1281,43 @@ export class RoomRuntime {
             ctx.lineTo(e.x + 6, e.y + 16);
             ctx.lineTo(e.x + 9, e.y + 16);
             ctx.lineTo(e.x + 6, e.y + 22);
+            ctx.stroke();
+          }
+        }
+        break;
+      }
+      case "trapdoor": {
+        // A horizontal hatch: two hinged flaps that swing open downward,
+        // vs. the door's vertical panel — reads as blocking up/down, not
+        // sideways.
+        const powered = !!e.def.fuseId;
+        const c = e.open ? "#4f8a5e" : powered ? "#8a6f4f" : "#6e5c8a";
+        ctx.fillStyle = shade(c, -25);
+        ctx.fillRect(e.x - 2, e.y - 1, e.w + 4, e.h + 3);
+        if (e.open) {
+          ctx.fillStyle = "#0d0b14";
+          ctx.fillRect(e.x + 1, e.y + 3, e.w - 2, e.h - 4);
+          // Flaps hang open to the sides.
+          ctx.fillStyle = c;
+          ctx.fillRect(e.x - 2, e.y + e.h - 2, e.w / 2, 2.5);
+          ctx.fillRect(e.x + e.w / 2, e.y + e.h - 2, e.w / 2 + 2, 2.5);
+        } else {
+          ctx.fillStyle = c;
+          ctx.fillRect(e.x, e.y, e.w, e.h);
+          ctx.fillStyle = shade(c, -40);
+          ctx.fillRect(e.x, e.y + e.h / 2 - 0.75, e.w, 1.5); // hinge seam, split down the middle
+          ctx.fillStyle = shade(c, 25);
+          ctx.beginPath();
+          ctx.arc(e.x + e.w / 2, e.y + 3, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+          if (powered) {
+            ctx.strokeStyle = "#ffe95a";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(e.x + 8, e.y + 7);
+            ctx.lineTo(e.x + 5, e.y + 11);
+            ctx.lineTo(e.x + 8, e.y + 11);
+            ctx.lineTo(e.x + 5, e.y + 15);
             ctx.stroke();
           }
         }
