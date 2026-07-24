@@ -63,8 +63,9 @@
     "smokeCloudSeconds": 10,
     "smokeThrowVx": 260,
     "smokeThrowVy": 320,
-    "throwChargeSeconds": 0.9,
-    "throwMinPower": 0.45
+    "throwChargeSeconds": 0.45,
+    "smokeThrowMinVx": 200,
+    "smokeThrowMinVy": 150
   },
   "audio": {
     "sfxVolume": 0.5,

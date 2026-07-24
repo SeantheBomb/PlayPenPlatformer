@@ -954,9 +954,8 @@ export class Game {
         } else if (!this.input.useHeld) {
           const rules = this.content.game.rules;
           const t = Math.min(1, (this.simTime - this.throwChargeSince) / (rules.throwChargeSeconds * 1000));
-          const power = rules.throwMinPower + (1 - rules.throwMinPower) * t;
           this.throwChargeSince = null;
-          this.throwBomb(held, power);
+          this.throwBomb(held, t);
         }
       }
     } else {
@@ -1402,24 +1401,30 @@ export class Game {
       case "burst": {
         // Throwables normally charge via press-and-hold (see updatePlay);
         // reaching here directly means a minimum-strength lob.
-        this.throwBomb(item, rules.throwMinPower);
+        this.throwBomb(item, 0);
         break;
       }
     }
   }
 
-  /** Launch a throwable at `power` (0-1 fraction of full charge). It bursts
-   *  on impact into a smoke veil — see the bombs-in-flight block. */
-  private throwBomb(item: ItemDef, power: number): void {
-    const rules = this.content.game.rules;
+  /** Launch a throwable at charge `t` (0 = tap, 1 = full). Velocities lerp
+   *  from the tap min to the full-charge max per axis, so the tap throw can
+   *  keep the classic feel independent of how high a full charge lofts. */
+  private throwBomb(item: ItemDef, t: number): void {
     this.state.remove(item.id);
     this.player.swing();
-    this.bombs.push({
-      x: this.player.centerX, y: this.player.centerY - 4,
-      vx: this.player.facing * rules.smokeThrowVx * power + this.player.vx * 0.5,
-      vy: -rules.smokeThrowVy * power,
-    });
+    const v = this.throwVelocityAt(t);
+    this.bombs.push({ x: this.player.centerX, y: this.player.centerY - 4, vx: v.vx, vy: v.vy });
     sfx.play("swing");
+  }
+
+  private throwVelocityAt(t: number): { vx: number; vy: number } {
+    const rules = this.content.game.rules;
+    return {
+      vx: this.player.facing * (rules.smokeThrowMinVx + (rules.smokeThrowVx - rules.smokeThrowMinVx) * t)
+        + this.player.vx * 0.5,
+      vy: -(rules.smokeThrowMinVy + (rules.smokeThrowVy - rules.smokeThrowMinVy) * t),
+    };
   }
 
   /** Current throw velocity for the charge preview (render only). */
@@ -1427,12 +1432,7 @@ export class Game {
     if (this.throwChargeSince === null) return null;
     const rules = this.content.game.rules;
     const t = Math.min(1, (this.simTime - this.throwChargeSince) / (rules.throwChargeSeconds * 1000));
-    const power = rules.throwMinPower + (1 - rules.throwMinPower) * t;
-    return {
-      vx: this.player.facing * rules.smokeThrowVx * power + this.player.vx * 0.5,
-      vy: -rules.smokeThrowVy * power,
-      t,
-    };
+    return { ...this.throwVelocityAt(t), t };
   }
 
   private damagePlayer(amount: number, fromX: number, _source: string): void {
