@@ -825,11 +825,13 @@ export class Game {
       this.content.game.rules.stunDurationMs,
       (events) => this.handleElementEvents(events)
     );
-    // Smoked players are ghosts to the specimens — brushing past is safe.
-    if (!this.player.invulnerable && !this.player.smokeInvisible) {
+    if (!this.player.invulnerable) {
       const prect = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
       for (const en of this.roomRt.enemies) {
         if (en.state === "stunned" || en.state === "trapped") continue;
+        // Smoke only fools enemies that hunt by SIGHT (behavior "chase").
+        // Blind bodily hazards like crawlers hurt you smoke or no smoke.
+        if (this.player.smokeInvisible && en.def.behavior === "chase") continue;
         if (rectsOverlap(prect, { x: en.x, y: en.y, w: en.def.width, h: en.def.height })) {
           this.damagePlayer(en.def.damage, en.x + en.def.width / 2, "enemy");
           break;

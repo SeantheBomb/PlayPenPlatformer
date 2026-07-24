@@ -166,7 +166,7 @@
     "shape": "bottle",
     "color": "#8f9bb3",
     "useMode": "burst",
-    "description": "A burst of spore smoke that swallows you whole. The specimens can't see you, can't touch you — until it clears. Walk right past them."
+    "description": "A burst of spore smoke that swallows you whole. Anything that hunts by sight loses you completely — until it clears. Crawlers don't hunt by sight. Mind your step."
   },
   {
     "id": "sticky_trap",

@@ -199,7 +199,8 @@ can't invuln-tank through, earlier the same day). Conventions in `CLAUDE.md`.
 
 **Smoke bomb redesign** (same day): no longer a stun — bursting one turns the
 player invisible for `rules.smokeInvisSeconds` (6s): spotters can't acquire you
-(same `hidden` plumbing as lockers), enemy contact does no damage, and the player
+(same `hidden` plumbing as lockers) and SIGHT-hunters (behavior "chase") do no contact
+damage — blind crawlers still hurt you, and the player
 renders ghosted with a flicker warning in the last second. `smokeBombRadius`
 (now 200) only sizes the cloud visual. Marla's pitch + the item description were
 updated to match; the Warden is deliberately NOT fooled by smoke.
