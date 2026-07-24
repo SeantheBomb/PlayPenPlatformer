@@ -32,6 +32,7 @@
       "accelFactor": 0.55,
       "frictionFactor": 0.35
     },
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAArElEQVR4AYyRARLDIAgEST/UX/VR/VVflLKMN6MY1ExO5IQNSV42Xrenp/JSswyw+/fZKjrbMgGaH+F6fyNqyTn+EkDBTksAr9MDcs5ZCWBcicJKJYCnSVUz/gTQU1eRRglA/9/lR9QExDDGJfoAlP+9rweSxXkA2Eg++qX9U/TzwZ4AfspoHs7uJ8BZZ6vaAvLI9OEh9gEgkTAPxHcKAYiNNymaYET3pxxP+gMAAP//eQf9GAAAAAZJREFUAwAhOGUYj3IQqQAAAABJRU5ErkJggg==",
     "sketch": true
   },
   "camera": {
@@ -53,7 +54,7 @@
     "respawnInvulnMs": 1500,
     "healAtCheckpoints": true,
     "stunDurationMs": 4000,
-    "smokeBombRadius": 160,
+    "smokeBombRadius": 192,
     "idleTauntSeconds": 45,
     "idleChaseSeconds": 75,
     "wardenIdleSpeed": 70,
@@ -62,11 +63,12 @@
     "airLossSeconds": 3,
     "drownSeconds": 3,
     "smokeCloudSeconds": 10,
-    "smokeThrowVx": 260,
-    "smokeThrowVy": 320,
+    "smokeThrowVx": 200,
+    "smokeThrowVy": 150,
     "throwChargeSeconds": 0.45,
     "smokeThrowMinVx": 200,
-    "smokeThrowMinVy": 150
+    "smokeThrowMinVy": 150,
+    "smokeInvisSeconds": 6
   },
   "audio": {
     "sfxVolume": 0.5,

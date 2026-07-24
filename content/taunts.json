@@ -99,6 +99,17 @@
     "emotion": "bored"
   },
   {
+    "id": "room_mess_hall",
+    "trigger": "room_enter",
+    "roomId": "mess_hall",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Boiler Room. It runs a little hot. I keep meaning to fix that. I keep meaning to fix a LOT of things."
+    ],
+    "emotion": "annoyed"
+  },
+  {
     "id": "room_exit_wing",
     "trigger": "room_enter",
     "roomId": "exit_wing",
