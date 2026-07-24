@@ -231,22 +231,39 @@ small generator script again; for local tweaks use the in-game editor or edit th
   Whichever side happens to be moving determines the outcome, not the element. A
   passive fallback (top of the main tick loop) covers rare non-move-caused adjacency
   (e.g. authored placement) by defaulting to lava-hardens/water-destroyed.
-- **Metal grates (`platform` style) are transparent to fluid** — fluid falls and
-  flows straight through them instead of resting on top, "as if they weren't
-  there" (grates stay visible/usable as one-way platforms for the player; this
-  only affects the fluid sim). `realTileBelow` walks through consecutive platform
-  tiles — vertically for falling, and horizontally too (every spread/replicate
-  target resolves through `fluidOccupied`, which is just `realTileBelow` called
-  sideways) — to find where fluid actually ends up. A **suspended** grate (real
-  open space beneath it) stays untouched, fluid falls straight through to the
-  floor below. A grate **flush against solid ground with no gap** has nowhere
-  else for fluid to go, so `realTileBelow` reports the last grate tile passed
-  through as the resting spot and the sim floods that grate tile directly
-  (submerging that one spot rather than leaving fluid stuck with nowhere to
-  render) — this is what lets a lavafall keep flowing sideways along a grated
-  walkway toward a door instead of stalling the moment it lands on one. Don't
-  reintroduce a raw `map.at(...) !== null` occupancy check for fluid or both
-  of these (vertical passthrough, horizontal walkway-flooding) regress.
+- **Metal grates (`platform` style) and fluid occupy the SAME cell** (Sean's
+  explicit call — grates must never be destroyed/replaced by fluid, even when
+  fluid genuinely needs to be "at" a grate's position): `realTileBelow` walks
+  through consecutive platform tiles, vertically for falling and (via
+  `fluidOccupied`, `realTileBelow` called sideways) horizontally for every
+  spread/replicate target, and returns a 4-field result — `def`/`solid` for the
+  first REAL (non-platform) cell reached, plus a separate `grateY` reporting
+  the last grate tile passed through, if any. A **suspended** grate (real open
+  space beneath it) is untouched and irrelevant to the result — fluid falls
+  straight through to the floor below, `grateY` never enters it. A grate
+  **flush against solid ground with no gap** has no empty cell of its own, so
+  callers fall back to `grateY` as the resting spot — but instead of
+  overwriting the tile grid there, `placeFluid`/`clearFluid` route that
+  specific placement through `grateFluid` (a `Map<index, TileDef>` overlay,
+  exactly like `burning`): the grate tile stays the grate (still walkable,
+  still drawn every frame by `drawMap`), the fluid rides underneath as a
+  translucent tint drawn in `drawElementOverlays` (`ctx.globalAlpha ≈ 0.55`
+  over the normal fluid tile render). `fluidDefAt(tx,ty)` is the single
+  source of truth for "what fluid is logically here" — checks `grateFluid`
+  first, falls back to the real tile — and EVERY fluid-identity read in the
+  sim (the main tick's per-cell dispatch, the pre-pass drain sweep, contact
+  resolution, the passive lava/water fallback, the "fluid above" pressure
+  check) goes through it instead of raw `map.at(...)`, or a grate-carried
+  cell silently falls out of the simulation the instant it's flooded.
+  **`realTileBelow`'s `def`/`solid` describe the real blocking tile ITSELF,
+  never the grate fallback** — this is what lets `tickFalls` still tell "a
+  matching fall segment already occupies the cell below" (continue growing
+  elsewhere) apart from "a grate sits over a dead-end wall" (fall back to
+  `grateY`) apart from "the opposite fluid is right there" (quench). Collapsing
+  those into one flattened result was the exact bug that broke a suspended
+  grate the OTHER fall growth had already grown past — don't re-flatten it.
+  Closed gates always fully block regardless of any grate before them (force
+  `grateY: -1` in that branch) — don't let flooding route around a shut door.
 - **Closed gates (doors AND trapdoors) block fluid** the same way they block the
   player — open gates and plain (non-gated) teleport doors don't. `doorBlocksFluid`
   in `room.ts` checks entity rects, not tiles (doors/trapdoors aren't part of the

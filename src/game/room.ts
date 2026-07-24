@@ -96,6 +96,10 @@ export class RoomRuntime {
   private waterFlowDist = new Map<number, number>();
   /** tile indexes of fall tiles (waterfall/lavafall) that grow + emit fluid */
   private fallTiles = new Set<number>();
+  /** tile index -> fluid def flowing THROUGH a grate flush against solid
+   *  ground (no gap to fall into) — an overlay, not a tile swap, so the
+   *  grate stays the real tile and stays walkable. See placeFluid. */
+  private grateFluid = new Map<number, TileDef>();
   private waterFlowEnabled: boolean;
   private spreadClock = 0;
   private waterFlowClock = 0;
@@ -227,45 +231,91 @@ export class RoomRuntime {
    * Grates are transparent horizontally too — a walkway sitting flush over
    * a solid floor leaves no empty cell of its own, so fluid spreading along
    * it has to be understood as resting on the real floor one layer down,
-   * same as if it fell there. Reuses realTileBelow's skip-through-platforms
-   * walk starting AT ty (not ty+1): a genuinely open or solid/fluid/door
-   * cell at ty is returned immediately; a grate at ty defers to whatever is
-   * really underneath it. `solid: true` means this column can't be entered
-   * at all here; otherwise `ty` is the row to actually place the tile at.
+   * same as if it fell there. This is realTileBelow's raw result collapsed
+   * to "can I enter, and where": genuinely open -> that cell; resting on
+   * more fluid (or truly blocked) -> solid; blocked by real ground/a closed
+   * gate but reachable only through ≥1 grate -> flood the last grate passed
+   * instead of giving up. Callers that need to react differently to WHAT
+   * is blocking (tickFalls' mid-fall/drain/quench cases) call
+   * realTileBelow directly instead.
    */
   private fluidOccupied(tx: number, ty: number): { ty: number; solid: boolean } {
-    return this.realTileBelow(tx, ty);
+    const r = this.realTileBelow(tx, ty);
+    if (!r.solid) return { ty: r.ty, solid: false };
+    if (r.def && this.isFluid(r.def)) return { ty: r.ty, solid: true };
+    if (r.grateY >= 0) return { ty: r.grateY, solid: false };
+    return { ty: r.ty, solid: true };
   }
 
   /**
    * Metal grates are transparent to fluid — flow "through them as if they
    * weren't there" instead of resting on top. Walks downward from (tx,ty)
-   * skipping consecutive platform-style tiles, and reports where fluid
-   * actually ends up:
-   *   - hits real open space first  -> that cell, untouched grates behind it
-   *     (a suspended walkway: fluid falls straight through to the floor below)
-   *   - hits solid/fluid ground with NO gap after riding through ≥1 grates
-   *     -> the LAST grate passed (`solid: false`) — a grate flush against a
-   *     floor leaves no empty cell of its own, so fluid is allowed to flood
-   *     that grate tile directly rather than being stuck with nowhere to go
-   *   - hits solid/fluid/a closed gate before any grate -> that cell, blocked
-   * Off the map (no floor at all) reports ty === map.height, not solid.
+   * skipping consecutive platform-style tiles, and reports the first REAL
+   * (non-platform) cell reached — `def`/`solid` describe THAT cell exactly
+   * (null+not-solid = genuinely open; a real tile, fluid or otherwise, is
+   * solid; a closed gate is solid with `grateY` forced to -1, since gates
+   * always fully block, no flooding around them). `grateY` separately
+   * reports the last grate tile passed through, when there was one — the
+   * fallback resting spot a caller MAY use instead of giving up when the
+   * real cell here turns out to be an ordinary dead-end wall (a grate
+   * flush against solid ground has no empty cell of its own to offer).
+   * Off the map reports ty === map.height, not solid, no grate fallback.
    */
-  private realTileBelow(tx: number, ty: number): { ty: number; def: TileDef | null; solid: boolean } {
+  private realTileBelow(
+    tx: number, ty: number
+  ): { ty: number; def: TileDef | null; solid: boolean; grateY: number } {
     let y = ty;
     let lastGrateY = -1;
     while (y < this.map.height) {
-      if (this.doorBlocksFluid(tx, y)) return { ty: y, def: null, solid: true };
+      if (this.doorBlocksFluid(tx, y)) return { ty: y, def: null, solid: true, grateY: -1 };
       const t = this.map.at(tx, y);
-      if (t === null) return { ty: y, def: null, solid: false };
-      if (t.style !== "platform") {
-        if (lastGrateY >= 0) return { ty: lastGrateY, def: null, solid: false };
-        return { ty: y, def: t, solid: true };
-      }
+      if (t === null) return { ty: y, def: null, solid: false, grateY: -1 };
+      if (t.style !== "platform") return { ty: y, def: t, solid: true, grateY: lastGrateY };
       lastGrateY = y;
       y++;
     }
-    return { ty: y, def: null, solid: false };
+    return { ty: y, def: null, solid: false, grateY: -1 };
+  }
+
+  /**
+   * Place fluid at (tx,ty). If that cell is a metal grate, the grate and
+   * the fluid occupy the same space — the tile stays a grate (still
+   * walkable, still renders as a platform) and the fluid rides underneath
+   * as an overlay (see drawGrateFluid) instead of overwriting it. Anywhere
+   * else this is just a normal tile placement.
+   */
+  private placeFluid(tx: number, ty: number, fluidDef: TileDef): void {
+    const idx = this.map.index(tx, ty);
+    if (this.map.at(tx, ty)?.style === "platform") {
+      const existing = this.grateFluid.get(idx);
+      if (existing && existing.element !== fluidDef.element) {
+        // Opposite fluids meeting under the same grate: both gone (a grate
+        // can't harden into cracked stone), the grate itself stays dry.
+        this.grateFluid.delete(idx);
+        this.waterFlowDist.delete(idx);
+        return;
+      }
+      this.grateFluid.set(idx, fluidDef);
+    } else {
+      this.setTileById(tx, ty, fluidDef.id);
+    }
+  }
+
+  /** Remove fluid from (tx,ty) — clears a grate overlay if that's what's
+   *  carrying it, otherwise clears the tile itself. */
+  private clearFluid(tx: number, ty: number): void {
+    const idx = this.map.index(tx, ty);
+    if (this.grateFluid.has(idx)) this.grateFluid.delete(idx);
+    else this.setTileById(tx, ty, undefined);
+  }
+
+  /** The fluid logically AT (tx,ty) — a grate's overlay fluid if it's
+   *  carrying any, else the real tile itself if that's a fluid, else null. */
+  private fluidDefAt(tx: number, ty: number): TileDef | null {
+    const grate = this.grateFluid.get(this.map.index(tx, ty));
+    if (grate) return grate;
+    const t = this.map.at(tx, ty);
+    return t && this.isFluid(t) ? t : null;
   }
 
   /**
@@ -284,10 +334,16 @@ export class RoomRuntime {
     const neighbors = [[nx - 1, ny], [nx + 1, ny], [nx, ny - 1], [nx, ny + 1]] as const;
     for (const [ox, oy] of neighbors) {
       if (ox === fromTx && oy === fromTy) continue;
-      const odef = this.map.at(ox, oy);
-      if (!odef || odef.element !== opposite || !this.isFluid(odef)) continue;
+      const odef = this.fluidDefAt(ox, oy);
+      if (!odef || odef.element !== opposite) continue;
       const lavaDef = moverDef.element === "lava" ? moverDef : odef;
-      this.transformTile(ox, oy, lavaDef.extinguishesTo ?? "cracked");
+      if (this.grateFluid.has(this.map.index(ox, oy))) {
+        // The grate itself can't harden into cracked stone — it's just not
+        // carrying fluid anymore.
+        this.grateFluid.delete(this.map.index(ox, oy));
+      } else {
+        this.transformTile(ox, oy, lavaDef.extinguishesTo ?? "cracked");
+      }
       this.waterFlowDist.delete(this.map.index(ox, oy));
       events.push({ effect: "extinguish", x: ox * TILE + 8, y: oy * TILE + 8, color: "#8f9bb3" });
       return true;
@@ -436,13 +492,13 @@ export class RoomRuntime {
     for (const [idx] of [...this.waterFlowDist]) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
-      const def = this.map.at(tx, ty);
-      if (!def || !this.isFluid(def)) {
+      const def = this.fluidDefAt(tx, ty);
+      if (!def) {
         this.waterFlowDist.delete(idx);
         continue;
       }
       if (this.tileTouchesDrain(tx, ty)) {
-        this.setTileById(tx, ty, undefined);
+        this.clearFluid(tx, ty);
         this.waterFlowDist.delete(idx);
         events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
       }
@@ -462,8 +518,8 @@ export class RoomRuntime {
     for (const [idx, distance] of sorted) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
-      const def = this.map.at(tx, ty);
-      if (!def || !this.isFluid(def)) {
+      const def = this.fluidDefAt(tx, ty);
+      if (!def) {
         this.waterFlowDist.delete(idx);
         continue;
       }
@@ -477,11 +533,12 @@ export class RoomRuntime {
       // default absent better information.
       if (def.element === "lava" && def.extinguishesTo !== undefined) {
         const waterNeighbor = ([[tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]] as const)
-          .find(([nx, ny]) => this.map.at(nx, ny)?.element === "water");
+          .find(([nx, ny]) => this.fluidDefAt(nx, ny)?.element === "water");
         if (waterNeighbor) {
-          this.setTileById(waterNeighbor[0], waterNeighbor[1], undefined);
+          this.clearFluid(waterNeighbor[0], waterNeighbor[1]);
           this.waterFlowDist.delete(this.map.index(waterNeighbor[0], waterNeighbor[1]));
-          this.transformTile(tx, ty, def.extinguishesTo);
+          if (this.grateFluid.has(idx)) this.grateFluid.delete(idx);
+          else this.transformTile(tx, ty, def.extinguishesTo);
           this.waterFlowDist.delete(idx);
           events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
           continue;
@@ -490,21 +547,23 @@ export class RoomRuntime {
       const moveTo = (nx: number, ny: number, d: number) => {
         if (this.resolveFluidContact(nx, ny, def, tx, ty, events)) {
           // Contact: the mover is destroyed instead of relocating.
-          this.setTileById(tx, ty, undefined);
+          this.clearFluid(tx, ty);
           this.waterFlowDist.delete(idx);
           return;
         }
-        this.setTileById(nx, ny, def.id);
+        this.placeFluid(nx, ny, def);
         this.waterFlowDist.set(this.map.index(nx, ny), d);
-        this.setTileById(tx, ty, undefined);
+        this.clearFluid(tx, ty);
         this.waterFlowDist.delete(idx);
         events.push({ effect: "flow", x: nx * TILE + 8, y: ny * TILE + 8, color: def.color });
       };
       // 1. Fall (as a move) — metal grates are transparent, so this skips
-      // straight through any directly beneath to the first real open cell.
+      // straight through any directly beneath to the first real open cell,
+      // or floods a grate flush against solid ground if that's all there is.
       const belowInfo = this.realTileBelow(tx, ty + 1);
-      if (!belowInfo.solid && belowInfo.ty < this.map.height) {
-        moveTo(tx, belowInfo.ty, distance === SOURCED ? SOURCED : 0);
+      const fallTarget = this.fluidOccupied(tx, ty + 1);
+      if (!fallTarget.solid) {
+        moveTo(tx, fallTarget.ty, distance === SOURCED ? SOURCED : 0);
         continue;
       }
       const below = belowInfo.def;
@@ -520,7 +579,7 @@ export class RoomRuntime {
             if (target.solid) continue;
             // "Into an open hole": there must be room below the landing spot
             // too, not just a single flat opening at ty.
-            const holeBelow = this.realTileBelow(nx, target.ty + 1);
+            const holeBelow = this.fluidOccupied(nx, target.ty + 1);
             if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
             moveTo(nx, target.ty, distance);
             break;
@@ -529,7 +588,7 @@ export class RoomRuntime {
         continue;
       }
       // Fully fallen from here down.
-      const hasFluidAbove = ty > 0 && !!this.map.at(tx, ty - 1) && this.isFluid(this.map.at(tx, ty - 1)!);
+      const hasFluidAbove = ty > 0 && !!this.fluidDefAt(tx, ty - 1);
       if (hasFluidAbove) {
         // 3. Column pressure: the base squeezes out sideways (a move), the
         // column above falls into the vacated space next tick.
@@ -552,7 +611,7 @@ export class RoomRuntime {
           if (target.solid) continue;
           if (this.resolveFluidContact(nx, target.ty, def, tx, ty, events)) continue;
           const nIdx = this.map.index(nx, target.ty);
-          this.setTileById(nx, target.ty, def.id);
+          this.placeFluid(nx, target.ty, def);
           this.waterFlowDist.set(nIdx, SOURCED);
           events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: def.color });
         }
@@ -566,7 +625,7 @@ export class RoomRuntime {
         if (nx < 0 || nx >= this.map.width) continue;
         const target = this.fluidOccupied(nx, ty);
         if (target.solid) continue;
-        const holeBelow = this.realTileBelow(nx, target.ty + 1);
+        const holeBelow = this.fluidOccupied(nx, target.ty + 1);
         if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
         moveTo(nx, target.ty, distance);
         break;
@@ -604,6 +663,9 @@ export class RoomRuntime {
       const belowTy = belowInfo.ty;
       if (below === null) {
         if (belowInfo.solid) continue; // blocked by a closed door — wait
+        // Genuinely open — the fall's own vertical body just keeps growing.
+        // (A grate flush against real ground further down is handled below,
+        // as the base pool's landing spot, not as fall growth.)
         this.setTileById(tx, belowTy, def.id);
         events.push({ effect: "flow", x: tx * TILE + 8, y: belowTy * TILE + 8, color: def.color });
         continue;
@@ -641,7 +703,7 @@ export class RoomRuntime {
         const target = this.fluidOccupied(nx, baseTy);
         if (target.solid) continue;
         if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
-        this.setTileById(nx, target.ty, fluidDef.id);
+        this.placeFluid(nx, target.ty, fluidDef);
         this.waterFlowDist.set(this.map.index(nx, target.ty), SOURCED);
         events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: fluidDef.color });
       }
@@ -1185,6 +1247,17 @@ export class RoomRuntime {
 
   private drawElementOverlays(ctx: CanvasRenderingContext2D, animT: number): void {
     const now = simNow();
+    // Fluid flowing through a grate: drawn UNDER the grate's own tile (already
+    // painted by drawMap), so the slats still read on top of a translucent
+    // glow — "the grate and the fluid occupy the same space."
+    for (const [idx, fluidDef] of this.grateFluid) {
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      drawTile(ctx, fluidDef, tx * TILE, ty * TILE, animT, true);
+      ctx.restore();
+    }
     for (const idx of this.burning.keys()) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
