@@ -104,6 +104,14 @@ solutions where possible. Tools are element carriers, not player stat powerups.
 
 ## Testing / verification workflow
 
+- **`npm test` (Vitest) asserts design requirements as unit tests** —
+  `tests/fluids.test.ts` drives `RoomRuntime` fluid ticks headlessly against
+  char-map rooms and encodes Sean's locked fluid rules (fall floods to a door,
+  suspended grates untouched, flush grates carry overlays, drains, conservation,
+  water/lava contact, trapdoors). Run it before shipping ANY change to
+  `tickWaterFlow`/`tickFalls`/`realTileBelow`/`placeFluid`, and when Sean states
+  a new design requirement, encode it as a test FIRST — browser-poking alone has
+  repeatedly validated the wrong geometry.
 - `npm run typecheck` then `npm run dev`; drive the game via the `window.PP` debug
   handle (`PP.state()`, `PP.give(id)`, `PP.warp(roomId)`).
 - Synthetic keys work (`new KeyboardEvent('keydown', {code})` on window) and the loop

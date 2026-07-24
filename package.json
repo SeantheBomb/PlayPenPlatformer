@@ -13,12 +13,14 @@
     "deploy": "npm run build && wrangler pages deploy dist --project-name=playpen --branch=master",
     "reports": "node tools/fetch-reports.mjs",
     "analytics": "node tools/analytics.mjs",
-    "dev-receiver": "node tools/dev-receiver.mjs"
+    "dev-receiver": "node tools/dev-receiver.mjs",
+    "test": "vitest run"
   },
   "devDependencies": {
     "electron": "^33.0.0",
     "typescript": "^5.5.0",
     "vite": "^6.0.0",
+    "vitest": "^4.1.10",
     "wrangler": "^4.112.0"
   }
 }
