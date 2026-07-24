@@ -235,9 +235,18 @@ small generator script again; for local tweaks use the in-game editor or edit th
   flows straight through them instead of resting on top, "as if they weren't
   there" (grates stay visible/usable as one-way platforms for the player; this
   only affects the fluid sim). `realTileBelow` walks through consecutive platform
-  tiles to find the first genuine cell for every fall/settle/pressure check in
-  `tickWaterFlow` and `tickFalls` — don't reintroduce a raw `map.at(tx,ty+1)`
-  check there or fluid will start pooling on grates again.
+  tiles — vertically for falling, and horizontally too (every spread/replicate
+  target resolves through `fluidOccupied`, which is just `realTileBelow` called
+  sideways) — to find where fluid actually ends up. A **suspended** grate (real
+  open space beneath it) stays untouched, fluid falls straight through to the
+  floor below. A grate **flush against solid ground with no gap** has nowhere
+  else for fluid to go, so `realTileBelow` reports the last grate tile passed
+  through as the resting spot and the sim floods that grate tile directly
+  (submerging that one spot rather than leaving fluid stuck with nowhere to
+  render) — this is what lets a lavafall keep flowing sideways along a grated
+  walkway toward a door instead of stalling the moment it lands on one. Don't
+  reintroduce a raw `map.at(...) !== null` occupancy check for fluid or both
+  of these (vertical passthrough, horizontal walkway-flooding) regress.
 - **Closed gates (doors AND trapdoors) block fluid** the same way they block the
   player — open gates and plain (non-gated) teleport doors don't. `doorBlocksFluid`
   in `room.ts` checks entity rects, not tiles (doors/trapdoors aren't part of the

@@ -222,29 +222,50 @@ export class RoomRuntime {
     );
   }
 
-  /** Is (tx,ty) occupied for fluid purposes — a real tile, or a closed gate
-   *  sitting over otherwise-open space? Used for horizontal spread/replicate
-   *  targets, which (unlike falling) don't pass through metal grates either. */
-  private fluidOccupied(tx: number, ty: number): boolean {
-    return this.map.at(tx, ty) !== null || this.doorBlocksFluid(tx, ty);
+  /**
+   * Where would fluid entering column tx at row ty actually come to rest?
+   * Grates are transparent horizontally too — a walkway sitting flush over
+   * a solid floor leaves no empty cell of its own, so fluid spreading along
+   * it has to be understood as resting on the real floor one layer down,
+   * same as if it fell there. Reuses realTileBelow's skip-through-platforms
+   * walk starting AT ty (not ty+1): a genuinely open or solid/fluid/door
+   * cell at ty is returned immediately; a grate at ty defers to whatever is
+   * really underneath it. `solid: true` means this column can't be entered
+   * at all here; otherwise `ty` is the row to actually place the tile at.
+   */
+  private fluidOccupied(tx: number, ty: number): { ty: number; solid: boolean } {
+    return this.realTileBelow(tx, ty);
   }
 
   /**
    * Metal grates are transparent to fluid — flow "through them as if they
-   * weren't there" instead of resting on top. Walks downward from (tx,ty),
-   * skipping consecutive platform-style tiles, and reports the first cell
-   * that actually stops it: `solid` false + `def` null means genuinely open
-   * (fluid can fall all the way there in one move, leaving every grate along
-   * the way untouched); `solid` true covers both real tiles AND a closed
-   * gate blocking otherwise-empty space (a door is solid ground to fluid
-   * even though grates are not). Off the map reports ty === map.height.
+   * weren't there" instead of resting on top. Walks downward from (tx,ty)
+   * skipping consecutive platform-style tiles, and reports where fluid
+   * actually ends up:
+   *   - hits real open space first  -> that cell, untouched grates behind it
+   *     (a suspended walkway: fluid falls straight through to the floor below)
+   *   - hits solid/fluid ground with NO gap after riding through ≥1 grates
+   *     -> the LAST grate passed (`solid: false`) — a grate flush against a
+   *     floor leaves no empty cell of its own, so fluid is allowed to flood
+   *     that grate tile directly rather than being stuck with nowhere to go
+   *   - hits solid/fluid/a closed gate before any grate -> that cell, blocked
+   * Off the map (no floor at all) reports ty === map.height, not solid.
    */
   private realTileBelow(tx: number, ty: number): { ty: number; def: TileDef | null; solid: boolean } {
     let y = ty;
-    while (y < this.map.height && this.map.at(tx, y)?.style === "platform" && !this.doorBlocksFluid(tx, y)) y++;
-    if (y >= this.map.height) return { ty: y, def: null, solid: false };
-    const def = this.map.at(tx, y);
-    return { ty: y, def, solid: def !== null || this.doorBlocksFluid(tx, y) };
+    let lastGrateY = -1;
+    while (y < this.map.height) {
+      if (this.doorBlocksFluid(tx, y)) return { ty: y, def: null, solid: true };
+      const t = this.map.at(tx, y);
+      if (t === null) return { ty: y, def: null, solid: false };
+      if (t.style !== "platform") {
+        if (lastGrateY >= 0) return { ty: lastGrateY, def: null, solid: false };
+        return { ty: y, def: t, solid: true };
+      }
+      lastGrateY = y;
+      y++;
+    }
+    return { ty: y, def: null, solid: false };
   }
 
   /**
@@ -495,8 +516,13 @@ export class RoomRuntime {
         if (columnGrounded) {
           for (const nx of [tx - 1, tx + 1]) {
             if (nx < 0 || nx >= this.map.width) continue;
-            if (this.fluidOccupied(nx, ty) || this.fluidOccupied(nx, belowInfo.ty)) continue;
-            moveTo(nx, ty, distance);
+            const target = this.fluidOccupied(nx, ty);
+            if (target.solid) continue;
+            // "Into an open hole": there must be room below the landing spot
+            // too, not just a single flat opening at ty.
+            const holeBelow = this.realTileBelow(nx, target.ty + 1);
+            if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
+            moveTo(nx, target.ty, distance);
             break;
           }
         }
@@ -509,8 +535,9 @@ export class RoomRuntime {
         // column above falls into the vacated space next tick.
         for (const nx of [tx - 1, tx + 1]) {
           if (nx < 0 || nx >= this.map.width) continue;
-          if (this.fluidOccupied(nx, ty)) continue;
-          moveTo(nx, ty, distance);
+          const target = this.fluidOccupied(nx, ty);
+          if (target.solid) continue;
+          moveTo(nx, target.ty, distance);
           break;
         }
         continue;
@@ -521,12 +548,13 @@ export class RoomRuntime {
         // walls or a drain stop it.
         for (const nx of [tx - 1, tx + 1]) {
           if (nx < 0 || nx >= this.map.width) continue;
-          if (this.fluidOccupied(nx, ty)) continue;
-          if (this.resolveFluidContact(nx, ty, def, tx, ty, events)) continue;
-          const nIdx = this.map.index(nx, ty);
-          this.setTileById(nx, ty, def.id);
+          const target = this.fluidOccupied(nx, ty);
+          if (target.solid) continue;
+          if (this.resolveFluidContact(nx, target.ty, def, tx, ty, events)) continue;
+          const nIdx = this.map.index(nx, target.ty);
+          this.setTileById(nx, target.ty, def.id);
           this.waterFlowDist.set(nIdx, SOURCED);
-          events.push({ effect: "flow", x: nx * TILE + 8, y: ty * TILE + 8, color: def.color });
+          events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: def.color });
         }
         continue;
       }
@@ -536,10 +564,11 @@ export class RoomRuntime {
       // whole thing slushes downhill instead of becoming an infinite source.
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
-        if (this.fluidOccupied(nx, ty)) continue;
-        const holeBelow = this.realTileBelow(nx, ty + 1);
+        const target = this.fluidOccupied(nx, ty);
+        if (target.solid) continue;
+        const holeBelow = this.realTileBelow(nx, target.ty + 1);
         if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
-        moveTo(nx, ty, distance);
+        moveTo(nx, target.ty, distance);
         break;
       }
     }
@@ -605,11 +634,16 @@ export class RoomRuntime {
       const baseTy = belowTy - 1;
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
-        if (this.fluidOccupied(nx, baseTy)) continue;
-        if (this.resolveFluidContact(nx, baseTy, fluidDef, tx, baseTy, events)) continue;
-        this.setTileById(nx, baseTy, fluidDef.id);
-        this.waterFlowDist.set(this.map.index(nx, baseTy), SOURCED);
-        events.push({ effect: "flow", x: nx * TILE + 8, y: baseTy * TILE + 8, color: fluidDef.color });
+        // baseTy itself may be a grate spanning the whole walkway (flush over
+        // the real floor, no gap) — resolve through it same as falling does,
+        // so the pool can spread along/under a grated walkway toward a door
+        // instead of being unable to find anywhere to place a single tile.
+        const target = this.fluidOccupied(nx, baseTy);
+        if (target.solid) continue;
+        if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
+        this.setTileById(nx, target.ty, fluidDef.id);
+        this.waterFlowDist.set(this.map.index(nx, target.ty), SOURCED);
+        events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: fluidDef.color });
       }
     }
   }
