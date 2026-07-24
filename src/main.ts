@@ -3,6 +3,7 @@
 import { store } from "./data/content";
 import { Game } from "./game/game";
 import { recorder } from "./game/recorder";
+import { startVersionCheck } from "./versioncheck";
 
 async function boot() {
   const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -40,6 +41,7 @@ async function boot() {
   fit();
   game.start();
   canvas.focus();
+  startVersionCheck();
 
   // ---- Hidden editor ----
   let editorOpen = false;

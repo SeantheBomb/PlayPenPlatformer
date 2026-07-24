@@ -739,6 +739,7 @@ export class RoomEditor {
       note: { text: "A note.", recipe: "" },
       hint: { text: "hint text here" },
       door: { to: "next", gate: false, fuseId: "" },
+      trapdoor: { to: "next", gate: false, fuseId: "" },
       fusebox: { fuseId: "A" },
       enemy: { enemy: firstEnemy, patrolMinX: tx - 3, patrolMaxX: tx + 3 },
       npc: {
@@ -805,6 +806,16 @@ export class RoomEditor {
       return;
     }
     const sel = this.selected;
+    // Doors/trapdoors authored before gate/fuseId defaults existed (or
+    // trapdoors placed before this editor supported them at all) are missing
+    // those keys outright — autoForm only renders keys already present on
+    // the object, so without this they'd have no way to ever become a gate.
+    if (sel.type === "door" || sel.type === "trapdoor") {
+      const s = sel as unknown as Record<string, unknown>;
+      if (!("to" in s)) s.to = "next";
+      if (!("gate" in s)) s.gate = false;
+      if (!("fuseId" in s)) s.fuseId = "";
+    }
     this.inspectorEl.append(
       el("div", { className: "pp-hint" }, `${sel.type} @ ${sel.x},${sel.y}`),
       autoForm(sel as unknown as Record<string, unknown>, () => {

@@ -127,6 +127,45 @@ export class RoomRuntime {
           if (def.fallSpawns) this.fallTiles.add(idx);
         }
       }
+      // A hand-authored pool touching a fall (the editor's way of pre-filling
+      // a fall's landing spot instead of waiting for the sim to grow it tile
+      // by tile) is just as infinite as the fall feeding it — flood-fill
+      // SOURCED out from every fall tile through connected same-element
+      // fluid, or an authored pool stays finite forever and refuses to widen
+      // once liberated (e.g. a hammer opening a sealed floor beneath it).
+      const neighborsOf = (tx: number, ty: number) =>
+        [[tx - 1, ty], [tx + 1, ty], [tx, ty - 1], [tx, ty + 1]] as const;
+      const queue: number[] = [];
+      for (const idx of this.fallTiles) {
+        const tx = idx % this.map.width;
+        const ty = Math.floor(idx / this.map.width);
+        const fluidDef = this.tilesById.get(this.map.at(tx, ty)?.fallSpawns ?? "");
+        if (!fluidDef) continue;
+        for (const [nx, ny] of neighborsOf(tx, ty)) {
+          const ndef = this.map.at(nx, ny);
+          if (!ndef || !this.isFluid(ndef) || ndef.element !== fluidDef.element) continue;
+          const nidx = this.map.index(nx, ny);
+          if (this.waterFlowDist.get(nidx) === SOURCED) continue;
+          this.waterFlowDist.set(nidx, SOURCED);
+          queue.push(nidx);
+        }
+      }
+      while (queue.length) {
+        const idx = queue.pop()!;
+        const tx = idx % this.map.width;
+        const ty = Math.floor(idx / this.map.width);
+        const def = this.map.at(tx, ty);
+        if (!def) continue;
+        for (const [nx, ny] of neighborsOf(tx, ty)) {
+          if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
+          const ndef = this.map.at(nx, ny);
+          if (!ndef || !this.isFluid(ndef) || ndef.element !== def.element) continue;
+          const nidx = this.map.index(nx, ny);
+          if (this.waterFlowDist.get(nidx) === SOURCED) continue;
+          this.waterFlowDist.set(nidx, SOURCED);
+          queue.push(nidx);
+        }
+      }
     }
 
     room.entities.forEach((def, index) => {

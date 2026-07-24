@@ -371,3 +371,52 @@ describe("locked fluid behaviors", () => {
     expect(charAt(rt, 5, 3)).toBe("V");
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-07-24): "I'm just confused why the lavafall
+// continues to pour, the lava had more space on the left to expand, yet it
+// didn't." Root cause: an author-placed pool sitting next to a fall (the
+// editor's way of pre-filling a fall's landing spot) loaded as FINITE fluid
+// (distance 0), not SOURCED — so once a sealed floor beneath it was broken
+// (hammer + brittle rule) and it cascaded down onto open floor, it obeyed
+// "finite fluid is conserved" and just sat in a small puddle instead of
+// spreading, even though open floor was available on both sides.
+// ---------------------------------------------------------------------------
+describe("an authored pool touching a fall is SOURCED, not finite", () => {
+  // Fall at x8; an authored 3-wide lava pool sits right under it (y1, x8-10),
+  // boxed in by walls at x7/x11 so it can't spread sideways, with a solid
+  // ceiling directly beneath it (y2, x8-10) standing in for cracked stone a
+  // hammer would shatter. Below that: an open shaft (y3), then a floor (y4)
+  // wide enough to show the pool actually spreading once freed, with a
+  // closed door at the far left (x1) it must stop at.
+  const rows = [
+    "#.......J......#", // y0 fall source at x8
+    "#......#LLL#...#", // y1 authored pool (x8-10), boxed in, under the fall
+    "#......#####...#", // y2 sealed ceiling over the pool (x8-10 is the break)
+    "#..............#", // y3 open shaft once the ceiling is broken
+    "#..............#", // y4 landing floor; door at x1
+    "################", // y5 floor
+  ];
+  const door: RoomEntity = { type: "door", x: 1, y: 4, gate: true } as RoomEntity;
+
+  it("stays put while sealed, then floods the whole floor once freed", () => {
+    const rt = makeRoom(rows, [door]);
+    tick(rt, 20);
+    // Sealed: the authored pool hasn't moved, nothing below it yet.
+    expect(fluidAt(rt, 8, 1, "lava")).toBe(true);
+    expect(fluidAt(rt, 8, 4, "lava")).toBe(false);
+
+    // Hammer shatters the ceiling (x8-10, y2).
+    for (let x = 8; x <= 10; x++) {
+      (rt as never as { setTileById(x: number, y: number, id?: string): void }).setTileById(x, 2, undefined);
+    }
+    tick(rt, 40);
+
+    // Floods the whole open floor, not just the 3 tiles under the old pool.
+    for (let x = 2; x <= 14; x++) {
+      expect(fluidAt(rt, x, 4, "lava"), `lava expected at (${x},4)`).toBe(true);
+    }
+    // Stops at the closed door — never passes it.
+    expect(fluidAt(rt, 1, 4, "lava")).toBe(false);
+  });
+});
