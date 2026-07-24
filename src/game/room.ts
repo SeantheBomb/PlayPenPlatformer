@@ -501,11 +501,15 @@ export class RoomRuntime {
         events.push({ effect: "extinguish", x: tx * TILE + 8, y: (ty + 1) * TILE + 8, color: "#8f9bb3" });
         continue;
       }
-      // Keep the pool below topped up as a source.
+      // The pool has risen to meet the fall: keep it topped up as a source
+      // (so it keeps refilling if drained elsewhere) but STOP here — the
+      // fall doesn't also spill sideways over the top of its own pool.
       if (this.isFluid(below)) {
         this.waterFlowDist.set(this.map.index(tx, ty + 1), SOURCED);
+        continue;
       }
-      // Emit into open side tiles beside the fall's base.
+      // First landing on solid ground: this is the fall's true base — start
+      // the pool by emitting into open side tiles.
       for (const nx of [tx - 1, tx + 1]) {
         if (nx < 0 || nx >= this.map.width) continue;
         if (this.map.at(nx, ty) !== null) continue;

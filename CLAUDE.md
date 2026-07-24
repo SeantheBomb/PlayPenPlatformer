@@ -199,6 +199,11 @@ small generator script again; for local tweaks use the in-game editor or edit th
   4-tile falloff. **A drain directly beneath a fall absorbs it entirely** (nothing
   pools) — every authored fall now needs either walls that genuinely contain the
   flood or a drain below it; greenhouse and the vault got drains for exactly this.
+  A fall only spills sideways the FIRST time it lands on solid ground (that's what
+  starts the pool); once the tile directly below is already fluid — the pool has
+  risen to meet the fall — it stops there instead of continuing to spill over the
+  top every tick (that repeated top-of-pool injection was the bug: don't remove
+  the `continue` right after the `isFluid(below)` top-off check in `tickFalls`).
 - **Fluid never widens until it has fully fallen, and finite fluid is CONSERVED**
   (Sean's explicit rules): falling MOVES the tile (no duplication trail), tiles
   resting on other fluid wait (at most one diagonal slide into an open hole once
