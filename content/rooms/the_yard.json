@@ -1,6 +1,6 @@
 {
   "id": "the_yard",
-  "name": "The Yard",
+  "name": "The Playground",
   "width": 72,
   "height": 24,
   "background": "#221a12",
@@ -21,11 +21,11 @@
     "#...###################.....####.......................................#",
     "#...........................##.........................................#",
     "#........................===##.........................................#",
-    "#......................................................................#",
-    "#......................................................................#",
+    "#.......................................................b..............#",
+    "#....b............................................b.............b......#",
     "#....................=======...........................................#",
     "#......................................................................#",
-    "#....................fffffff..................GGGG..GGGG..GGGG.........#",
+    "#....................fffffff..................GGGG..GGGG..GGGG.....TT..#",
     "####################################...#################################",
     "####################################^^^#################################",
     "########################################################################"
@@ -134,7 +134,7 @@
       "type": "note",
       "x": 24,
       "y": 6,
-      "text": "Theycantspotusthroughsmoke...",
+      "text": "theycantspotyouthroughsmoke. theycantspotyouthroughsmoke. — Subject #61. I wrote it twice so the next one of me believes it.",
       "recipe": "recipe_smoke_bomb"
     },
     {
@@ -159,6 +159,64 @@
       "enemy": "spotter",
       "patrolMinX": 55,
       "patrolMaxX": 66
+    },
+    {
+      "type": "npc",
+      "x": 33,
+      "y": 20,
+      "name": "MVP_MARCUS",
+      "npcId": "marcus",
+      "avatar": "trophy",
+      "color": "#ffd166",
+      "wants": {
+        "item": "glow_mushroom",
+        "count": 1
+      },
+      "rewardItems": [
+        {
+          "item": "scrap_metal",
+          "count": 1
+        },
+        {
+          "item": "plank",
+          "count": 1
+        }
+      ],
+      "rewardRecipes": [
+        "recipe_hammer"
+      ],
+      "dialogAsk": "Whoa whoa whoa. Rookie. On MY obstacle course. I'm MVP_MARCUS — number one in this yard, undefeated, don't check the scoreboard, the scoreboard's broken. See that glow mushroom by the patrol line? Grab it for me. I WOULD, obviously. I'm pacing myself. Big season coming up.",
+      "dialogConfirm": "You actually got it. Okay. Cool. I loosened it for you. We're calling it an assist. Deal?",
+      "dialogDone": "Fine. FINE. You're not the worst teammate I've ever had. Metal plus wood — the classic. When something's in your way, you BREAK it. That combo carried me through every ranked season since... huh. Weird. I can't remember a single match. WHATEVER. Next season.",
+      "dialogAfter": "You're still on my team. That's not a compliment. (It's a compliment.)"
+    },
+    {
+      "type": "npc",
+      "x": 41,
+      "y": 20,
+      "requiresHelped": [
+        "priya",
+        "marla"
+      ],
+      "name": "PATCHNURSE",
+      "npcId": "priya",
+      "avatar": "plush",
+      "color": "#e8a2b4",
+      "dialogAsk": "We're watching Marcus run his little laps. He never rests, that one. Between us: I stitched a number one onto a mitten for him. Don't tell him it's a mitten."
+    },
+    {
+      "type": "npc",
+      "x": 43,
+      "y": 20,
+      "requiresHelped": [
+        "priya",
+        "marla"
+      ],
+      "name": "XxMARLAxX",
+      "npcId": "marla",
+      "avatar": "blocky",
+      "color": "#7fb069",
+      "dialogAsk": "I give him three stars. Out of a possible one star. Don't tell him either."
     }
   ]
 }

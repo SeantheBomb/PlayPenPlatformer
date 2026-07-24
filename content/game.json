@@ -1,12 +1,12 @@
 {
   "title": "PlayPen",
-  "subtitle": "You are Subject #67. Please enjoy your stay.",
+  "subtitle": "You are Subject #67. Please enjoy your stay. Again.",
   "antagonist": {
     "name": "The Warden",
     "color": "#ff5470"
   },
   "player": {
-    "color": "#ffd166",
+    "color": "#b9bdd4",
     "eyeColor": "#241f31",
     "width": 12,
     "height": 14,
@@ -31,7 +31,8 @@
       "holdLift": 520,
       "accelFactor": 0.55,
       "frictionFactor": 0.35
-    }
+    },
+    "sketch": true
   },
   "camera": {
     "lerp": 0.14,

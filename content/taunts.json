@@ -6,7 +6,7 @@
     "chance": 1,
     "lines": [
       "Good morning, Subject #67! Welcome to the PlayPen. Snack time is never.",
-      "Ah, you're awake. Orientation is self-guided. Mostly because the guide quit."
+      "Ah, you're awake. Orientation is self-guided. It's always been self-guided. Don't think about the 'always.'"
     ],
     "emotion": "smug"
   },
@@ -17,9 +17,20 @@
     "cooldownMs": 999999999,
     "chance": 1,
     "lines": [
-      "Left, right, jump. Even the sock puppet figured that out eventually."
+      "First day! I love first days. I've seen... hm. Let's call it 'several.'"
     ],
     "emotion": "bored"
+  },
+  {
+    "id": "room_storage",
+    "trigger": "room_enter",
+    "roomId": "storage",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "Lost and Found! Mostly Lost. We don't really do Found."
+    ],
+    "emotion": "smug"
   },
   {
     "id": "room_vents",
@@ -28,9 +39,64 @@
     "cooldownMs": 999999999,
     "chance": 1,
     "lines": [
-      "The Spotter is nocturnal, diurnal, and extremely motivated. Do wave hello."
+      "The Blanket Fort. The residents built it themselves. I allowed it, which is basically the same as building it."
+    ],
+    "emotion": "annoyed"
+  },
+  {
+    "id": "room_cell_block",
+    "trigger": "room_enter",
+    "roomId": "cell_block",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Bunk Room! Everyone is assigned a bunk. Nobody has ever been tucked in. Two unrelated facts."
+    ],
+    "emotion": "bored"
+  },
+  {
+    "id": "room_the_gap",
+    "trigger": "room_enter",
+    "roomId": "the_gap",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "Recess! My favorite word to say and never mean."
     ],
     "emotion": "gleeful"
+  },
+  {
+    "id": "room_greenhouse",
+    "trigger": "room_enter",
+    "roomId": "greenhouse",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Field Trip room. We grow mushrooms, mold, and attachment issues. ...If you find a small stuffed — nothing. Never mind. Touch nothing."
+    ],
+    "emotion": "annoyed"
+  },
+  {
+    "id": "room_yard",
+    "trigger": "room_enter",
+    "roomId": "the_yard",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "Playground time! Careful out there — I've re-used some of these specimens more than I'd like to admit."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "room_vault",
+    "trigger": "room_enter",
+    "roomId": "the_vault",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "The Keepsake Box. Nobody has ever solved it. One resident got very, very close, 4,072 times. ...Let's just get through this one, hm?"
+    ],
+    "emotion": "bored"
   },
   {
     "id": "room_exit_wing",
@@ -42,6 +108,17 @@
       "The Exit Wing! Named ironically, of course. No one exits. It's more of a theme."
     ],
     "emotion": "smug"
+  },
+  {
+    "id": "room_long_run",
+    "trigger": "room_enter",
+    "roomId": "the_long_run",
+    "cooldownMs": 999999999,
+    "chance": 1,
+    "lines": [
+      "You know what? Fine. FINE. I will handle this personally."
+    ],
+    "emotion": "annoyed"
   },
   {
     "id": "first_death",
@@ -61,9 +138,9 @@
     "lines": [
       "You dropped your things back there. Litterbug.",
       "That's coming out of your snack privileges. Which are zero. So.",
-      "I've seen worse. I'm legally required to say that.",
       "The floor is not your friend. Nothing here is your friend.",
-      "Subject #46 lasted longer. And #46 was a mop."
+      "Subject #46 lasted longer. And #46 was a mop.",
+      "Try again. That's not encouragement, that's a description of your situation."
     ],
     "emotion": "bored"
   },
@@ -85,7 +162,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "You MADE something? Hm. Noting 'exhibits tool use' on your chart. Concerning."
+      "You MADE something? Noting 'exhibits tool use' on your chart. ...Your chart is getting interesting. I hate an interesting chart."
     ],
     "emotion": "shocked"
   },
@@ -107,7 +184,7 @@
     "chance": 1,
     "lines": [
       "Standing still is technically an escape strategy. A bad one, but technically.",
-      "I can see you, you know. That's my whole job."
+      "I can see you, you know. That's my whole job. It's my only job. Don't take my job away."
     ],
     "emotion": "bored"
   },
@@ -117,7 +194,7 @@
     "cooldownMs": 20000,
     "chance": 0.7,
     "lines": [
-      "Hiding in the locker. Classic. The locker union thanks you for your business.",
+      "Hiding in the cubby. Classic. The cubby union thanks you for your business.",
       "I'll pretend I don't know where you are. It's more fun for both of us."
     ],
     "emotion": "smug"
@@ -128,7 +205,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Fraternizing with the other subjects? Fine. Friendship is just a slower escape."
+      "Fraternizing with the other residents? Fine. Friendship is just a slower escape."
     ],
     "emotion": "annoyed"
   },
@@ -138,9 +215,9 @@
     "cooldownMs": 15000,
     "chance": 0.8,
     "lines": [
-      "Your belongings have been confiscated and donated to the incinerator. You're welcome.",
+      "Your belongings have been confiscated and donated to the toy chest. You're welcome.",
       "New room, new you. The old you's things are facility property now.",
-      "We have a strict no-outside-tools policy between wings. The policy is me."
+      "We have a strict no-outside-toys policy between rooms. The policy is me."
     ],
     "emotion": "smug"
   },
@@ -151,54 +228,10 @@
     "chance": 1,
     "lines": [
       "Where are you GOING? We were bonding.",
-      "Personal escort service, complimentary. You cannot refuse.",
-      "RUN ALL YOU LIKE. I am the building."
+      "RUN ALL YOU LIKE. I am the building.",
+      "I made this place SAFE. Why won't you let it be SAFE?"
     ],
     "emotion": "gleeful"
-  },
-  {
-    "id": "room_greenhouse",
-    "trigger": "room_enter",
-    "roomId": "greenhouse",
-    "cooldownMs": 999999999,
-    "chance": 1,
-    "lines": [
-      "The Greenhouse! We grow mushrooms, mold, and despair. Mind the falls — fire hates them."
-    ],
-    "emotion": "smug"
-  },
-  {
-    "id": "room_vault",
-    "trigger": "room_enter",
-    "roomId": "the_vault",
-    "cooldownMs": 999999999,
-    "chance": 1,
-    "lines": [
-      "The Vault. Nobody has ever solved it. One subject got close, then had a little cry."
-    ],
-    "emotion": "smug"
-  },
-  {
-    "id": "room_yard",
-    "trigger": "room_enter",
-    "roomId": "the_yard",
-    "cooldownMs": 999999999,
-    "chance": 1,
-    "lines": [
-      "Exercise time! The specimens are ALSO exercising. Wonderful energy out here."
-    ],
-    "emotion": "gleeful"
-  },
-  {
-    "id": "room_long_run",
-    "trigger": "room_enter",
-    "roomId": "the_long_run",
-    "cooldownMs": 999999999,
-    "chance": 1,
-    "lines": [
-      "You know what? Fine. FINE. I will handle this personally."
-    ],
-    "emotion": "annoyed"
   },
   {
     "id": "win",
@@ -206,7 +239,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Wait. WAIT. Who left the Exit Wing exit-able?! ...Enjoy the parking lot, #67. There's a second facility under it."
+      "Wait. WAIT. You got out and you're still — still YOU. That has never once— ...Enjoy the parking lot, #67. It's rendering as fast as I can."
     ],
     "emotion": "shocked"
   }

@@ -4,7 +4,7 @@ import type {
   Content, EnemyDef, EnemyReaction, RoomDef, RoomEntity, RuleDef, TileDef,
 } from "../data/types";
 import { TILE, TileMap } from "../engine/tilemap";
-import { drawBlob, drawItemIcon, drawTile, roundRect, shade } from "../engine/renderer";
+import { drawBlob, drawItemIcon, drawNpcAvatar, drawTile, roundRect, shade } from "../engine/renderer";
 import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
 import type { PlacedItem, RoomMutations } from "./state";
@@ -108,7 +108,11 @@ export class RoomRuntime {
   constructor(
     public room: RoomDef,
     private content: Content,
-    private muts: RoomMutations
+    private muts: RoomMutations,
+    /** npcIds helped anywhere this run — gates requiresHelped/hiddenIfHelped
+     *  entities (pair scenes, the send-off). Optional so the editor's
+     *  preview and headless tests see every unconditional entity. */
+    private helpedNpcIds: ReadonlySet<string> = new Set()
   ) {
     this.map = new TileMap(room, content.tiles);
     for (const t of content.tiles) this.tilesById.set(t.id, t);
@@ -169,6 +173,10 @@ export class RoomRuntime {
     }
 
     room.entities.forEach((def, index) => {
+      // Run-reactive presence: pair scenes and gatherings only exist once the
+      // player's help earned them; fallback variants only while they haven't.
+      if (def.requiresHelped?.some((id) => !this.helpedNpcIds.has(id))) return;
+      if (def.hiddenIfHelped?.some((id) => this.helpedNpcIds.has(id))) return;
       const cx = def.x * TILE + TILE / 2;
       const feetY = (def.y + 1) * TILE;
       if (def.type === "spawn") {
@@ -1485,12 +1493,22 @@ export class RoomRuntime {
         break;
       }
       case "npc": {
-        drawBlob(
-          ctx, e.x, e.y + bob * 0.3, e.w, e.h,
-          e.def.color ?? "#7fd8e8", "#1a2530", -1,
-          { eyeStyle: e.helped ? "sleepy" : "wide", sprite: e.def }
-        );
-        if (!e.helped) {
+        const hasSprite = !!(e.def.sprite || e.def.spriteFrames?.length);
+        if (e.def.avatar && !hasSprite) {
+          drawNpcAvatar(
+            ctx, e.def.avatar, e.x, e.y + bob * 0.3, e.w, e.h,
+            e.def.color ?? "#7fd8e8", -1,
+            { t: animT, helped: e.helped }
+          );
+        } else {
+          drawBlob(
+            ctx, e.x, e.y + bob * 0.3, e.w, e.h,
+            e.def.color ?? "#7fd8e8", "#1a2530", -1,
+            { eyeStyle: e.helped ? "sleepy" : "wide", sprite: e.def }
+          );
+        }
+        // "?" only over an open trade — chatty constructs aren't quests.
+        if (!e.helped && e.def.wants) {
           ctx.fillStyle = "#ffffff";
           ctx.font = "8px monospace";
           ctx.fillText("?", e.x + e.w / 2 - 2, e.y - 4 + bob);

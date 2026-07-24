@@ -267,7 +267,10 @@ export class Player {
     drawBlob(
       ctx, this.x, this.y, this.w, this.h,
       this.cfg.color, this.cfg.eyeColor, this.facing,
-      { squashX: this.squashX, squashY: this.squashY, blink: this.blinking, sprite: this.cfg }
+      {
+        squashX: this.squashX, squashY: this.squashY, blink: this.blinking,
+        sprite: this.cfg, sketch: this.cfg.sketch,
+      }
     );
     // Swing swoosh arc in front of the player
     const swingLeft = this.swingUntil - simNow();

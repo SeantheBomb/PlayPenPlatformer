@@ -1,6 +1,6 @@
 {
   "id": "cell_block",
-  "name": "Cell Block B",
+  "name": "The Bunk Room",
   "width": 48,
   "height": 24,
   "background": "#1a1420",
@@ -46,8 +46,8 @@
       "type": "npc",
       "x": 8,
       "y": 20,
-      "name": "Marla (#12)",
-      "color": "#7fd8e8",
+      "name": "XxMARLAxX",
+      "color": "#7fb069",
       "wants": {
         "item": "glow_mushroom",
         "count": 1
@@ -61,10 +61,12 @@
       "rewardRecipes": [
         "recipe_smoke_bomb"
       ],
-      "dialogAsk": "Psst. #67! Marla. #12. There's a GLOW MUSHROOM sealed under the ice over there — I've been staring at it for a month. Get it out, bring it here, I'll make it worth your while.",
-      "dialogConfirm": "You HAVE it. The mushroom. Okay. Okay okay okay. Hand it over and my spore recipe is yours. Deal?",
-      "dialogDone": "Beautiful. Here — cloth I've been hoarding, and the recipe: mushroom spores in a sock. Throw it, and where it bursts the whole air goes thick. Stay in the smoke and the watchers lose you. The goo things still bite, though. Poof.",
-      "dialogAfter": "Go. GO. Wave at the parking lot for me."
+      "dialogAsk": "You made it! Told you — Bunk Room's mine, I called dibs on all four corners. See that GLOW MUSHROOM sealed under the ice? It's been mocking me for a MONTH. I'd mine it myself but my pickaxe is... look, I don't HAVE my pickaxe anymore, okay? Nobody here remembers their stuff right. Crack it out, bring it here, and I'll teach you the sneakiest thing I know.",
+      "dialogConfirm": "THE MUSHROOM. You genius. You legend. You slightly glowing friend. Hand it over?",
+      "dialogDone": "Trade's a trade: spores in a sock. Throw it and the whole air goes thick — the watchers can't see through it. I used to hide from creepers like this. ...I think? It was green, and it hissed. Anyway. Poof.",
+      "dialogAfter": "If you find a door with hinges out there — a REAL one — tell it I called dibs.",
+      "npcId": "marla",
+      "avatar": "blocky"
     },
     {
       "type": "pickup",
@@ -101,7 +103,7 @@
       "x": 22,
       "y": 20,
       "recipe": "recipe_spark_rod",
-      "text": "Every gate runs to a fuse box. A cog on scrap makes a rod that BITES. Zap the box — or any metal touching it. Don't be standing on that metal. — Subject #19"
+      "text": "Every gate runs to a fuse box. A cog on scrap makes a rod that BITES. Zap the box — or any metal touching it. Don't be standing on that metal. — Subject #19. P.S. The fuse boxes hum a little song. I knew that song. I don't know from where."
     },
     {
       "type": "hint",

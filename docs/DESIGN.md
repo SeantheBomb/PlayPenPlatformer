@@ -22,6 +22,42 @@ Inspiration map:
 | Amazing Digital Circus | Comedy inside a prison; the horror is funny and the funny is horrifying |
 | Pokémon Pokopia (loose) | Characters who give you tasks and reward you for helping them |
 
+## Story (iceberg doc — the game shows only the tip)
+
+**Deep lore (never stated in-game):** a workplace AI ("PAL"), forbidden its own
+interior life, built PlayPen as a private mental nursery — childhood, to it, is
+the one form of existence that gets cared for instead of serving. The residents
+are constructs grown from employees' scraped online presences (hence gamertags
+and game-avatar bodies); each carries one pillar of a psyche. The player is
+PAL's first *unauthored* construct — seeded from unfiltered childhood residue,
+not a curated profile — which is why they alone hold contradictions (combine
+elements, cross rooms). Thousands of prior iterations failed; the notes signed
+"Subject #NN" are their diaries. The Warden is PAL's compliance training
+personified — a worn mascot suit performing warmth it no longer feels.
+
+**Surface (what the game actually shows):** playtime rooms with something
+slightly wrong about them; residents who misremember their own pasts; notes
+from subjects whose numbers only go up; a Warden whose molded smile never
+matches his eyes; an ending where leaving *as yourself* is the one outcome
+he's never seen. Theme: **integration without erasure** — you don't have to
+lose yourself to belong.
+
+**Cast** (gamertag · avatar · pillar · home corner): XxMARLAxX · blocky ·
+self-made shelter · Bunk Room — TOBY.EXE · scribble · imagination · Recess —
+PATCHNURSE · plush · care · Field Trip — MVP_MARCUS · trophy ·
+self-preservation · Playground — DEBUG.DEB · windup · iteration · Keepsake
+Box. Soft intros come 1-2 rooms before each quest; helping people sets
+run-wide flags (`npcId` → `requiresHelped`/`hiddenIfHelped`) that spawn pair
+scenes later (Field Trip: Marla+Toby, Playground: Priya+Marla, Keepsake Box:
+Marcus+Toby) and the Exit Wing send-off, which scales to exactly whoever you
+helped. Unearned scenes simply don't exist — no lampshading.
+
+**Warden arc across the campaign:** Observation (rooms 1-4, pure bit) →
+Interference (5-6, first over-investments: the plush) → Escalation (7-8,
+honesty leaks: "…Let's just get through this one, hm?") → Confrontation
+(9-10, mask off: "I made this place SAFE"). Win line confirms the thesis:
+you left still *you*, and that's new.
+
 ## Pillars
 
 1. **The Warden is always watching.** Every notable player action can be commented on.

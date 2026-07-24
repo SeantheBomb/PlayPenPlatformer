@@ -1,6 +1,6 @@
 {
   "id": "the_gap",
-  "name": "The Gap",
+  "name": "Recess",
   "width": 40,
   "height": 28,
   "background": "#141522",
@@ -23,13 +23,13 @@
     "#...............................########",
     "#....=======....................########",
     "#...............................########",
+    "#..................b............########",
     "#...............................########",
-    "#...............................########",
-    "#...............................########",
-    "#...............................########",
-    "#...............................########",
-    "#...............................########",
-    "#.......SS....^^^^..............########",
+    "#...........b...................########",
+    "#.y.............................########",
+    "#..y.......................b....########",
+    "#.............................T.########",
+    "#.......SS....^^^^............TT########",
     "########################################",
     "########################################",
     "########################################"
@@ -68,7 +68,7 @@
       "x": 26,
       "y": 9,
       "recipe": "recipe_spring",
-      "text": "You can't jump the shelf. You can BUILD the jump. Coil + plank. Place it (F), take it back (E). The floor is wherever you say it is. — Subject #45"
+      "text": "You can't jump the shelf. You can BUILD the jump. Coil + plank. Place it (F), take it back (E). The floor is wherever you say it is. — Subject #45. P.S. The chalk tally behind the slide? Not mine. Not yours either. Probably."
     },
     {
       "type": "hint",
@@ -81,6 +81,32 @@
       "x": 36,
       "y": 4,
       "to": "next"
+    },
+    {
+      "type": "npc",
+      "x": 11,
+      "y": 24,
+      "name": "TOBY.EXE",
+      "npcId": "toby",
+      "avatar": "scribble",
+      "color": "#ff8a5c",
+      "wants": {
+        "item": "spring",
+        "count": 1
+      },
+      "rewardItems": [
+        {
+          "item": "spring",
+          "count": 1
+        }
+      ],
+      "rewardRecipes": [
+        "recipe_sock_puppet"
+      ],
+      "dialogAsk": "HI!! I'm TOBY.EXE — the EXE is silent. You know what this room needs? MORE BOING. You've got coil, you've got plank. BUILD THE BOING. I'd do it myself but my hands are, um. [wiggles] ...abstract.",
+      "dialogConfirm": "IS THAT A BOING?! Can I hold it. Can I HOLD IT.",
+      "dialogDone": "BOING. Bo-oing. Boing!! Okay, here, take it back — I just needed to KNOW. And here's my best invention: cloth plus rope equals a little guy. He does nothing! That's the point!! Everybody needs a little guy.",
+      "dialogAfter": "The little guy believes in you. I checked."
     }
   ]
 }

@@ -18,12 +18,12 @@
     "#...........####...............................#",
     "#...###################........................#",
     "#...###################........................#",
+    "#.................................llllll.......#",
     "#..............................................#",
     "#..............................................#",
-    "#..............................................#",
-    "#..............................................#",
-    "#..............................................#",
-    "#..............................................#",
+    "#...........................................b..#",
+    "#.......................y..................b.b.#",
+    "#........................y.....................#",
     "#..............................................#",
     "#..............................................#",
     "#wwwww##########################################",
@@ -107,6 +107,77 @@
       "enemy": "spotter",
       "patrolMinX": 27,
       "patrolMaxX": 33
+    },
+    {
+      "type": "note",
+      "x": 20,
+      "y": 20,
+      "text": "Don't stop at the balloons. The balloons are for the door, and the door is for nobody. Go left fast, jump late, don't look at the confetti. — Subject #67. ...That's my number. This is not my handwriting."
+    },
+    {
+      "type": "npc",
+      "x": 34,
+      "y": 20,
+      "requiresHelped": [
+        "marla"
+      ],
+      "name": "XxMARLAxX",
+      "npcId": "marla",
+      "avatar": "blocky",
+      "color": "#7fb069",
+      "dialogAsk": "I checked this door for hinges. It has NOTHING. It's a door-shaped lie. ...Get out anyway. And when you find the real one? Dibs."
+    },
+    {
+      "type": "npc",
+      "x": 36,
+      "y": 20,
+      "requiresHelped": [
+        "toby"
+      ],
+      "name": "TOBY.EXE",
+      "npcId": "toby",
+      "avatar": "scribble",
+      "color": "#ff8a5c",
+      "dialogAsk": "I drew you on the wall!! It's you going FAST. That's the plan, right? Go so fast the walls forget to be walls!!"
+    },
+    {
+      "type": "npc",
+      "x": 38,
+      "y": 20,
+      "requiresHelped": [
+        "priya"
+      ],
+      "name": "PATCHNURSE",
+      "npcId": "priya",
+      "avatar": "plush",
+      "color": "#e8a2b4",
+      "dialogAsk": "One more sticker. This one says YOU ARE REAL. I made it myself, so it's true. Now go, sweetpea — quick, before I start leaking stuffing."
+    },
+    {
+      "type": "npc",
+      "x": 40,
+      "y": 20,
+      "requiresHelped": [
+        "marcus"
+      ],
+      "name": "MVP_MARCUS",
+      "npcId": "marcus",
+      "avatar": "trophy",
+      "color": "#ffd166",
+      "dialogAsk": "Listen up, rookie. Nobody has ever beaten the next room. So beat it. First place is just somebody finally doing the thing. Go be somebody."
+    },
+    {
+      "type": "npc",
+      "x": 42,
+      "y": 20,
+      "requiresHelped": [
+        "deb"
+      ],
+      "name": "DEBUG.DEB",
+      "npcId": "deb",
+      "avatar": "windup",
+      "color": "#7fd8e8",
+      "dialogAsk": "Attempt number one. That's what this is. Nobody's ever been THIS far — so whatever happens next, the count starts with YOU. Run before the rattle."
     }
   ]
 }

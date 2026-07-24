@@ -6,7 +6,7 @@ import { Camera } from "../engine/camera";
 import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
 import { TILE } from "../engine/tilemap";
-import { drawBackdrop, drawItemIcon, drawMap, roundRect } from "../engine/renderer";
+import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange } from "../engine/math";
 import { RunState } from "./state";
 import { Player } from "./player";
@@ -212,6 +212,15 @@ export class Game {
         }
       }
       const color = e.def.color ?? "#7fd8e8";
+      if (e.def.avatar) {
+        // Signature body, blown up to portrait size (12×16 grid centered).
+        const aw = size * 0.75;
+        drawNpcAvatar(
+          ctx, e.def.avatar, x + (size - aw) / 2, y + size * 0.02,
+          aw, size * 0.96, color, 1, { helped: e.helped }
+        );
+        return;
+      }
       ctx.fillStyle = color;
       roundRect(ctx, x + 2, y + size * 0.18, size - 4, size * 0.82, 8);
       ctx.fill();
@@ -470,7 +479,9 @@ export class Game {
       recorder.checkpoint();
     }
     this.bombs = [];
-    this.roomRt = new RoomRuntime(room, this.content, this.state.mutations(roomId));
+    this.roomRt = new RoomRuntime(
+      room, this.content, this.state.mutations(roomId), this.state.helpedNpcIds
+    );
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
     // Warden scheduling: boss rooms summon him after a grace period.
@@ -1195,6 +1206,7 @@ export class Game {
     if (!wants || !this.state.remove(wants.item, wants.count)) return;
     e.helped = true;
     this.state.mutations(this.currentRoomId).helpedNpcs.add(e.index);
+    if (d.npcId) this.state.helpedNpcIds.add(d.npcId);
     for (const r of d.rewardItems ?? []) {
       this.state.add(r.item, r.count);
       this.floaty(`+${r.count} ${this.state.item(r.item)?.name ?? r.item}`, e.x + e.w / 2, e.y);

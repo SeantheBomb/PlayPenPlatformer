@@ -170,5 +170,38 @@
     "wade": 0.7,
     "extinguishesTo": "cracked",
     "color": "#ff5e2b"
+  },
+  {
+    "id": "balloon",
+    "char": "b",
+    "name": "Balloon",
+    "style": "balloon",
+    "color": "#e86a8a"
+  },
+  {
+    "id": "stringlight",
+    "char": "l",
+    "name": "String Lights",
+    "style": "stringlight",
+    "color": "#e8a2b4"
+  },
+  {
+    "id": "crayon",
+    "char": "y",
+    "name": "Crayon Scribble",
+    "style": "crayon",
+    "color": "#8ad1ff"
+  },
+  {
+    "id": "toyblock",
+    "char": "T",
+    "name": "Toy Block",
+    "style": "toyblock",
+    "solid": true,
+    "element": "wood",
+    "flammable": true,
+    "burnTime": 3,
+    "burnsTo": "",
+    "color": "#d9925c"
   }
 ]

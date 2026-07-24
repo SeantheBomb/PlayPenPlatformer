@@ -1,6 +1,6 @@
 {
   "id": "greenhouse",
-  "name": "The Greenhouse",
+  "name": "The Field Trip",
   "width": 64,
   "height": 26,
   "background": "#12201a",
@@ -24,8 +24,8 @@
     "#........................................==.I..................#",
     "#..............W............................I..................#",
     "#..............W..................=====.....I.=====............#",
-    "#..............W....................V.......I..................#",
-    "#..............W..............===...V.......I..................#",
+    "#..............W......y.............V.......I..............b...#",
+    "#..............W.....y........===...V.......I.............b....#",
     "#..............W....................V.......I..................#",
     "#..............W....................V.......I..................#",
     "##########www#######wwwwwwww####C###D###########################",
@@ -76,7 +76,7 @@
       "x": 18,
       "y": 22,
       "recipe": "recipe_frost_vial",
-      "text": "Mushroom cold + goo = winter in a bottle. Water freezes hard enough to walk on. Slick, though. — Subject #28"
+      "text": "Mushroom cold + goo = winter in a bottle. Water freezes hard enough to walk on. Slick, though. — Subject #28. P.S. The flowers turn to watch you go by. Wave back. Being polite costs nothing."
     },
     {
       "type": "pickup",
@@ -143,6 +143,64 @@
       "y": 17,
       "item": "scrap_metal",
       "count": 1
+    },
+    {
+      "type": "npc",
+      "x": 28,
+      "y": 22,
+      "name": "PATCHNURSE",
+      "npcId": "priya",
+      "avatar": "plush",
+      "color": "#e8a2b4",
+      "wants": {
+        "item": "warden_plush",
+        "count": 1
+      },
+      "rewardItems": [
+        {
+          "item": "goo_blob",
+          "count": 1
+        },
+        {
+          "item": "plank",
+          "count": 1
+        }
+      ],
+      "rewardRecipes": [
+        "recipe_sticky_trap"
+      ],
+      "dialogAsk": "Oh! Careful, sweetpea — the sprinklers bite. I'm PATCHNURSE. Sticker for making it this far? Everyone gets a sticker. ...Listen. Down in that pit there's a little plush doll. The one that looks like HIM. I want it. Don't ask why. Fine — ask why: everything in here gets dropped eventually, and nobody ever gets picked back up. Bring him to me.",
+      "dialogConfirm": "You found him. Oh, look at his little seam. Can I...?",
+      "dialogDone": "There. Now somebody's holding him. Take these — goo on a board holds a wiggly thing still so nobody gets hurt. It's not a trap, it's a HUG with rules. And take the sticker. You earned the sticker.",
+      "dialogAfter": "He's napping on my shelf now. Don't tell him he's a him. Don't tell HIM either."
+    },
+    {
+      "type": "npc",
+      "x": 51,
+      "y": 22,
+      "requiresHelped": [
+        "marla",
+        "toby"
+      ],
+      "name": "XxMARLAxX",
+      "npcId": "marla",
+      "avatar": "blocky",
+      "color": "#7fb069",
+      "dialogAsk": "Don't say anything. The scribble kid was juggling my good lids, and I LET him. He's... actually good at it? This is the worst room for me, emotionally."
+    },
+    {
+      "type": "npc",
+      "x": 53,
+      "y": 22,
+      "requiresHelped": [
+        "marla",
+        "toby"
+      ],
+      "name": "TOBY.EXE",
+      "npcId": "toby",
+      "avatar": "scribble",
+      "color": "#ff8a5c",
+      "dialogAsk": "MARLA LET ME HOLD THREE THINGS!! Progress!! We are basically a guild now."
     }
   ]
 }

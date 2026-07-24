@@ -1,6 +1,6 @@
 {
   "id": "the_vault",
-  "name": "The Vault",
+  "name": "The Keepsake Box",
   "width": 64,
   "height": 26,
   "background": "#161226",
@@ -21,13 +21,13 @@
     "#.......................V......................................#",
     "#.......................V......................................#",
     "#.......................V......................................#",
-    "#.......................V.W..........................M.........#",
+    "#.......................V.W.llllll...................M.........#",
     "#.......................V.W..........................M.........#",
     "#.......................V.W..........................M.........#",
     "#.......................V.W..........................M...#######",
     "#.......................V.W..........................M...#######",
-    "#.......................V.W..........................M.........#",
-    "#.......................V.W..........................M.........#",
+    "#.......................V.W......T...................M.....b...#",
+    "#.......................V.W......TT..................M.........#",
     "##################G######DW#################wwwwwwwwwMw#########",
     "##################GGGGGGGGG#########################www#########",
     "################################################################"
@@ -47,7 +47,7 @@
       "type": "note",
       "x": 40,
       "y": 22,
-      "text": "The box wants charge. The water carries charge. The wood doesn't care about your hammer. Work backwards. — Subject #3"
+      "text": "The box wants charge. The water carries charge. The wood does not care about your hammer. Work backwards. — Subject #3. There were more of us then. The numbers only ever go up."
     },
     {
       "type": "pickup",
@@ -113,6 +113,57 @@
       "x": 61,
       "y": 22,
       "to": "next"
+    },
+    {
+      "type": "npc",
+      "x": 38,
+      "y": 22,
+      "name": "DEBUG.DEB",
+      "npcId": "deb",
+      "avatar": "windup",
+      "color": "#7fd8e8",
+      "wants": {
+        "item": "cog",
+        "count": 1
+      },
+      "rewardItems": [
+        {
+          "item": "spark_rod",
+          "count": 1
+        }
+      ],
+      "dialogAsk": "Oh. It's you. Good — someone should see this. This is the one room I never beat. 4,072 attempts. I counted. I count everything. There's a cog back with the supply pile — my hands shake too much this close to the box to carry small parts. Bring it here and I'll give you something I'm tired of building.",
+      "dialogConfirm": "That's it. That's the last piece. You hold it. My hands — see?",
+      "dialogDone": "Take this instead — I've built four thousand of them, this one's yours. Spin it till the air bites, zap the box, and NEVER be the metal it's touching. ...4,073. Huh. The room didn't win this time. Somebody write that down.",
+      "dialogAfter": "Still standing. The room knows it too."
+    },
+    {
+      "type": "npc",
+      "x": 29,
+      "y": 22,
+      "requiresHelped": [
+        "marcus",
+        "toby"
+      ],
+      "name": "MVP_MARCUS",
+      "npcId": "marcus",
+      "avatar": "trophy",
+      "color": "#ffd166",
+      "dialogAsk": "We came for moral support. I'M the morale. He's the support."
+    },
+    {
+      "type": "npc",
+      "x": 31,
+      "y": 22,
+      "requiresHelped": [
+        "marcus",
+        "toby"
+      ],
+      "name": "TOBY.EXE",
+      "npcId": "toby",
+      "avatar": "scribble",
+      "color": "#ff8a5c",
+      "dialogAsk": "Deb talks about you SO much!! Mostly in numbers!! GREAT numbers!!"
     }
   ]
 }

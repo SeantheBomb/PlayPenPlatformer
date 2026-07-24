@@ -1,6 +1,6 @@
 {
   "id": "storage",
-  "name": "Storage",
+  "name": "Lost and Found",
   "width": 48,
   "height": 24,
   "background": "#151a24",
@@ -15,17 +15,17 @@
     "#.....................................##########",
     "#.....................................##########",
     "#.....................................##########",
-    "#..............................................#",
+    "#.....................................llllllb..#",
     "#....................................fff.......#",
     "#.......................========..##############",
     "#.................................##############",
     "#.................................##############",
     "#...............======............##############",
     "#.................................##############",
+    "#..y..............................##############",
+    "#.y.....======....................##############",
     "#.................................##############",
-    "#.......======....................##############",
-    "#.................................##############",
-    "#.........................ff......##############",
+    "#......................TT.ff......##############",
     "##################wwwww#########################",
     "################################################",
     "################################################"
@@ -41,7 +41,7 @@
       "x": 12,
       "y": 20,
       "recipe": "recipe_bucket",
-      "text": "Bend the scrap into a bowl, rope for a handle. The pools refill it forever. Fire hates it. — Subject #22"
+      "text": "Bend the scrap into a bowl, rope for a handle. The pools refill it forever. Fire hates it. — Subject #22. Half the toys in here still have name tags. None of the names are ours."
     },
     {
       "type": "pickup",
@@ -71,6 +71,17 @@
       "x": 45,
       "y": 11,
       "to": "next"
+    },
+    {
+      "type": "npc",
+      "x": 16,
+      "y": 20,
+      "name": "XxMARLAxX",
+      "npcId": "marla",
+      "avatar": "blocky",
+      "color": "#7fb069",
+      "dialogAsk": "New kid! Don't touch my pile. ...Okay, you can touch the pile. It's mostly lids. I'm XxMARLAxX. I had a base once — different world, square trees, better lids. Can't find the file. When I get the right stuff I'm building a door out of here. A GOOD one. With hinges. Find me in the Bunk Room if you make it that far.",
+      "dialogAfter": "The pile stays. The pile is LOAD-BEARING."
     }
   ]
 }

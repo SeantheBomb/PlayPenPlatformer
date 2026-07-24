@@ -41,6 +41,9 @@ export class RunState {
   counters = new Map<string, number>();      // achievement counters
   earned = new Set<string>();                // achievement ids earned this run
   readNotes = new Set<string>();             // "roomId:entityIndex" of notes read
+  /** npcIds helped anywhere this run — later rooms spawn/skip entities on
+   *  these (pair scenes, the Exit Wing send-off). */
+  helpedNpcIds = new Set<string>();
 
   bump(counter: string, by = 1): number {
     const v = (this.counters.get(counter) ?? 0) + by;

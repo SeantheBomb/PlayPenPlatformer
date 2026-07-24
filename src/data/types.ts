@@ -13,6 +13,9 @@ export interface GameConfig {
   player: SpriteFields & {
     color: string;
     eyeColor: string;
+    /** Draw the player as an unfinished, half-loaded sketch (dashed
+     *  outline, missing fill) — the one construct without a finished look. */
+    sketch?: boolean;
     width: number;
     height: number;
     runSpeed: number;
@@ -116,7 +119,9 @@ export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
   | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall" | "drain"
-  | "lava" | "lavafall";
+  | "lava" | "lavafall"
+  // Decor set — the PlayPen's playtime dressing (non-gameplay unless solid)
+  | "balloon" | "stringlight" | "crayon" | "toyblock";
 
 /**
  * Optional custom art, available on tiles, items, enemies, the player, and
@@ -272,10 +277,19 @@ export type EntityType =
   | "locker" | "enemy" | "npc" | "exit" | "hint"
   | "brazier" | "fusebox";
 
+/** The cast's procedural body styles (dialog portraits reuse them too). */
+export type NpcAvatar = "blocky" | "scribble" | "plush" | "trophy" | "windup";
+
 export interface RoomEntity extends SpriteFields {
   type: EntityType;
   x: number; // tile coords
   y: number;
+  /** Only spawn if EVERY listed npcId has been helped this run (any room).
+   *  Lets later rooms show friendships the player's help created. */
+  requiresHelped?: string[];
+  /** Only spawn if NONE of the listed npcIds have been helped — the
+   *  adaptive fallback (solo scene when a pair wasn't earned). */
+  hiddenIfHelped?: string[];
   // pickup
   item?: string;
   count?: number;
@@ -295,6 +309,11 @@ export interface RoomEntity extends SpriteFields {
   // npc
   name?: string;
   color?: string;
+  /** Stable cross-room identity ("marla", "toby"...). Helping this NPC
+   *  anywhere sets a run-wide flag other rooms can react to. */
+  npcId?: string;
+  /** Procedural body/portrait style — the cast's signature looks. */
+  avatar?: NpcAvatar;
   portrait?: string; // data-URI override for the dialog portrait
   // `sprite`/`spriteFrames` (from SpriteFields, above) override this NPC's
   // in-room body — separate from `portrait`, which is the dialog-box face.
