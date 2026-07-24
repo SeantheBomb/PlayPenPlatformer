@@ -206,6 +206,8 @@ in-veil spotters can't see out, and stepping outside makes you instantly
 visible again. Sight-hunters do no contact damage to an in-smoke player;
 crawlers bite regardless. Veil state lives per-room-instance (transient), the
 player draws half-faded inside it, and the Warden is deliberately not fooled.
+Throwables charge on press-and-hold: hold Use for a higher/longer arc (dotted
+preview while charging, throwChargeSeconds to full, tap = throwMinPower).
 
 Also that day: a deliberately quiet **level select** on the main menu — dim
 "L · rooms" tag in the corner (L / Y-button / tap), room list with keyboard,

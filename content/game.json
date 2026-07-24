@@ -61,8 +61,10 @@
     "airLossSeconds": 3,
     "drownSeconds": 3,
     "smokeCloudSeconds": 10,
-    "smokeThrowVx": 200,
-    "smokeThrowVy": 150
+    "smokeThrowVx": 260,
+    "smokeThrowVy": 320,
+    "throwChargeSeconds": 0.9,
+    "throwMinPower": 0.45
   },
   "audio": {
     "sfxVolume": 0.5,

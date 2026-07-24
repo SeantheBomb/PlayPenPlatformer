@@ -55,6 +55,8 @@ export class Game {
   private prevSwim: "none" | "surface" | "under" = "none";
   /** Thrown smoke bombs in flight (sim state — replay-safe). */
   private bombs: { x: number; y: number; vx: number; vy: number }[] = [];
+  /** simTime when the current throw charge began (null = not charging). */
+  private throwChargeSince: number | null = null;
   input: Input;
   camera = new Camera();
   particles = new Particles();
@@ -586,6 +588,7 @@ export class Game {
     this.emitTorchEmbers(dt);
 
     // ---- Overlays swallow input ----
+    if (this.overlay !== "none") this.throwChargeSince = null; // no surprise lobs
     if (this.overlay === "craft") {
       if (this.input.craftPressed || this.input.pausePressed) {
         this.craftUI.hide();
@@ -936,9 +939,28 @@ export class Game {
         this.switchHotbarSelection(next.id);
         sfx.play("uiMove");
       }
+      const held = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
       if (this.input.usePressed && this.player.hiddenIn === null) {
-        this.useItem(usable[Math.min(this.state.selectedConsumable, usable.length - 1)]);
+        if (held.useMode === "burst") {
+          // Throwables charge on hold: longer hold = higher trajectory.
+          this.throwChargeSince = this.simTime;
+        } else {
+          this.useItem(held);
+        }
       }
+      if (this.throwChargeSince !== null) {
+        if (held.useMode !== "burst" || this.player.hiddenIn !== null) {
+          this.throwChargeSince = null; // cycled away or hid — cancel cleanly
+        } else if (!this.input.useHeld) {
+          const rules = this.content.game.rules;
+          const t = Math.min(1, (this.simTime - this.throwChargeSince) / (rules.throwChargeSeconds * 1000));
+          const power = rules.throwMinPower + (1 - rules.throwMinPower) * t;
+          this.throwChargeSince = null;
+          this.throwBomb(held, power);
+        }
+      }
+    } else {
+      this.throwChargeSince = null;
     }
 
     // ---- Idle taunt, then idle CONSEQUENCES ----
@@ -1378,19 +1400,39 @@ export class Game {
         break;
       }
       case "burst": {
-        // Smoke bomb: thrown, explodes on impact into a persistent VEIL —
-        // stealth is positional (see addSmokeCloud), not a player buff.
-        this.state.remove(item.id);
-        this.player.swing();
-        this.bombs.push({
-          x: this.player.centerX, y: this.player.centerY - 4,
-          vx: this.player.facing * rules.smokeThrowVx + this.player.vx * 0.5,
-          vy: -rules.smokeThrowVy,
-        });
-        sfx.play("swing");
+        // Throwables normally charge via press-and-hold (see updatePlay);
+        // reaching here directly means a minimum-strength lob.
+        this.throwBomb(item, rules.throwMinPower);
         break;
       }
     }
+  }
+
+  /** Launch a throwable at `power` (0-1 fraction of full charge). It bursts
+   *  on impact into a smoke veil — see the bombs-in-flight block. */
+  private throwBomb(item: ItemDef, power: number): void {
+    const rules = this.content.game.rules;
+    this.state.remove(item.id);
+    this.player.swing();
+    this.bombs.push({
+      x: this.player.centerX, y: this.player.centerY - 4,
+      vx: this.player.facing * rules.smokeThrowVx * power + this.player.vx * 0.5,
+      vy: -rules.smokeThrowVy * power,
+    });
+    sfx.play("swing");
+  }
+
+  /** Current throw velocity for the charge preview (render only). */
+  private chargedThrowVelocity(): { vx: number; vy: number; t: number } | null {
+    if (this.throwChargeSince === null) return null;
+    const rules = this.content.game.rules;
+    const t = Math.min(1, (this.simTime - this.throwChargeSince) / (rules.throwChargeSeconds * 1000));
+    const power = rules.throwMinPower + (1 - rules.throwMinPower) * t;
+    return {
+      vx: this.player.facing * rules.smokeThrowVx * power + this.player.vx * 0.5,
+      vy: -rules.smokeThrowVy * power,
+      t,
+    };
   }
 
   private damagePlayer(amount: number, fromX: number, _source: string): void {
@@ -1527,6 +1569,24 @@ export class Game {
     drawBackdrop(ctx, this.roomRt.room.background, camX, camY, vw, vh);
     drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
     this.roomRt.draw(ctx, this.animT);
+    // Charging a throw: dotted arc preview that rises as the charge builds.
+    const charge = this.chargedThrowVelocity();
+    if (charge) {
+      let px = this.player.centerX, py = this.player.centerY - 4;
+      let { vx, vy } = charge;
+      const step = 0.07;
+      ctx.fillStyle = `rgba(232,226,244,${0.5 + charge.t * 0.3})`;
+      for (let i = 0; i < 9; i++) {
+        vy += this.content.game.player.gravity * 0.8 * step;
+        px += vx * step;
+        py += vy * step;
+        const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+        if (this.roomRt.map.at(tx, ty)?.solid) break;
+        ctx.beginPath();
+        ctx.arc(px, py, 1.6 - i * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     // Bombs in flight, under the player so a close throw reads right.
     for (const b of this.bombs) {
       ctx.fillStyle = "#8f9bb3";

@@ -188,6 +188,7 @@ export class Input {
   get interactPressed() { return this.justPressed("KeyE", "GpInteract", "TouchInteract"); }
   get craftPressed() { return this.justPressed("Tab", "GpCraft", "TouchCraft"); }
   get usePressed() { return this.justPressed("KeyF", "GpUse", "TouchUse"); }
+  get useHeld() { return this.isDown("KeyF", "GpUse", "TouchUse"); }
   get cyclePressed() { return this.justPressed("KeyQ", "GpCycle"); }
   get pausePressed() { return this.justPressed("Escape", "GpPause", "TouchPause"); }
   get confirmPressed() {

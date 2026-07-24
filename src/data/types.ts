@@ -56,8 +56,10 @@ export interface GameConfig {
     stunDurationMs: number;
     smokeBombRadius: number;   // veil radius in px (160 = 10 tiles)
     smokeCloudSeconds: number; // how long a smoke veil lingers
-    smokeThrowVx: number;      // bomb throw velocity, px/s
-    smokeThrowVy: number;      // bomb throw upward velocity, px/s
+    smokeThrowVx: number;      // bomb throw velocity at FULL charge, px/s
+    smokeThrowVy: number;      // bomb throw upward velocity at FULL charge, px/s
+    throwChargeSeconds: number; // hold-to-charge time from tap to max trajectory
+    throwMinPower: number;      // tap throw strength as a fraction of full (0-1)
     idleTauntSeconds: number;
     idleChaseSeconds: number;   // idle this long and the Warden comes for you
     wardenIdleSpeed: number;    // px/s while punishing idlers
