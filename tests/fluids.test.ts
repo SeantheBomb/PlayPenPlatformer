@@ -237,6 +237,45 @@ describe("screenshot scenario: fall through walkway, long floor to a door", () =
 });
 
 // ---------------------------------------------------------------------------
+// Second field report (2026-07-24): "the lava still doesn't flow to the left
+// like it used to" after the grate-overlay fix. Reproduces a small ledge the
+// fall lands on, with a drop-off down to a much longer floor + door further
+// left and lower — the lava must cascade down the drop and keep going.
+// ---------------------------------------------------------------------------
+describe("lava cascades down a drop-off onto a lower, longer floor to a door", () => {
+  const rows = [
+    "#..........J..........#", // y0 fall at x11
+    "#......................#",
+    "#......................#",
+    "#......................#",
+    "#.........####.........#", // y4 small landing ledge under the fall (x9..12)
+    "#......................#", // y5 open drop to the left of the ledge
+    "#......................#",
+    "#......................#",
+    "########################", // y8 the real, long floor
+  ];
+  const door: RoomEntity = { type: "door", x: 2, y: 7, gate: true } as RoomEntity;
+
+  it("does not get stuck on the small ledge", () => {
+    const rt = makeRoom(rows, [door]);
+    tick(rt, 80);
+    // Ledge should not be buried under a permanently-growing cluster only —
+    // fluid must have moved on past x8 (off the left edge of the ledge).
+    let onLowerFloor = false;
+    for (let x = 3; x <= 8; x++) if (fluidAt(rt, x, 7, "lava")) onLowerFloor = true;
+    expect(onLowerFloor, "lava expected to have cascaded down onto the lower floor").toBe(true);
+  });
+
+  it("reaches the door on the lower floor", () => {
+    const rt = makeRoom(rows, [door]);
+    tick(rt, 120);
+    for (let x = 3; x <= 8; x++) {
+      expect(fluidAt(rt, x, 7, "lava"), `lava expected on lower floor at (${x},7)`).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Locked regressions from earlier rounds.
 // ---------------------------------------------------------------------------
 describe("locked fluid behaviors", () => {
