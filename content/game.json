@@ -52,7 +52,7 @@
     "respawnInvulnMs": 1500,
     "healAtCheckpoints": true,
     "stunDurationMs": 4000,
-    "smokeBombRadius": 200,
+    "smokeBombRadius": 160,
     "idleTauntSeconds": 45,
     "idleChaseSeconds": 75,
     "wardenIdleSpeed": 70,
@@ -60,7 +60,9 @@
     "airBlips": 3,
     "airLossSeconds": 3,
     "drownSeconds": 3,
-    "smokeInvisSeconds": 6
+    "smokeCloudSeconds": 10,
+    "smokeThrowVx": 200,
+    "smokeThrowVy": 150
   },
   "audio": {
     "sfxVolume": 0.5,

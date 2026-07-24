@@ -54,8 +54,10 @@ export interface GameConfig {
     respawnInvulnMs: number;
     healAtCheckpoints: boolean;
     stunDurationMs: number;
-    smokeBombRadius: number;   // visual cloud size of the smoke burst
-    smokeInvisSeconds: number; // how long the smoke keeps you unspottable
+    smokeBombRadius: number;   // veil radius in px (160 = 10 tiles)
+    smokeCloudSeconds: number; // how long a smoke veil lingers
+    smokeThrowVx: number;      // bomb throw velocity, px/s
+    smokeThrowVy: number;      // bomb throw upward velocity, px/s
     idleTauntSeconds: number;
     idleChaseSeconds: number;   // idle this long and the Warden comes for you
     wardenIdleSpeed: number;    // px/s while punishing idlers

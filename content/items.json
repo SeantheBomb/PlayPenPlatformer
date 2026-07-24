@@ -166,7 +166,7 @@
     "shape": "bottle",
     "color": "#8f9bb3",
     "useMode": "burst",
-    "description": "A burst of spore smoke that swallows you whole. Anything that hunts by sight loses you completely — until it clears. Crawlers don't hunt by sight. Mind your step."
+    "description": "Throw with F. Bursts on impact into a wide veil of smoke. Inside it, nothing that hunts by sight can find you — and a watcher caught in the veil can't see out of it. Crawlers still bite. Step outside and you're visible again."
   },
   {
     "id": "sticky_trap",

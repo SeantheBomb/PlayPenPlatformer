@@ -87,6 +87,8 @@ export class RoomRuntime {
 
   /** tile index -> seconds of burn left */
   burning = new Map<number, number>();
+  /** tile index -> simNow() timestamp when the smoke veil there clears */
+  smoked = new Map<number, number>();
   /** tile index -> simNow() timestamp when charge dissipates */
   energized = new Map<number, number>();
   /** tile index -> tiles-from-source (SOURCED = fall-fed, uncapped spread) */
@@ -295,6 +297,31 @@ export class RoomRuntime {
       }
     }
     return events;
+  }
+
+  /**
+   * Blanket a circle of tiles in smoke. Stealth is positional: standing in
+   * a smoked tile hides the player; a spotter in smoke can't see out of it.
+   */
+  addSmokeCloud(px: number, py: number, radiusPx: number, durationMs: number): void {
+    const until = simNow() + durationMs;
+    const ctx0 = Math.floor(px / TILE);
+    const cty0 = Math.floor(py / TILE);
+    const rt = radiusPx / TILE;
+    const r = Math.ceil(rt);
+    for (let ty = cty0 - r; ty <= cty0 + r; ty++) {
+      for (let tx = ctx0 - r; tx <= ctx0 + r; tx++) {
+        if (tx < 0 || ty < 0 || tx >= this.map.width || ty >= this.map.height) continue;
+        if (Math.hypot(tx - ctx0, ty - cty0) > rt) continue;
+        const idx = this.map.index(tx, ty);
+        this.smoked.set(idx, Math.max(this.smoked.get(idx) ?? 0, until));
+      }
+    }
+  }
+
+  smokeAtPoint(x: number, y: number): boolean {
+    const until = this.smoked.get(this.map.index(Math.floor(x / TILE), Math.floor(y / TILE)));
+    return !!until && until > simNow();
   }
 
   /** Is any orthogonal neighbor of (tx,ty) a drain tile? */
@@ -921,8 +948,14 @@ export class RoomRuntime {
       const cx = en.x + d.width / 2;
       const cy = en.y + d.height / 2;
 
+      // Smoke veil: a player standing in smoke can't be seen by anyone, and
+      // a spotter standing in smoke can't see anything outside it — so sight
+      // only ever connects when BOTH ends are in clear air.
+      const playerSmoked = !!player && this.smokeAtPoint(player.centerX, player.centerY);
+      const enemySmoked = this.smokeAtPoint(cx, cy);
+
       // Chasers only see FORWARD, in a cone (drawn for the player to read).
-      if (d.behavior === "chase" && player && !player.hidden) {
+      if (d.behavior === "chase" && player && !player.hidden && !playerSmoked && !enemySmoked) {
         const dx = player.centerX - cx;
         const dy = player.centerY - cy;
         const facingOk = dx * en.facing > 0;
@@ -938,7 +971,7 @@ export class RoomRuntime {
       }
       if (en.state === "chase") {
         const lost =
-          !player || player.hidden ||
+          !player || player.hidden || playerSmoked || enemySmoked ||
           now - en.lastSawPlayerAt > (d.loseTargetMs ?? 2000);
         if (lost) en.state = d.returnsHome ? "return" : "patrol";
       }
@@ -993,6 +1026,29 @@ export class RoomRuntime {
     for (const b of this.bundles) this.drawBundle(ctx, b, animT);
     for (const en of this.enemies) this.drawEnemy(ctx, en, animT);
     this.drawElementOverlays(ctx, animT);
+    this.drawSmoke(ctx, animT);
+  }
+
+  /** The smoke veil: soft drifting puffs on every smoked tile, fading out
+   *  over the last second so "about to clear" is readable at a glance. */
+  private drawSmoke(ctx: CanvasRenderingContext2D, animT: number): void {
+    const now = simNow();
+    for (const [idx, until] of this.smoked) {
+      if (until <= now) {
+        this.smoked.delete(idx);
+        continue;
+      }
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      const fade = Math.min(1, (until - now) / 1000);
+      const phase = (idx * 37) % 17;
+      const bob = Math.sin(animT * 0.9 + phase) * 2;
+      ctx.fillStyle = `rgba(170,179,200,${0.30 * fade})`;
+      ctx.beginPath();
+      ctx.arc(tx * TILE + 5 + (phase % 5), ty * TILE + 7 + bob, 7.5, 0, Math.PI * 2);
+      ctx.arc(tx * TILE + 12 - (phase % 4), ty * TILE + 11 - bob * 0.6, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   private drawElementOverlays(ctx: CanvasRenderingContext2D, animT: number): void {

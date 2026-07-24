@@ -33,12 +33,6 @@ export class Player {
   /** Deep-water (≥3 tiles) state this frame: "under" drains air, "surface"
    *  allows a full normal jump out. Shallow water never engages this. */
   swimState: "none" | "surface" | "under" = "none";
-  /** Smoke-bomb stealth: unspottable and untouchable-by-enemies until then. */
-  smokedUntil = 0;
-
-  get smokeInvisible() {
-    return simNow() < this.smokedUntil;
-  }
 
   swingUntil = 0; // swing-tool animation window
   private onIce = false; // standing on a slippery tile last frame

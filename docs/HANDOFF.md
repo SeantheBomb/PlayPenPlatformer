@@ -197,13 +197,14 @@ so drains flanking a melting ice tower fully contain the runoff (verified: 9-til
 burst melt, zero horizontal escape; fire tiles also became repelling barriers you
 can't invuln-tank through, earlier the same day). Conventions in `CLAUDE.md`.
 
-**Smoke bomb redesign** (same day): no longer a stun — bursting one turns the
-player invisible for `rules.smokeInvisSeconds` (6s): spotters can't acquire you
-(same `hidden` plumbing as lockers) and SIGHT-hunters (behavior "chase") do no contact
-damage — blind crawlers still hurt you, and the player
-renders ghosted with a flicker warning in the last second. `smokeBombRadius`
-(now 200) only sizes the cloud visual. Marla's pitch + the item description were
-updated to match; the Warden is deliberately NOT fooled by smoke.
+**Smoke bomb redesign v2** (same day, twice): first a timed invisibility buff,
+then reworked to Sean's real intent — the bomb is THROWN (arc, bursts on solid
+impact) and lays a positional smoke VEIL, radius 10 tiles (160px), lasting  (10s). Sight connects only when both the
+player and the spotter stand in clear air: in-veil players are unseeable,
+in-veil spotters can't see out, and stepping outside makes you instantly
+visible again. Sight-hunters do no contact damage to an in-smoke player;
+crawlers bite regardless. Veil state lives per-room-instance (transient), the
+player draws half-faded inside it, and the Warden is deliberately not fooled.
 
 Also that day: a deliberately quiet **level select** on the main menu — dim
 "L · rooms" tag in the corner (L / Y-button / tap), room list with keyboard,

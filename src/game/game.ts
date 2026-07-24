@@ -53,6 +53,8 @@ export class Game {
   private nextAirLossAt = 0;
   private nextDrownAt = 0;
   private prevSwim: "none" | "surface" | "under" = "none";
+  /** Thrown smoke bombs in flight (sim state — replay-safe). */
+  private bombs: { x: number; y: number; vx: number; vy: number }[] = [];
   input: Input;
   camera = new Camera();
   particles = new Particles();
@@ -465,6 +467,7 @@ export class Game {
       recorder.markRoom(roomId, this.stepCount);
       recorder.checkpoint();
     }
+    this.bombs = [];
     this.roomRt = new RoomRuntime(room, this.content, this.state.mutations(roomId));
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
@@ -796,6 +799,33 @@ export class Game {
       this.prevSwim = swim;
     }
 
+    // ---- Smoke bombs in flight: arc, then burst into a veil on impact ----
+    if (this.bombs.length > 0) {
+      const rules = this.content.game.rules;
+      this.bombs = this.bombs.filter((b) => {
+        b.vy += this.content.game.player.gravity * 0.8 * dt;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        const tx = Math.floor(b.x / TILE);
+        const ty = Math.floor(b.y / TILE);
+        const out = tx < 0 || ty < 0 || tx >= this.roomRt.map.width || ty >= this.roomRt.map.height;
+        const hit = !out && this.roomRt.map.at(tx, ty)?.solid;
+        if (out) return false;
+        if (!hit) return true;
+        // Impact: step back out of the wall so the veil centers in open air.
+        const cx = b.x - b.vx * dt;
+        const cy = b.y - b.vy * dt;
+        this.roomRt.addSmokeCloud(cx, cy, rules.smokeBombRadius, rules.smokeCloudSeconds * 1000);
+        sfx.play("stun");
+        this.camera.shake(2, 0.2);
+        this.particles.burst({
+          x: cx, y: cy, count: 40, color: "#aab3c8",
+          speed: rules.smokeBombRadius * 0.6, life: 1.1, gravity: -25,
+        });
+        return false;
+      });
+    }
+
     // ---- Placed springs launch whatever falls on them ----
     if (this.player.vy > 40) {
       const prect0 = { x: this.player.x, y: this.player.feetY - 2, w: this.player.w, h: 6 };
@@ -820,18 +850,19 @@ export class Game {
       {
         centerX: this.player.centerX,
         centerY: this.player.centerY,
-        hidden: this.player.hiddenIn !== null || this.player.smokeInvisible,
+        hidden: this.player.hiddenIn !== null,
       },
       this.content.game.rules.stunDurationMs,
       (events) => this.handleElementEvents(events)
     );
     if (!this.player.invulnerable) {
       const prect = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
+      const inSmoke = this.roomRt.smokeAtPoint(this.player.centerX, this.player.centerY);
       for (const en of this.roomRt.enemies) {
         if (en.state === "stunned" || en.state === "trapped") continue;
         // Smoke only fools enemies that hunt by SIGHT (behavior "chase").
         // Blind bodily hazards like crawlers hurt you smoke or no smoke.
-        if (this.player.smokeInvisible && en.def.behavior === "chase") continue;
+        if (inSmoke && en.def.behavior === "chase") continue;
         if (rectsOverlap(prect, { x: en.x, y: en.y, w: en.def.width, h: en.def.height })) {
           this.damagePlayer(en.def.damage, en.x + en.def.width / 2, "enemy");
           break;
@@ -1347,24 +1378,16 @@ export class Game {
         break;
       }
       case "burst": {
-        // Smoke bomb: not a stun anymore — a big cloud that makes YOU
-        // disappear. Spotters can't acquire you and enemy contact is
-        // harmless until the smoke clears.
+        // Smoke bomb: thrown, explodes on impact into a persistent VEIL —
+        // stealth is positional (see addSmokeCloud), not a player buff.
         this.state.remove(item.id);
-        this.player.smokedUntil = simNow() + rules.smokeInvisSeconds * 1000;
-        sfx.play("stun");
-        this.camera.shake(2, 0.2);
-        // Cloud size scales with the (now much wider) radius tunable.
-        this.particles.burst({
-          x: this.player.centerX, y: this.player.centerY,
-          count: Math.round(rules.smokeBombRadius * 0.45), color: "#aab3c8",
-          speed: rules.smokeBombRadius * 0.85, life: 1.2, gravity: -25,
+        this.player.swing();
+        this.bombs.push({
+          x: this.player.centerX, y: this.player.centerY - 4,
+          vx: this.player.facing * rules.smokeThrowVx + this.player.vx * 0.5,
+          vy: -rules.smokeThrowVy,
         });
-        this.particles.burst({
-          x: this.player.centerX, y: this.player.centerY,
-          count: 14, color: "#8f9bb3", speed: rules.smokeBombRadius * 0.4, life: 1.6, gravity: -35,
-        });
-        this.floaty("Vanished!", this.player.centerX, this.player.y);
+        sfx.play("swing");
         break;
       }
     }
@@ -1422,7 +1445,7 @@ export class Game {
     this.player.placeFeetAt(cp.x, cp.y);
     this.player.invulnUntil = simNow() + g.rules.respawnInvulnMs;
     this.player.hiddenIn = null;
-    this.player.smokedUntil = 0;
+    this.bombs = [];
     this.roomRt.resetEnemies();
   }
 
@@ -1504,22 +1527,21 @@ export class Game {
     drawBackdrop(ctx, this.roomRt.room.background, camX, camY, vw, vh);
     drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
     this.roomRt.draw(ctx, this.animT);
-    if (this.player.smokeInvisible) {
-      // Ghosted while smoked; flicker in the last second as a "reappearing
-      // soon" warning. (Cosmetic wall-clock/Math.random is fine here.)
-      const left = this.player.smokedUntil - simNow();
-      const flicker = left < 1000 && Math.floor(this.animT * 10) % 2 === 0;
-      ctx.globalAlpha = flicker ? 0.6 : 0.3;
+    // Bombs in flight, under the player so a close throw reads right.
+    for (const b of this.bombs) {
+      ctx.fillStyle = "#8f9bb3";
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#5a6378";
+      ctx.fillRect(b.x - 1, b.y - 5, 2, 2.4);
+    }
+    if (this.roomRt.smokeAtPoint(this.player.centerX, this.player.centerY)) {
+      // Half-faded inside the veil: "they can't see me here" at a glance.
+      ctx.globalAlpha = 0.45;
       this.player.draw(ctx);
       this.drawHeldItem(ctx);
       ctx.globalAlpha = 1;
-      if (Math.random() < 0.3) {
-        this.particles.burst({
-          x: this.player.centerX + (Math.random() - 0.5) * 10,
-          y: this.player.y + Math.random() * 12,
-          count: 1, color: "#aab3c8", speed: 12, upBias: 16, life: 0.8, gravity: -30,
-        });
-      }
     } else {
       this.player.draw(ctx);
       this.drawHeldItem(ctx);
