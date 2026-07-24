@@ -820,12 +820,13 @@ export class Game {
       {
         centerX: this.player.centerX,
         centerY: this.player.centerY,
-        hidden: this.player.hiddenIn !== null,
+        hidden: this.player.hiddenIn !== null || this.player.smokeInvisible,
       },
       this.content.game.rules.stunDurationMs,
       (events) => this.handleElementEvents(events)
     );
-    if (!this.player.invulnerable) {
+    // Smoked players are ghosts to the specimens — brushing past is safe.
+    if (!this.player.invulnerable && !this.player.smokeInvisible) {
       const prect = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
       for (const en of this.roomRt.enemies) {
         if (en.state === "stunned" || en.state === "trapped") continue;
@@ -1344,18 +1345,24 @@ export class Game {
         break;
       }
       case "burst": {
+        // Smoke bomb: not a stun anymore — a big cloud that makes YOU
+        // disappear. Spotters can't acquire you and enemy contact is
+        // harmless until the smoke clears.
         this.state.remove(item.id);
-        const hit = this.roomRt.stunEnemiesNear(
-          this.player.centerX, this.player.centerY,
-          rules.smokeBombRadius, rules.stunDurationMs
-        );
+        this.player.smokedUntil = simNow() + rules.smokeInvisSeconds * 1000;
         sfx.play("stun");
         this.camera.shake(2, 0.2);
+        // Cloud size scales with the (now much wider) radius tunable.
         this.particles.burst({
           x: this.player.centerX, y: this.player.centerY,
-          count: 26, color: "#aab3c8", speed: 110, life: 0.9, gravity: -20,
+          count: Math.round(rules.smokeBombRadius * 0.45), color: "#aab3c8",
+          speed: rules.smokeBombRadius * 0.85, life: 1.2, gravity: -25,
         });
-        this.floaty(hit > 0 ? `Stunned ${hit}!` : "Poof.", this.player.centerX, this.player.y);
+        this.particles.burst({
+          x: this.player.centerX, y: this.player.centerY,
+          count: 14, color: "#8f9bb3", speed: rules.smokeBombRadius * 0.4, life: 1.6, gravity: -35,
+        });
+        this.floaty("Vanished!", this.player.centerX, this.player.y);
         break;
       }
     }
@@ -1413,6 +1420,7 @@ export class Game {
     this.player.placeFeetAt(cp.x, cp.y);
     this.player.invulnUntil = simNow() + g.rules.respawnInvulnMs;
     this.player.hiddenIn = null;
+    this.player.smokedUntil = 0;
     this.roomRt.resetEnemies();
   }
 
@@ -1494,8 +1502,26 @@ export class Game {
     drawBackdrop(ctx, this.roomRt.room.background, camX, camY, vw, vh);
     drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
     this.roomRt.draw(ctx, this.animT);
-    this.player.draw(ctx);
-    this.drawHeldItem(ctx);
+    if (this.player.smokeInvisible) {
+      // Ghosted while smoked; flicker in the last second as a "reappearing
+      // soon" warning. (Cosmetic wall-clock/Math.random is fine here.)
+      const left = this.player.smokedUntil - simNow();
+      const flicker = left < 1000 && Math.floor(this.animT * 10) % 2 === 0;
+      ctx.globalAlpha = flicker ? 0.6 : 0.3;
+      this.player.draw(ctx);
+      this.drawHeldItem(ctx);
+      ctx.globalAlpha = 1;
+      if (Math.random() < 0.3) {
+        this.particles.burst({
+          x: this.player.centerX + (Math.random() - 0.5) * 10,
+          y: this.player.y + Math.random() * 12,
+          count: 1, color: "#aab3c8", speed: 12, upBias: 16, life: 0.8, gravity: -30,
+        });
+      }
+    } else {
+      this.player.draw(ctx);
+      this.drawHeldItem(ctx);
+    }
     this.warden.draw(ctx, this.content.game.antagonist, this.animT);
     this.particles.draw(ctx);
     drawFloaties(ctx, this.floaties);

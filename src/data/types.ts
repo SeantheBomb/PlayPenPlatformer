@@ -54,7 +54,8 @@ export interface GameConfig {
     respawnInvulnMs: number;
     healAtCheckpoints: boolean;
     stunDurationMs: number;
-    smokeBombRadius: number;
+    smokeBombRadius: number;   // visual cloud size of the smoke burst
+    smokeInvisSeconds: number; // how long the smoke keeps you unspottable
     idleTauntSeconds: number;
     idleChaseSeconds: number;   // idle this long and the Warden comes for you
     wardenIdleSpeed: number;    // px/s while punishing idlers

@@ -197,6 +197,13 @@ so drains flanking a melting ice tower fully contain the runoff (verified: 9-til
 burst melt, zero horizontal escape; fire tiles also became repelling barriers you
 can't invuln-tank through, earlier the same day). Conventions in `CLAUDE.md`.
 
+**Smoke bomb redesign** (same day): no longer a stun — bursting one turns the
+player invisible for `rules.smokeInvisSeconds` (6s): spotters can't acquire you
+(same `hidden` plumbing as lockers), enemy contact does no damage, and the player
+renders ghosted with a flicker warning in the last second. `smokeBombRadius`
+(now 200) only sizes the cloud visual. Marla's pitch + the item description were
+updated to match; the Warden is deliberately NOT fooled by smoke.
+
 Also that day: a deliberately quiet **level select** on the main menu — dim
 "L · rooms" tag in the corner (L / Y-button / tap), room list with keyboard,
 gamepad, and touch nav. Intentionally subtle so the default flow still funnels
