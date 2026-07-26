@@ -251,7 +251,7 @@ export class RoomEditor {
 
   constructor(
     private store: ContentStore,
-    private onTestRoom: (roomId: string) => void
+    private onTestRoom: (roomId: string, startAt?: { x: number; y: number }) => void
   ) {}
 
   private get content(): Content {
@@ -836,6 +836,17 @@ export class RoomEditor {
       }, SPRITE_KEYS, () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
       sel.type === "npc" ? this.npcPortraitRow(sel) : el("span", {}),
       sel.type === "npc" ? this.npcSpriteRow(sel) : el("span", {}),
+      sel.type === "checkpoint" ? el("div", { className: "pp-btnrow" },
+        el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            if (!room) return;
+            const cx = sel.x * TILE + TILE / 2;
+            const feetY = (sel.y + 1) * TILE;
+            this.onTestRoom(room.id, { x: cx, y: feetY });
+          },
+        }, "▶ Start Test From Here")
+      ) : el("span", {}),
       el("div", { className: "pp-btnrow" },
         el("button", {
           className: "pp-btn",

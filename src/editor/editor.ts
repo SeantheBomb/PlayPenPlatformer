@@ -160,12 +160,19 @@ class EditorShell {
     private store: ContentStore,
     private game: Game
   ) {
-    this.roomEditor = new RoomEditor(store, (roomId) => {
+    this.roomEditor = new RoomEditor(store, (roomId, startAt) => {
       // Close editor and boot straight into the room being edited.
       const evt = new KeyboardEvent("keydown", { ctrlKey: true, shiftKey: true, code: "KeyE" });
       window.dispatchEvent(evt);
       this.game.setContent(this.store.content);
       this.game.newRun(roomId);
+      if (startAt) {
+        // "Start Test From Here" — spawn at a specific checkpoint instead of
+        // the room's spawn entity, and make it the respawn point too, or
+        // dying mid-test would bounce back to the room's actual start.
+        this.game.player.placeFeetAt(startAt.x, startAt.y);
+        this.game.state.checkpoint = { roomId, x: startAt.x, y: startAt.y };
+      }
     });
   }
 
