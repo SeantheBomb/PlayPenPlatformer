@@ -7,7 +7,8 @@ import { TILE, TileMap } from "../engine/tilemap";
 import { drawBlob, drawItemIcon, drawNpcAvatar, drawTile, roundRect, shade } from "../engine/renderer";
 import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
-import type { PlacedItem, RoomMutations } from "./state";
+import { Rng } from "../engine/rng";
+import type { PlacedItem, RoomMutations, ScatterDrop } from "./state";
 
 export interface EntityInstance extends Rect {
   index: number;
@@ -37,10 +38,6 @@ export interface EnemyInstance {
 
 export interface PlacedInstance extends Rect {
   data: PlacedItem;
-}
-
-export interface DropBundle extends Rect {
-  items: [string, number][];
 }
 
 /** One thing that happened when an element was applied — for game feedback. */
@@ -85,7 +82,7 @@ export class RoomRuntime {
   entities: EntityInstance[] = [];
   enemies: EnemyInstance[] = [];
   placed: PlacedInstance[] = [];
-  bundles: DropBundle[] = [];
+  drops: ScatterDrop[] = [];
   spawnX = 32;
   spawnY = 32;
 
@@ -111,6 +108,9 @@ export class RoomRuntime {
   private spreadClock = 0;
   private waterFlowClock = 0;
   private tilesById = new Map<string, TileDef>();
+  /** Seeded (not Math.random) so scatter-drop launch velocity replays
+   *  deterministically, same as taunts. */
+  private rng: Rng;
 
   constructor(
     public room: RoomDef,
@@ -119,8 +119,10 @@ export class RoomRuntime {
     /** npcIds helped anywhere this run — gates requiresHelped/hiddenIfHelped
      *  entities (pair scenes, the send-off). Optional so the editor's
      *  preview and headless tests see every unconditional entity. */
-    private helpedNpcIds: ReadonlySet<string> = new Set()
+    private helpedNpcIds: ReadonlySet<string> = new Set(),
+    runSeed = 0
   ) {
+    this.rng = new Rng((runSeed >>> 0) || 1);
     this.map = new TileMap(room, content.tiles);
     for (const t of content.tiles) this.tilesById.set(t.id, t);
     for (const [idx, tileId] of muts.tileOverrides) {
@@ -249,8 +251,8 @@ export class RoomRuntime {
       });
     });
 
-    for (const b of muts.bundles) {
-      this.bundles.push({ x: b.x, y: b.y, w: 14, h: 12, items: b.items });
+    for (const d of muts.drops) {
+      this.drops.push(d);
     }
     for (const p of muts.placedItems) {
       this.placed.push(this.makePlacedInstance(p));
@@ -442,8 +444,7 @@ export class RoomRuntime {
   private transformTile(tx: number, ty: number, next: string | undefined): void {
     const def = this.map.at(tx, ty);
     if (def?.dropsItem) {
-      this.bundles.push({ x: tx * TILE + 1, y: ty * TILE + 4, w: 14, h: 12, items: [[def.dropsItem, 1]] });
-      this.muts.bundles.push({ x: tx * TILE + 1, y: ty * TILE + 4, items: [[def.dropsItem, 1]] });
+      this.spawnScatterDrop(tx * TILE + 8, ty * TILE + 8, def.dropsItem, 1);
     }
     this.setTileById(tx, ty, next);
   }
@@ -1134,18 +1135,42 @@ export class RoomRuntime {
     return best;
   }
 
-  dropBundle(x: number, y: number, items: [string, number][]): void {
-    if (items.length === 0) return;
-    const b: DropBundle = { x: x - 7, y: y - 12, w: 14, h: 12, items };
-    this.bundles.push(b);
-    this.muts.bundles.push({ x: b.x, y: b.y, items });
+  /** One item unit flying out, Sonic-ring style — random outward/upward
+   *  launch from a seeded RNG so replay stays deterministic. Shares the SAME
+   *  object between the live `drops` array and the persisted mutation record,
+   *  so physics ticks need nothing extra to keep them in sync. */
+  private spawnScatterDrop(cx: number, cy: number, itemId: string, count: number): void {
+    const angle = -Math.PI / 2 + (this.rng.next() - 0.5) * Math.PI * 1.3;
+    const speed = 60 + this.rng.next() * 100;
+    const d: ScatterDrop = {
+      x: cx - 7 + (this.rng.next() - 0.5) * 6, y: cy - 7, w: 14, h: 14,
+      itemId, count,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      settled: false,
+    };
+    this.drops.push(d);
+    this.muts.drops.push(d);
   }
 
-  removeBundle(b: DropBundle): void {
-    this.bundles = this.bundles.filter((x) => x !== b);
-    this.muts.bundles = this.muts.bundles.filter(
-      (m) => !(m.x === b.x && m.y === b.y)
-    );
+  /** Scatter a whole set of stacks outward from a point (death drop, or a
+   *  bulk hand-off). Each stack splits into up to 5 discrete flying icons —
+   *  "discretely," per Sean's request, not one generic bag. */
+  scatterItems(x: number, y: number, items: [string, number][]): void {
+    for (const [itemId, total] of items) {
+      if (total <= 0) continue;
+      const n = Math.min(total, 5);
+      const base = Math.floor(total / n);
+      const extra = total - base * n;
+      for (let i = 0; i < n; i++) {
+        this.spawnScatterDrop(x, y, itemId, base + (i < extra ? 1 : 0));
+      }
+    }
+  }
+
+  removePickupDrop(d: ScatterDrop): void {
+    this.drops = this.drops.filter((x) => x !== d);
+    this.muts.drops = this.muts.drops.filter((x) => x !== d);
   }
 
   stunEnemiesNear(x: number, y: number, radius: number, durationMs: number): number {
@@ -1385,6 +1410,20 @@ export class RoomRuntime {
       }
     }
 
+    // ---- Scattered drops: gravity + settle (Sonic-ring launch, then rest) ----
+    for (const d of this.drops) {
+      if (d.settled) continue;
+      d.vy = Math.min(d.vy + 900 * dt, 520);
+      const res = this.map.move(d.x, d.y, d.w, d.h, d.vx, d.vy, dt);
+      d.x = res.x; d.y = res.y; d.vy = res.vy; d.vx = res.vx;
+      if (res.onGround) {
+        d.vx *= Math.pow(0.0004, dt);
+        if (Math.abs(d.vx) < 3) {
+          d.vx = 0; d.vy = 0; d.settled = true;
+        }
+      }
+    }
+
     if (events.length > 0) onEvents(events);
   }
 
@@ -1394,7 +1433,7 @@ export class RoomRuntime {
     this.drawFuseWires(ctx, animT);
     for (const e of this.entities) this.drawEntity(ctx, e, animT);
     for (const p of this.placed) this.drawPlaced(ctx, p, animT);
-    for (const b of this.bundles) this.drawBundle(ctx, b, animT);
+    for (const d of this.drops) this.drawScatterDrop(ctx, d, animT);
     for (const en of this.enemies) this.drawEnemy(ctx, en, animT);
     this.drawElementOverlays(ctx, animT);
     this.drawSmoke(ctx, animT);
@@ -1839,16 +1878,25 @@ export class RoomRuntime {
     }
   }
 
-  private drawBundle(ctx: CanvasRenderingContext2D, b: DropBundle, animT: number): void {
-    const glow = 0.5 + Math.sin(animT * 5) * 0.3;
-    ctx.fillStyle = `rgba(255,209,102,${glow * 0.3})`;
-    ctx.beginPath();
-    ctx.arc(b.x + b.w / 2, b.y + b.h / 2, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#c9a86a";
-    roundRect(ctx, b.x, b.y + 2, b.w, b.h - 2, 4);
-    ctx.fill();
-    ctx.fillStyle = "#8a744a";
-    ctx.fillRect(b.x + b.w / 2 - 1, b.y, 2, 4);
+  private drawScatterDrop(ctx: CanvasRenderingContext2D, d: ScatterDrop, animT: number): void {
+    const item = this.content.items.find((i) => i.id === d.itemId);
+    if (!item) return;
+    const cx = d.x + d.w / 2;
+    const cy = d.y + d.h / 2;
+    if (d.settled) {
+      const glow = 0.35 + Math.sin(animT * 5 + d.x) * 0.15;
+      ctx.fillStyle = `rgba(255,255,255,${glow * 0.12})`;
+      ctx.beginPath();
+      ctx.ellipse(cx, d.y + d.h + 1, 6, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawItemIcon(ctx, item, cx, cy);
+    if (d.count > 1) {
+      ctx.font = "bold 8px sans-serif";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "right";
+      ctx.fillText(`${d.count}`, cx + 7, cy + 8);
+      ctx.textAlign = "left";
+    }
   }
 }

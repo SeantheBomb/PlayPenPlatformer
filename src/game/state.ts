@@ -1,5 +1,6 @@
 // Mutable state for a single run. Everything here resets on "New Game".
 import type { Content, ItemDef } from "../data/types";
+import type { Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
 
 export interface PlacedItem {
@@ -7,6 +8,18 @@ export interface PlacedItem {
   x: number;
   y: number;
   used?: boolean;
+}
+
+/** A single item flying/resting out of a death or a melted-tile drop — real
+ *  icon, not a generic bag. The SAME object is shared between RoomRuntime's
+ *  live `drops` array and this mutation record, so physics just mutates it
+ *  in place and there's nothing to resync on room reload. */
+export interface ScatterDrop extends Rect {
+  itemId: string;
+  count: number;
+  vx: number;
+  vy: number;
+  settled: boolean;
 }
 
 export interface RoomMutations {
@@ -18,7 +31,7 @@ export interface RoomMutations {
                               // to openedDoors only once something's overridden it
   helpedNpcs: Set<number>;
   disabledEnemies: Set<number>; // trapped/killed enemies stay gone
-  bundles: { x: number; y: number; items: [string, number][] }[]; // death drops
+  drops: ScatterDrop[]; // death drops + melted-tile drops (scattered, real icons)
   placedItems: PlacedItem[];  // player-placed springs and traps
   brazierLit: [number, boolean][]; // entity index -> lit override (douse/relight)
 }
@@ -74,7 +87,7 @@ export class RunState {
         gateTouched: new Set(),
         helpedNpcs: new Set(),
         disabledEnemies: new Set(),
-        bundles: [],
+        drops: [],
         placedItems: [],
         brazierLit: [],
       };

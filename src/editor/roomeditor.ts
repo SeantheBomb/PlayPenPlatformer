@@ -1020,7 +1020,7 @@ export class RoomEditor {
     const emptyMuts = {
       collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
       gateTouched: new Set<number>(),
-      helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), bundles: [],
+      helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), drops: [],
       placedItems: [], brazierLit: [],
     };
     try {

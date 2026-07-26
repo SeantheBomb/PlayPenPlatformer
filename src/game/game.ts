@@ -480,7 +480,7 @@ export class Game {
     }
     this.bombs = [];
     this.roomRt = new RoomRuntime(
-      room, this.content, this.state.mutations(roomId), this.state.helpedNpcIds
+      room, this.content, this.state.mutations(roomId), this.state.helpedNpcIds, this.runSeed
     );
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
@@ -939,14 +939,12 @@ export class Game {
         this.floaty("Checkpoint!", e.x + e.w / 2, e.y, "#5ad1a5");
       }
     }
-    for (const b of [...this.roomRt.bundles]) {
-      if (rectsOverlap(prect, b)) {
-        for (const [id, n] of b.items) {
-          this.state.add(id, n);
-          const item = this.state.item(id);
-          this.floaty(`+${n} ${item?.name ?? id}`, b.x + 7, b.y);
-        }
-        this.roomRt.removeBundle(b);
+    for (const d of [...this.roomRt.drops]) {
+      if (rectsOverlap(prect, d)) {
+        this.state.add(d.itemId, d.count);
+        const item = this.state.item(d.itemId);
+        this.floaty(`+${d.count} ${item?.name ?? d.itemId}`, d.x + 7, d.y);
+        this.roomRt.removePickupDrop(d);
         sfx.play("pickup");
       }
     }
@@ -1494,7 +1492,7 @@ export class Game {
     if (g.rules.dropMaterialsOnDeath) {
       const dropped = this.state.takeAllMaterials();
       if (dropped.length > 0) {
-        this.roomRt.dropBundle(this.player.centerX, this.player.feetY, dropped);
+        this.roomRt.scatterItems(this.player.centerX, this.player.feetY, dropped);
         this.floaty("Materials dropped!", this.player.centerX, this.player.y - 10, "#e8a2b4");
       }
     }

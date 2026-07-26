@@ -34,7 +34,7 @@ function makeMuts(): RoomMutations {
     gateTouched: new Set(),
     helpedNpcs: new Set(),
     disabledEnemies: new Set(),
-    bundles: [],
+    drops: [],
     placedItems: [],
     brazierLit: [],
   };
