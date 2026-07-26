@@ -127,6 +127,29 @@ export class RoomRuntime {
       this.map.overrides.set(idx, tileId ? this.tilesById.get(tileId) ?? null : null);
     }
 
+    // A door/trapdoor's own footprint always wins over the tile grid — a
+    // solid tile authored (or later painted) under a gate would make it
+    // structurally impossible to ever pass through no matter its open/closed
+    // state, since a gate only blocks an already-open cell, it never carves
+    // one out of solid ground itself. Enforced here (not just on placement)
+    // so it self-heals already-authored rooms too, before fall/fluid
+    // connectivity below is computed against the tile grid.
+    for (const def of room.entities) {
+      if (def.type !== "door" && def.type !== "trapdoor") continue;
+      const [w, h] = ENTITY_SIZES[def.type] ?? [16, 16];
+      const cx = def.x * TILE + TILE / 2;
+      const feetY = (def.y + 1) * TILE;
+      const tx0 = Math.floor((cx - w / 2) / TILE);
+      const tx1 = Math.floor((cx - w / 2 + w - 1) / TILE);
+      const ty0 = Math.floor((feetY - h) / TILE);
+      const ty1 = Math.floor((feetY - 1) / TILE);
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          if (this.map.at(tx, ty)?.solid) this.map.setTile(tx, ty, null);
+        }
+      }
+    }
+
     this.waterFlowEnabled = content.game.rules.waterFlowEnabled ?? true;
     if (this.waterFlowEnabled) {
       for (let ty = 0; ty < this.map.height; ty++) {

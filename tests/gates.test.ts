@@ -249,3 +249,49 @@ describe("reachability never crosses elements", () => {
     expect(draining.has(fedIdx), "still-fed lava must not be touched").toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-07-26): "A door or trapdoor should never be able to
+// share a tile with a solid. It should always override it." A trapdoor
+// authored (or later painted over) on solid ground is otherwise permanently
+// impassable regardless of its open/closed state, since a gate only blocks
+// an already-open cell — it never carves one out of solid ground itself.
+// ---------------------------------------------------------------------------
+describe("a door/trapdoor always overrides a solid tile at its own position", () => {
+  // Trapdoor at (3,1) sits on an entirely solid row — water directly above,
+  // an open cavern below. The wall at its exact tile must be cleared.
+  const rows = [
+    "#..w....#",
+    "#########",
+    "#.......#",
+    "#########",
+  ];
+
+  it("clears the solid tile under it at construction, letting fluid fall through once open", () => {
+    const trap: RoomEntity = { type: "trapdoor", x: 3, y: 1, gate: true, startOpen: true } as RoomEntity;
+    const roomDef: RoomDef = {
+      id: "solidgate", name: "solidgate", width: rows[0].length, height: rows.length,
+      background: "#000", tiles: rows, entities: [trap],
+    } as RoomDef;
+    const rt = new RoomRuntime(roomDef, makeContent(), makeMuts());
+
+    expect(charAt(rt, 3, 1), "trapdoor's own tile must not still be solid").not.toBe("#");
+    tick(rt, 20);
+    expect(charAt(rt, 3, 2), "water should fall through the open trapdoor").toBe("w");
+  });
+
+  it("still blocks fluid while closed, even though the underlying tile is now open", () => {
+    const trap: RoomEntity = { type: "trapdoor", x: 3, y: 1, gate: true } as RoomEntity; // startOpen defaults false
+    const roomDef: RoomDef = {
+      id: "solidgate2", name: "solidgate2", width: rows[0].length, height: rows.length,
+      background: "#000", tiles: rows, entities: [trap],
+    } as RoomDef;
+    const rt = new RoomRuntime(roomDef, makeContent(), makeMuts());
+    tick(rt, 20);
+    expect(charAt(rt, 3, 2), "closed gate must still block, tile clearing isn't a bypass").toBe(".");
+  });
+});
+
+function tick(rt: RoomRuntime, n: number): void {
+  for (let i = 0; i < n; i++) (rt as never as { tickWaterFlow(ev: unknown[]): void }).tickWaterFlow([]);
+}
