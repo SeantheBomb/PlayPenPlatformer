@@ -922,27 +922,41 @@ export class RoomRuntime {
    * pool shrinking back toward the gate, not blinking out all at once.
    */
   private recedeCutOffFluid(closedGate: EntityInstance, events: ElementEvent[]): void {
-    const reachable = new Set<number>(this.fallTiles);
-    const queue = [...this.fallTiles];
-    while (queue.length > 0) {
-      const idx = queue.pop()!;
-      const tx = idx % this.map.width;
-      const ty = Math.floor(idx / this.map.width);
-      const here = this.map.at(tx, ty);
-      const hereElement = here && this.isFluid(here) ? here.element : undefined;
-      for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
-        if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
-        const nidx = this.map.index(nx, ny);
-        if (reachable.has(nidx) || this.doorBlocksFluid(nx, ny)) continue;
-        const ndef = this.map.at(nx, ny);
-        // A grate (fluid passes through) or matching-element fluid —
-        // anything else (open air, a wall, the opposite element) stops
-        // the flood here; only existing fluid carries a connection.
-        const passable = (ndef?.style === "platform") ||
-          (!!ndef && this.isFluid(ndef) && (!hereElement || ndef.element === hereElement));
-        if (!passable) continue;
-        reachable.add(nidx);
-        queue.push(nidx);
+    // Reachability is computed PER ELEMENT — a waterfall's network must
+    // never be able to vouch for a lavafall's pool (or vice versa) just
+    // because their bodies happen to sit near each other. Each fall tile
+    // seeds a flood restricted to its own spawned element the whole way.
+    const reachableByElement = new Map<string, Set<number>>();
+    for (const seedIdx of this.fallTiles) {
+      const seedTx = seedIdx % this.map.width;
+      const seedTy = Math.floor(seedIdx / this.map.width);
+      const seedDef = this.map.at(seedTx, seedTy);
+      const element = seedDef?.fallSpawns ? this.tilesById.get(seedDef.fallSpawns)?.element : undefined;
+      if (!element) continue;
+      let reachable = reachableByElement.get(element);
+      if (!reachable) { reachable = new Set(); reachableByElement.set(element, reachable); }
+      if (reachable.has(seedIdx)) continue;
+      reachable.add(seedIdx);
+      const queue = [seedIdx];
+      while (queue.length > 0) {
+        const idx = queue.pop()!;
+        const tx = idx % this.map.width;
+        const ty = Math.floor(idx / this.map.width);
+        for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
+          if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
+          const nidx = this.map.index(nx, ny);
+          if (reachable.has(nidx) || this.doorBlocksFluid(nx, ny)) continue;
+          const ndef = this.map.at(nx, ny);
+          // A grate (fluid passes through) or matching-element fluid —
+          // anything else (open air, a wall, the opposite element) stops
+          // the flood here; only existing fluid of THIS fall's own
+          // element carries the connection further.
+          const passable = (ndef?.style === "platform") ||
+            (!!ndef && this.isFluid(ndef) && ndef.element === element);
+          if (!passable) continue;
+          reachable.add(nidx);
+          queue.push(nidx);
+        }
       }
     }
     const now = simNow();
@@ -950,8 +964,11 @@ export class RoomRuntime {
     const cut: { idx: number; d: number }[] = [];
     let maxDist = 0;
     for (const [idx, dist] of this.waterFlowDist) {
-      if (dist !== SOURCED || reachable.has(idx) || this.draining.has(idx)) continue;
+      if (dist !== SOURCED || this.draining.has(idx)) continue;
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      const def = this.map.at(tx, ty);
+      const stillFed = def?.element && this.isFluid(def) && reachableByElement.get(def.element)?.has(idx);
+      if (stillFed) continue;
       const d = Math.hypot(tx * TILE + TILE / 2 - cx, ty * TILE + TILE / 2 - cy);
       cut.push({ idx, d });
       if (d > maxDist) maxDist = d;

@@ -210,3 +210,42 @@ describe("cutting a SOURCED body off from its fall drains it, doesn't strand it"
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-07-26): "The waterfall and lavafall shouldn't be
+// able to source each other, despite both being fluids." A lava pool cut
+// off by a closed door must recede even if an unrelated waterfall's own
+// fall tile happens to sit right next to it — that adjacency must never
+// let one element's network vouch for the other's.
+// ---------------------------------------------------------------------------
+describe("reachability never crosses elements", () => {
+  it("a lava pool cut off by a closed door still recedes despite a touching waterfall", () => {
+    // x0 wall, x1 waterfall fall tile, x2 cut-off lava (touches x1), x3 door,
+    // x4 lava still fed by x5's real lavafall, x6 wall.
+    const rows = [
+      "#.....#",
+      "#VL.LJ#",
+      "#######",
+    ];
+    const door: RoomEntity = { type: "door", x: 3, y: 1, gate: true } as RoomEntity;
+    const roomDef: RoomDef = {
+      id: "test2", name: "test2", width: rows[0].length, height: rows.length,
+      background: "#000", tiles: rows, entities: [door],
+    } as RoomDef;
+    const rt2 = new RoomRuntime(roomDef, makeContent(), makeMuts());
+
+    const cutIdx = rt2.map.index(2, 1);
+    const fedIdx = rt2.map.index(4, 1);
+    const wfd = (rt2 as never as { waterFlowDist: Map<number, number> }).waterFlowDist;
+    wfd.set(cutIdx, -1);
+    wfd.set(fedIdx, -1);
+
+    const doorEnt = find(rt2, "door");
+    (rt2 as never as { recedeCutOffFluid(g: EntityInstance, ev: unknown[]): void })
+      .recedeCutOffFluid(doorEnt, []);
+
+    const draining = (rt2 as never as { draining: Map<number, number> }).draining;
+    expect(draining.has(cutIdx), "cut-off lava must be scheduled to drain, not rescued by the waterfall").toBe(true);
+    expect(draining.has(fedIdx), "still-fed lava must not be touched").toBe(false);
+  });
+});
