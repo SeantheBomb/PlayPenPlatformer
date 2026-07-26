@@ -508,7 +508,16 @@ export function drawMap(
       if (!def) continue;
       let capped = false;
       if (def.style === "water" || def.style === "lava") {
-        const above = map.at(tx, ty - 1);
+        // Grates are transparent to fluid — walk up through consecutive
+        // ones to the real tile above, same as the fluid sim does, so a
+        // grate crossing a deep pool doesn't fake a "surface" right under
+        // it (the water above the grate is still directly above THIS water).
+        let ay = ty - 1;
+        let above = map.at(tx, ay);
+        while (above?.style === "platform") {
+          ay--;
+          above = map.at(tx, ay);
+        }
         capped = !!above && (above.solid || above.style === def.style);
       }
       drawTile(ctx, def, tx * TILE, ty * TILE, animT, capped);
