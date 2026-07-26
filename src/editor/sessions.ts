@@ -17,6 +17,9 @@ import type { Content } from "../data/types";
 import { el, toast } from "./forms";
 import { ReplayDriver, type SessionData } from "../game/replay";
 import type { RoomSegment } from "../game/recorder";
+import { openReportDetail } from "./reports";
+
+interface ReportMarker { step: number; id: string; type: string; message: string; }
 
 interface Row {
   id: string;
@@ -43,6 +46,70 @@ const fmtDur = (steps: number | undefined) => {
   const s = Math.round((steps ?? 0) / 60);
   return s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`;
 };
+
+async function fetchSessionData(
+  apiBase: string, passKey: string, id: string
+): Promise<SessionData | null> {
+  try {
+    const res = await fetch(`${apiBase}/api/sessions?id=${encodeURIComponent(id)}`, {
+      headers: { "x-editor-password": localStorage.getItem(passKey) ?? "" },
+    });
+    const data = await res.json() as { ok: boolean; meta?: SessionData["meta"]; content?: SessionData["content"]; events?: SessionData["events"]; error?: string };
+    if (!data.ok || !data.meta) throw new Error(data.error ?? "bad response");
+    return { meta: data.meta, content: data.content ?? null, events: data.events ?? [] };
+  } catch (err) {
+    toast(`Fetch failed: ${String(err)}`, false);
+    return null;
+  }
+}
+
+/** Standalone single-session replay modal, opened at an optional starting
+ *  step — used by the Reports tab's "jump to session" button and by report
+ *  milestones on the sessions timeline. Simpler than renderSessionsTab's
+ *  own watch modal (no queue/breadth-first advance), but the same
+ *  ReplayDriver-backed player underneath. */
+export async function openSessionReplay(
+  apiBase: string, passKey: string, id: string, atStep?: number
+): Promise<void> {
+  const data = await fetchSessionData(apiBase, passKey, id);
+  if (!data) return;
+  const canvas = el("canvas", { width: 640, height: 360 }) as HTMLCanvasElement;
+  canvas.style.width = "100%";
+  canvas.style.background = "#0d0b14";
+  canvas.style.borderRadius = "6px";
+  const title = el("div", { className: "pp-sidehead" }, `replay — session ${id}`);
+  const timeEl = el("span", { className: "pp-hint" }, "0:00");
+  const roomEl = el("span", { className: "pp-hint" }, "");
+  const playBtn = el("button", { className: "pp-btn" }, "⏸");
+  const driver = new ReplayDriver(data, canvas);
+  playBtn.onclick = () => {
+    if (driver.playing) { driver.pause(); playBtn.textContent = "▶"; }
+    else { driver.play(); playBtn.textContent = "⏸"; }
+  };
+  const closeModal = () => { driver.dispose(); modal.remove(); };
+  const modal = el("div", { className: "pp-pixmodal" },
+    el("div", { className: "pp-pixpanel", style: "width:720px;max-width:95vw" },
+      el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
+        title,
+        el("button", { className: "pp-btn pp-danger", onclick: closeModal }, "✕")
+      ),
+      canvas,
+      el("div", { style: "display:flex;gap:8px;align-items:center;margin-top:8px" },
+        playBtn, timeEl
+      ),
+      el("div", { style: "display:flex;gap:14px;align-items:center;margin-top:6px" }, roomEl)
+    )
+  );
+  document.body.append(modal);
+  driver.onFrame = () => {
+    const secs = Math.floor(driver.step / 60);
+    timeEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} / ${fmtDur(driver.totalSteps)}`;
+    roomEl.textContent = `room: ${driver.game.currentRoomId}`;
+  };
+  if (atStep !== undefined) driver.seek(atStep);
+  driver.play();
+  playBtn.textContent = "⏸";
+}
 
 export function renderSessionsTab(
   root: HTMLElement,
@@ -206,15 +273,7 @@ export function renderSessionsTab(
   }
 
   async function fetchSession(id: string): Promise<SessionData | null> {
-    try {
-      const res = await fetch(`${apiBase}/api/sessions?id=${encodeURIComponent(id)}`, { headers: auth() });
-      const data = await res.json() as { ok: boolean; meta?: SessionData["meta"]; content?: SessionData["content"]; events?: SessionData["events"]; error?: string };
-      if (!data.ok || !data.meta) throw new Error(data.error ?? "bad response");
-      return { meta: data.meta, content: data.content ?? null, events: data.events ?? [] };
-    } catch (err) {
-      toast(`Fetch failed: ${String(err)}`, false);
-      return null;
-    }
+    return fetchSessionData(apiBase, passKey, id);
   }
 
   /** The window-in-window replay player; advances through `queue` in order. */
@@ -222,6 +281,7 @@ export function renderSessionsTab(
     let qi = 0;
     let driver: ReplayDriver | null = null;
     let segEnd: number | null = null;
+    let markers: ReportMarker[] = [];
 
     const canvas = el("canvas", { width: 640, height: 360 });
     canvas.style.width = "100%";
@@ -249,10 +309,44 @@ export function renderSessionsTab(
       const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       return Math.round(t * (driver?.totalSteps ?? 1));
     };
+    /** Report milestone within hit range of a pointer event, if any. */
+    const markerNear = (e: { clientX: number }): ReportMarker | null => {
+      if (!driver) return null;
+      const rect = timeline.getBoundingClientRect();
+      const hitSteps = (6 / rect.width) * driver.totalSteps; // ~6px hit radius
+      let best: ReportMarker | null = null;
+      let bestDist = Infinity;
+      for (const m of markers) {
+        const t = ((e.clientX - rect.left) / rect.width) * driver.totalSteps;
+        const d = Math.abs(m.step - t);
+        if (d <= hitSteps && d < bestDist) { best = m; bestDist = d; }
+      }
+      return best;
+    };
+    const tooltip = el("div", {
+      style: "position:fixed;z-index:2000;display:none;max-width:260px;background:#1c1828;" +
+        "border:1px solid #ffd166;border-radius:6px;padding:6px 8px;font-size:11px;" +
+        "color:#e8e2f4;pointer-events:none;",
+    });
+    document.body.append(tooltip);
     timeline.addEventListener("pointerdown", (e) => {
+      const m = markerNear(e);
+      if (m) { void openReportDetail(apiBase, passKey, m.id); return; }
       draggingSeek = true;
       if (driver) driver.seek(stepFromEvent(e));
     });
+    timeline.addEventListener("pointermove", (e) => {
+      const m = markerNear(e);
+      if (m && !draggingSeek) {
+        tooltip.style.display = "block";
+        tooltip.style.left = `${e.clientX + 10}px`;
+        tooltip.style.top = `${e.clientY - 34}px`;
+        tooltip.textContent = `[${m.type}] ${m.message || "(no message)"} — click to view`;
+      } else {
+        tooltip.style.display = "none";
+      }
+    });
+    timeline.addEventListener("pointerleave", () => { tooltip.style.display = "none"; });
     window.addEventListener("pointermove", (e) => {
       if (draggingSeek && driver) driver.seek(stepFromEvent(e));
     });
@@ -270,6 +364,16 @@ export function renderSessionsTab(
         const x0 = (p.from / driver.totalSteps) * w;
         const x1 = (p.to / driver.totalSteps) * w;
         tctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
+      }
+      tctx.fillStyle = "#ff6b6b";
+      for (const m of markers) {
+        const mx = (m.step / driver.totalSteps) * w;
+        tctx.beginPath();
+        tctx.moveTo(mx - 3, 0);
+        tctx.lineTo(mx + 3, 0);
+        tctx.lineTo(mx, 6);
+        tctx.closePath();
+        tctx.fill();
       }
       const px = (driver.step / driver.totalSteps) * w;
       tctx.fillStyle = "#e8e2f4";
@@ -300,9 +404,35 @@ export function renderSessionsTab(
     const closeModal = () => {
       driver?.dispose();
       modal.remove();
+      tooltip.remove();
     };
     const nextBtn = el("button", { className: "pp-btn" }, "next ▸");
     nextBtn.onclick = () => advance();
+
+    // File a report AT THIS MOMENT in the replay — the same UI a real
+    // player sees, pre-filled from the replay's own game state, tagged
+    // source:"review" (vs. "player") so the two are distinguishable later.
+    // One cached ReportUI per driver (rebuilt whenever start() swaps
+    // drivers), mirroring how Game caches its own — a fresh instance per
+    // click would leak a full-page DOM overlay on every open.
+    let reportUI: import("../game/report").ReportUI | null = null;
+    const reportBtn = el("button", { className: "pp-btn" }, "📝 file a report here");
+    reportBtn.onclick = () => {
+      if (!driver) return;
+      const wasPlaying = driver.playing;
+      driver.pause();
+      playBtn.textContent = "▶";
+      void import("../game/report").then((mod) => {
+        if (!reportUI) {
+          reportUI = new mod.ReportUI(driver!.game, () => {
+            if (wasPlaying) { driver?.play(); playBtn.textContent = "⏸"; }
+          });
+        }
+        reportUI.correlate = { sessionId: queue[qi].id, sessionStep: driver!.step, source: "review" };
+        reportUI.open();
+      });
+    };
+
     const modal = el("div", { className: "pp-pixmodal" },
       el("div", { className: "pp-pixpanel", style: "width:720px;max-width:95vw" },
         el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
@@ -313,8 +443,8 @@ export function renderSessionsTab(
         el("div", { style: "display:flex;gap:8px;align-items:center;margin-top:8px" },
           playBtn, speedBtn, timeline, timeEl
         ),
-        el("div", { style: "display:flex;gap:14px;align-items:center;margin-top:6px" },
-          roomEl, keysEl, driftEl, skipIdleBtn,
+        el("div", { style: "display:flex;gap:14px;align-items:center;margin-top:6px;flex-wrap:wrap" },
+          roomEl, keysEl, driftEl, skipIdleBtn, reportBtn,
           queue.length > 1 ? nextBtn : el("span", {})
         )
       )
@@ -330,10 +460,21 @@ export function renderSessionsTab(
     async function start(item: WatchItem): Promise<void> {
       driver?.dispose();
       driver = null;
+      reportUI = null; // bound to the old driver's Game — don't reuse across sessions
       title.textContent = `replay — ${item.label} (${qi + 1}/${queue.length})`;
       driftEl.textContent = "";
       const data = await fetchSession(item.id);
       if (!data) { advance(); return; }
+      markers = [];
+      try {
+        const res = await fetch(`${apiBase}/api/report`, { headers: auth() });
+        const rdata = await res.json() as { ok: boolean; reports?: Array<{ id: string; sid?: string; step?: number; ty?: string; m?: string }> };
+        if (rdata.ok) {
+          markers = (rdata.reports ?? [])
+            .filter((r) => r.sid === item.id && typeof r.step === "number")
+            .map((r) => ({ step: r.step!, id: r.id, type: r.ty ?? "bug", message: r.m ?? "" }));
+        }
+      } catch { /* milestones are a nice-to-have; a failed fetch just omits them */ }
       // Breadth-first: resolve this session's segment for the target room.
       let from = 0;
       segEnd = null;

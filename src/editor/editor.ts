@@ -11,6 +11,7 @@ import { autoForm, el, fieldOptionsFor, toast } from "./forms";
 import { RoomEditor } from "./roomeditor";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 import { renderSessionsTab } from "./sessions";
+import { renderReportsTab } from "./reports";
 
 const SPRITE_KEYS = ["sprite", "spriteFrames", "spriteFps", "portraits"];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
@@ -108,7 +109,7 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 type TabId =
   | "rooms" | "elements" | "rules" | "tiles" | "items" | "recipes"
   | "enemies" | "taunts" | "achievements" | "game" | "campaign" | "publish"
-  | "sessions";
+  | "sessions" | "reports";
 
 // Electron loads from file://, so API calls need the real origin.
 const API_BASE =
@@ -185,7 +186,7 @@ class EditorShell {
     const tabs: TabId[] = [
       "rooms", "elements", "rules", "tiles", "items", "recipes",
       "enemies", "taunts", "achievements", "game", "campaign", "publish",
-      "sessions",
+      "sessions", "reports",
     ];
     this.bodyEl = el("div", { className: "pp-body" });
     const shell = el(
@@ -405,6 +406,12 @@ class EditorShell {
       case "sessions": {
         const panel = el("div", { className: "pp-panel" });
         renderSessionsTab(panel, c, API_BASE, PASS_KEY);
+        this.bodyEl.append(panel);
+        break;
+      }
+      case "reports": {
+        const panel = el("div", { className: "pp-panel" });
+        renderReportsTab(panel, API_BASE, PASS_KEY);
         this.bodyEl.append(panel);
         break;
       }

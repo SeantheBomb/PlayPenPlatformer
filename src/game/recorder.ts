@@ -103,6 +103,18 @@ class Recorder {
     return this.meta !== null;
   }
 
+  /** Current session id, if a recording is active — lets a live bug report
+   *  correlate itself to the session it happened in (see report.ts). */
+  get sessionId(): string | null {
+    return this.meta?.id ?? null;
+  }
+
+  /** Session-relative sim step right now (matches SessionEvent.f tagging),
+   *  or null with no active recording. */
+  currentStep(): number | null {
+    return this.meta ? this.tag() : null;
+  }
+
   private tag(): number {
     return this.game ? this.game.stepCount - this.base : 0;
   }

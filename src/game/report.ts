@@ -4,8 +4,19 @@
 // (Electron, local dev without functions) the report queues in
 // localStorage instead of being lost.
 import type { Game } from "./game";
+import { recorder } from "./recorder";
 
 export const APP_VERSION = "0.3.0";
+
+/** How this report was correlated to a session — defaults to the live
+ *  recorder (a real playsession in progress). The sessions editor tab opens
+ *  ReportUI against a REPLAY game with an explicit override instead, tagging
+ *  the report source:"review" and pointing it at the playback moment. */
+export interface ReportCorrelation {
+  sessionId: string | null;
+  sessionStep: number | null;
+  source: "player" | "review";
+}
 
 const TYPES = [
   { id: "bug", label: "Bug" },
@@ -43,7 +54,13 @@ export class ReportUI {
   private statusEl!: HTMLDivElement;
   private submitBtn!: HTMLButtonElement;
 
-  constructor(private game: Game, private onClose: () => void) {
+  constructor(
+    private game: Game,
+    private onClose: () => void,
+    /** Mutable so a cached instance (e.g. the sessions-review "file a report
+     *  here" button) can update the moment it points at between opens. */
+    public correlate?: ReportCorrelation
+  ) {
     if (!styleInjected) {
       const style = document.createElement("style");
       style.textContent = CSS;
@@ -134,6 +151,11 @@ export class ReportUI {
     const g = this.game;
     try {
       const canvas = document.getElementById("game") as HTMLCanvasElement;
+      const correlate = this.correlate ?? {
+        sessionId: recorder.sessionId,
+        sessionStep: recorder.currentStep(),
+        source: "player" as const,
+      };
       const payload = {
         type: this.selectedType,
         message,
@@ -148,6 +170,9 @@ export class ReportUI {
         appVersion: APP_VERSION,
         viewport: { w: window.innerWidth, h: window.innerHeight },
         screenshot: downscale(canvas, 480),
+        sessionId: correlate.sessionId,
+        sessionStep: correlate.sessionStep,
+        source: correlate.source,
       };
       const res = await fetch("/api/report", {
         method: "POST",
