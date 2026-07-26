@@ -172,4 +172,21 @@ export class RunState {
     return out;
   }
 
+  /** Death reset for equipped items: a lit torch goes back out, a full/lava
+   *  bucket goes back to empty — any item whose carrier state (`dousesTo` /
+   *  `emptiesTo`) can revert does, generically, no per-item special-casing.
+   *  Returns the ids that changed, for a floaty/sfx cue. */
+  resetTransformedItems(): string[] {
+    const changed: string[] = [];
+    for (const [id, n] of [...this.inventory]) {
+      const def = this.item(id);
+      const resetTo = def?.dousesTo ?? def?.emptiesTo;
+      if (!resetTo || n <= 0) continue;
+      this.inventory.set(resetTo, this.count(resetTo) + n);
+      this.inventory.delete(id);
+      changed.push(id);
+    }
+    return changed;
+  }
+
 }

@@ -76,6 +76,8 @@ const SOURCED = -1;
 // How long a SOURCED body takes to fully recede once a gate closing cuts it
 // off from every fall — staggered by distance from the gate, not instant.
 const RECEDE_MS = 2000;
+// Seconds of sustained walking-into-it before a toyblock hops one tile over.
+const TOYBLOCK_PUSH_TIME = 0.25;
 
 export class RoomRuntime {
   map: TileMap;
@@ -100,6 +102,9 @@ export class RoomRuntime {
   private draining = new Map<number, number>();
   /** tile indexes of fall tiles (waterfall/lavafall) that grow + emit fluid */
   private fallTiles = new Set<number>();
+  /** source tile index -> seconds a toyblock there has been leaned on, in
+   *  the direction that would push it. Resets whenever contact breaks. */
+  private toyblockPush = new Map<number, number>();
   /** tile index -> fluid def flowing THROUGH a grate flush against solid
    *  ground (no gap to fall into) — an overlay, not a tile swap, so the
    *  grate stays the real tile and stays walkable. See placeFluid. */
@@ -455,6 +460,86 @@ export class RoomRuntime {
     if (!def?.flammable || this.burning.has(idx)) return false;
     this.burning.set(idx, def.burnTime ?? 2.5);
     return true;
+  }
+
+  /** Balloons pop from ANY tool's use, no element check — pure whimsy, not
+   *  part of the elemental rule system. Returns the popped positions so the
+   *  caller can spawn particles/sfx. */
+  popBalloonsIn(box: Rect): { x: number; y: number }[] {
+    const tx0 = Math.max(0, Math.floor(box.x / TILE));
+    const tx1 = Math.min(this.map.width - 1, Math.floor((box.x + box.w) / TILE));
+    const ty0 = Math.max(0, Math.floor(box.y / TILE));
+    const ty1 = Math.min(this.map.height - 1, Math.floor((box.y + box.h) / TILE));
+    const popped: { x: number; y: number }[] = [];
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        if (this.map.at(tx, ty)?.style !== "balloon") continue;
+        this.setTileById(tx, ty, undefined);
+        popped.push({ x: tx * TILE + 8, y: ty * TILE + 8 });
+      }
+    }
+    return popped;
+  }
+
+  /** A tile the tile grid treats as ground to rest on — solid walls plus
+   *  one-way platforms (a toyblock sits on a grate same as the player does). */
+  private isFloorTile(tx: number, ty: number): boolean {
+    if (ty < 0 || ty >= this.map.height) return true;
+    const def = this.map.at(tx, ty);
+    return !!(def?.solid || def?.oneWay);
+  }
+
+  /** The player let go of movement (or is pushing nothing) — any in-progress
+   *  lean-on-a-toyblock timer drops back to zero, so a later push starts
+   *  fresh rather than resuming from a stale partial count. */
+  resetToyblockPush(): void {
+    this.toyblockPush.clear();
+  }
+
+  /**
+   * Walking into a toyblock (dir -1/1) leans on it; sustained contact for
+   * TOYBLOCK_PUSH_TIME hops it one tile over, grid-locked — no continuous
+   * sub-tile physics. Call resetToyblockPush() whenever contact breaks (the
+   * caller stops holding movement) so progress doesn't linger. Returns true
+   * if (tx,ty) held a toyblock being leaned on this frame (whether or not it
+   * actually moved), so the caller knows contact happened and can stop
+   * scanning further rows.
+   */
+  pushToyblock(tx: number, ty: number, dir: -1 | 1, dt: number): boolean {
+    const def = this.map.at(tx, ty);
+    if (def?.style !== "toyblock") return false;
+    const idx = this.map.index(tx, ty);
+    const destX = tx + dir;
+    const blocked = destX < 0 || destX >= this.map.width || !!this.map.at(destX, ty)?.solid;
+    if (blocked) {
+      this.toyblockPush.delete(idx);
+      return true;
+    }
+    const t = (this.toyblockPush.get(idx) ?? 0) + dt;
+    if (t >= TOYBLOCK_PUSH_TIME) {
+      this.setTileById(destX, ty, def.id);
+      this.setTileById(tx, ty, undefined);
+      this.toyblockPush.delete(idx);
+    } else {
+      this.toyblockPush.set(idx, t);
+    }
+    return true;
+  }
+
+  /** Toyblocks fall exactly like fluids do — one tile per flow tick — when
+   *  nothing (solid or one-way platform) is holding them up. Scanning from
+   *  the bottom row upward lets a stack fall in lockstep within one tick,
+   *  same ordering trick the fluid sim uses for its column pressure squeeze. */
+  private tickToyblockFalls(): void {
+    for (let ty = this.map.height - 2; ty >= 0; ty--) {
+      for (let tx = 0; tx < this.map.width; tx++) {
+        const def = this.map.at(tx, ty);
+        if (def?.style !== "toyblock") continue;
+        if (this.isFloorTile(tx, ty + 1)) continue;
+        this.setTileById(tx, ty + 1, def.id);
+        this.setTileById(tx, ty, undefined);
+      }
+    }
   }
 
   /** Apply an element to every tile in a pixel-space box. Returns events. */
@@ -1289,6 +1374,7 @@ export class RoomRuntime {
     if (this.waterFlowClock >= WATER_FLOW_INTERVAL) {
       this.waterFlowClock = 0;
       this.tickWaterFlow(events);
+      this.tickToyblockFalls();
     }
 
     for (const [idx, at] of [...this.draining]) {

@@ -670,6 +670,7 @@ export class Game {
 
     // ---- Player physics ----
     const ev = this.player.update(dt, this.input, this.roomRt.map, this.state);
+    this.pushToyblocks(dt);
     if (ev.jumped) sfx.play("jump");
     if (ev.landed) {
       if (ev.landSpeed > g.juice.landDustAtFallSpeed) {
@@ -1354,6 +1355,23 @@ export class Game {
   }
 
   /** The swing/apply box in front of the player. */
+  /** Walking into a toyblock leans on it; RoomRuntime.pushToyblock tracks
+   *  the sustained-contact timer and hops it one grid tile over once it's
+   *  crossed the threshold. */
+  private pushToyblocks(dt: number): void {
+    const want = (this.input.right ? 1 : 0) - (this.input.left ? 1 : 0);
+    if (want === 0) { this.roomRt.resetToyblockPush(); return; }
+    const p = this.player;
+    const dir = want as -1 | 1;
+    const edgeX = dir > 0 ? p.x + p.w : p.x - 1;
+    const tx = Math.floor(edgeX / TILE);
+    const ty0 = Math.floor(p.y / TILE);
+    const ty1 = Math.floor((p.feetY - 1) / TILE);
+    for (let ty = ty0; ty <= ty1; ty++) {
+      if (this.roomRt.pushToyblock(tx, ty, dir, dt)) break;
+    }
+  }
+
   private swingBox(): { x: number; y: number; w: number; h: number } {
     const p = this.player;
     const front = p.facing >= 0 ? p.x + p.w : p.x;
@@ -1361,6 +1379,19 @@ export class Game {
     const x0 = Math.min(front, front + reach);
     const x1 = Math.max(front, front + reach);
     return { x: x0, y: p.y - 16, w: x1 - x0, h: p.feetY + 10 - (p.y - 16) };
+  }
+
+  /** Balloons pop from any tool's use box — pure whimsy, not an elemental
+   *  rule, so it runs independent of (and alongside) whatever else the
+   *  swing/splash does. */
+  private popBalloons(box: { x: number; y: number; w: number; h: number }): void {
+    const popped = this.roomRt.popBalloonsIn(box);
+    for (const p of popped) {
+      sfx.play("break");
+      this.particles.burst({
+        x: p.x, y: p.y, count: 10, color: "#e86a8a", speed: 90, upBias: 30, life: 0.4,
+      });
+    }
   }
 
   private useItem(item: ItemDef): void {
@@ -1373,6 +1404,7 @@ export class Game {
         this.player.swing();
         sfx.play("swing");
         const box = this.swingBox();
+        this.popBalloons(box);
         // Carrier transformations first: light the torch, fill the bucket.
         if (item.igniteTo && this.roomRt.boxTouchesFire(box)) {
           this.state.transform(item.id, item.igniteTo);
@@ -1411,6 +1443,7 @@ export class Game {
           x: dir >= 0 ? p.x : p.x - 52, y: p.y - 8,
           w: 52 + p.w, h: p.h + 26,
         };
+        this.popBalloons(box);
         const events = [
           ...this.roomRt.applyElementToTiles(item.element, box),
           ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
@@ -1506,6 +1539,19 @@ export class Game {
       if (dropped.length > 0) {
         this.roomRt.scatterItems(this.player.centerX, this.player.feetY, dropped);
         this.floaty("Materials dropped!", this.player.centerX, this.player.y - 10, "#e8a2b4");
+      }
+    }
+    // Equipped items reset too — a lit torch goes back out, a full/lava
+    // bucket goes back to empty (any item with dousesTo/emptiesTo).
+    const selectedId = this.state.usableItems()[this.state.selectedConsumable]?.id;
+    const resetIds = this.state.resetTransformedItems();
+    if (resetIds.length > 0) {
+      this.floaty("Equipment reset.", this.player.centerX, this.player.y - 24, "#8f87ad");
+      if (selectedId && resetIds.includes(selectedId)) {
+        const def = this.state.item(selectedId);
+        const resetTo = def?.dousesTo ?? def?.emptiesTo;
+        const idx = this.state.usableItems().findIndex((i) => i.id === resetTo);
+        if (idx >= 0) this.state.selectedConsumable = idx;
       }
     }
     if (this.state.hasDiedOnce) {
