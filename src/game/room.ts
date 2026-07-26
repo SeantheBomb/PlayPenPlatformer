@@ -442,6 +442,58 @@ export class RoomRuntime {
   }
 
   /**
+   * A fluid tile just left (tx,ty) empty — whether it moved elsewhere or was
+   * eaten by a drain. Rather than leave a hole, grab ONE orthogonal neighbor
+   * (up/down/left/right, in that fixed order) that still has fluid and pull
+   * it in to take the vacated spot. That neighbor's own old cell is now
+   * empty too, so this chains outward the same way — Sean's rule: "if a
+   * water block moves, it should grab at least one neighbor to take its
+   * place," applied uniformly wherever fluid disappears from a cell (drain
+   * absorption included), which is what lets a whole connected flat body
+   * (not just a tiered/sourced one) actually empty into a drain instead of
+   * losing only the one tile touching it. `visited` stops a chain from
+   * doubling back on itself in a loop; conservation (never duplicates) is
+   * automatic since each step is a MOVE, not a copy.
+   *
+   * `grab` is false for a SOURCED tile's own routine fall/slide — that body
+   * already has its own unconditional "replicate outward, no cap" mechanic
+   * (case 4 below) once it lands, so pulling a neighbor in behind it while
+   * it's still mid-fall would fight that instead of helping. Drain
+   * absorption always grabs regardless of what's being drained.
+   */
+  private vacate(
+    tx: number, ty: number, events: ElementEvent[], visited = new Set<number>(), grab = true
+  ): void {
+    this.clearFluid(tx, ty);
+    const idx = this.map.index(tx, ty);
+    this.waterFlowDist.delete(idx);
+    if (!grab) return;
+    visited.add(idx);
+    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]] as const;
+    for (const [dx, dy] of dirs) {
+      const nx = tx + dx, ny = ty + dy;
+      if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
+      const nIdx = this.map.index(nx, ny);
+      if (visited.has(nIdx)) continue;
+      const ndef = this.fluidDefAt(nx, ny);
+      if (!ndef) continue;
+      if (this.resolveFluidContact(tx, ty, ndef, nx, ny, events)) {
+        // The grabbed neighbor hardens/quenches on contact instead of
+        // relocating — it's destroyed, so try the next direction instead.
+        this.waterFlowDist.delete(nIdx);
+        this.clearFluid(nx, ny);
+        continue;
+      }
+      const d = this.waterFlowDist.get(nIdx) ?? 0;
+      this.placeFluid(tx, ty, ndef);
+      this.waterFlowDist.set(idx, d);
+      events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: ndef.color });
+      this.vacate(nx, ny, events, visited);
+      return;
+    }
+  }
+
+  /**
    * Transform a tile via a rule effect (melt/shatter/dissolve/burn/quench).
    * Unlike raw setTileById this also pays out the tile's `dropsItem` as a
    * recoverable bundle — how a metal block melted by lava becomes scrap.
@@ -667,9 +719,8 @@ export class RoomRuntime {
         continue;
       }
       if (this.tileTouchesDrain(tx, ty)) {
-        this.clearFluid(tx, ty);
-        this.waterFlowDist.delete(idx);
         events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
+        this.vacate(tx, ty, events);
       }
     }
 
@@ -714,17 +765,21 @@ export class RoomRuntime {
         }
       }
       const moveTo = (nx: number, ny: number, d: number) => {
+        // Seed vacate's visited set with the destination — otherwise the
+        // grab-chain could immediately pull the very tile that just moved
+        // back where it came from (an infinite ping-pong).
+        const cameFrom = new Set<number>([this.map.index(nx, ny)]);
+        const grabAfter = distance !== SOURCED;
         if (this.resolveFluidContact(nx, ny, def, tx, ty, events)) {
-          // Contact: the mover is destroyed instead of relocating.
-          this.clearFluid(tx, ty);
-          this.waterFlowDist.delete(idx);
+          // Contact: the mover is destroyed instead of relocating. The
+          // origin still vacates (and grabs a neighbor of its own).
+          this.vacate(tx, ty, events, cameFrom, grabAfter);
           return;
         }
         this.placeFluid(nx, ny, def);
         this.waterFlowDist.set(this.map.index(nx, ny), d);
-        this.clearFluid(tx, ty);
-        this.waterFlowDist.delete(idx);
         events.push({ effect: "flow", x: nx * TILE + 8, y: ny * TILE + 8, color: def.color });
+        this.vacate(tx, ty, events, cameFrom, grabAfter);
       };
       // 1. Fall (as a move) — metal grates are transparent, so this skips
       // straight through any directly beneath to the first real open cell,

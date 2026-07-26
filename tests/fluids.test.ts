@@ -421,3 +421,48 @@ describe("an authored pool touching a fall is SOURCED, not finite", () => {
     expect(fluidAt(rt, 1, 4, "lava")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-07-27): a drain should fully empty a whole
+// connected body of water, not just the one tile touching it. A flat,
+// hand-authored (non-fall-fed) lake sitting on solid ground previously
+// stalled after losing exactly one tile, because finite fluid only slid
+// sideways into a hole it could keep falling into — a flat lake has no such
+// hole. Sean's rule: "if a water block moves, it should grab at least one
+// neighbor water block and move it to take its place, which should cause a
+// chain effect." Implemented as RoomRuntime.vacate.
+// ---------------------------------------------------------------------------
+describe("a drain fully empties a flat, non-fall-fed lake via the grab-chain", () => {
+  it("drains a whole flat pool down to nothing, not just the contact tile", () => {
+    const rows = [
+      "######################",
+      "#....................#",
+      "#wwwwwwwwwwwwwwwwwwwD#",
+      "######################",
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 40);
+    for (let x = 1; x <= 20; x++) {
+      expect(fluidAt(rt, x, 2, "water"), `expected (${x},2) to have drained`).toBe(false);
+    }
+  });
+
+  it("drains one tile at a time (a visible trickle, not an instant vanish)", () => {
+    const rows = [
+      "######################",
+      "#....................#",
+      "#wwwwwwwwwwwwwwwwwwwD#",
+      "######################",
+    ];
+    const rt = makeRoom(rows);
+    const countWater = () => {
+      let n = 0;
+      for (let x = 1; x <= 20; x++) if (fluidAt(rt, x, 2, "water")) n++;
+      return n;
+    };
+    const before = countWater();
+    tick(rt, 1);
+    const after = countWater();
+    expect(before - after).toBe(1);
+  });
+});
