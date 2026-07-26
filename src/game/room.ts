@@ -864,11 +864,13 @@ export class RoomRuntime {
     if (count > 0) this.checkFuseboxes(events);
   }
 
-  /** A fusebox trips if any energized tile touches it (or its neighbors). */
+  /** A fusebox trips if any energized tile touches it (or its neighbors).
+   *  Retriggerable — a door another fusebox has since closed needs to be
+   *  reopenable by going back and zapping this one again. */
   private checkFuseboxes(events: ElementEvent[]): void {
     const now = simNow();
     for (const fb of this.entities) {
-      if (fb.kind !== "fusebox" || fb.open) continue;
+      if (fb.kind !== "fusebox") continue;
       const tx0 = Math.floor(fb.x / TILE) - 1;
       const tx1 = Math.floor((fb.x + fb.w) / TILE) + 1;
       const ty0 = Math.floor(fb.y / TILE) - 1;

@@ -68,6 +68,32 @@ describe("gate fuse wiring", () => {
     expect(gate.open).toBe(true);
   });
 
+  it("a fusebox is retriggerable — reopens a gate another fusebox has since closed", () => {
+    const { rt } = makeRoom([
+      { type: "door", x: 2, y: 0, gate: true, openFuseId: "OPEN", closeFuseId: "CLOSE" } as RoomEntity,
+      { type: "fusebox", x: 5, y: 0, fuseId: "OPEN" } as RoomEntity,
+      { type: "fusebox", x: 8, y: 0, fuseId: "CLOSE" } as RoomEntity,
+    ]);
+    const gate = find(rt, "door");
+    const openBox = rt.entities.find((e) => e.def.fuseId === "OPEN")!;
+    const closeBox = rt.entities.find((e) => e.def.fuseId === "CLOSE")!;
+    const zap = (fb: EntityInstance, t: number) => {
+      setSimTime(t);
+      rt.energized.set(rt.map.index(Math.floor(fb.x / 16), Math.floor(fb.y / 16)), t + 100);
+      (rt as never as { checkFuseboxes(ev: unknown[]): void }).checkFuseboxes([]);
+    };
+
+    zap(openBox, 1000);
+    expect(gate.open).toBe(true);
+    zap(closeBox, 2000);
+    expect(gate.open).toBe(false);
+    // The regression: checkFuseboxes used to permanently skip any fusebox
+    // that had ever tripped once, so this second zap of the SAME box did
+    // nothing and the gate stayed stuck closed.
+    zap(openBox, 3000);
+    expect(gate.open).toBe(true);
+  });
+
   it("closeFuseId closes an already-open gate", () => {
     const { rt } = makeRoom([
       {
