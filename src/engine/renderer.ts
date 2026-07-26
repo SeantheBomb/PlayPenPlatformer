@@ -280,6 +280,23 @@ export function drawTile(
       break;
     }
     case "lava": {
+      if (capped) {
+        // Fully buried (a solid or another lava tile sits above) — no
+        // crust surface to speak of, just deep churning heat below.
+        ctx.fillStyle = "rgba(120,28,10,0.85)";
+        ctx.fillRect(px, py, TILE, TILE);
+        const glow = Math.sin(animT * 2 + px * 0.5) * 1.2;
+        ctx.fillStyle = "rgba(255,150,60,0.4)";
+        ctx.beginPath();
+        ctx.arc(px + 5, py + 10 + glow, 1, 0, Math.PI * 2);
+        ctx.arc(px + 11, py + 5 - glow, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        if (Math.sin(animT * 7 + px * 1.7) > 0.65) {
+          ctx.fillStyle = "#ffe9a8";
+          ctx.fillRect(px + 4 + ((px * 5) % 8), py + 7 + Math.sin(animT * 4 + px) * 2, 1.4, 1.4);
+        }
+        break;
+      }
       // Molten rock: reads hot/dangerous like hazard fire — dark crust,
       // bright churning seams, popping white-hot flecks.
       const wave = Math.sin(animT * 3.1 + px * 0.4) * 1.2;
@@ -490,9 +507,9 @@ export function drawMap(
       const def = map.at(tx, ty);
       if (!def) continue;
       let capped = false;
-      if (def.style === "water") {
+      if (def.style === "water" || def.style === "lava") {
         const above = map.at(tx, ty - 1);
-        capped = !!above && (above.solid || above.style === "water");
+        capped = !!above && (above.solid || above.style === def.style);
       }
       drawTile(ctx, def, tx * TILE, ty * TILE, animT, capped);
     }
