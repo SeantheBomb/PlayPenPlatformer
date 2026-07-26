@@ -83,12 +83,23 @@ export class Player {
     const cx = Math.floor(this.centerX / 16);
     const midY = Math.floor((this.y + this.h * 0.6) / 16);
     const isWater = (tx: number, ty: number) => map.at(tx, ty)?.style === "water";
-    if (!isWater(cx, midY)) return "none";
+    // Grates are transparent to fluid everywhere else in the sim — a body
+    // touching or resting on one shouldn't "surface" just because the
+    // grate's own tile isn't itself styled water; scan through it the same
+    // way, and still require real water somewhere in the resulting column.
+    const isPassable = (tx: number, ty: number) => {
+      const t = map.at(tx, ty);
+      return t?.style === "water" || t?.style === "platform";
+    };
+    if (!isPassable(cx, midY)) return "none";
     let top = midY;
-    while (top > 0 && isWater(cx, top - 1)) top--;
+    while (top > 0 && isPassable(cx, top - 1)) top--;
     let bot = midY;
-    while (isWater(cx, bot + 1)) bot++;
+    while (isPassable(cx, bot + 1)) bot++;
     if (bot - top + 1 < 3) return "none";
+    let hasWater = false;
+    for (let ty = top; ty <= bot && !hasWater; ty++) hasWater = isWater(cx, ty);
+    if (!hasWater) return "none";
     return this.y - top * 16 > 4 ? "under" : "surface";
   }
 
