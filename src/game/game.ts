@@ -124,6 +124,8 @@ export class Game {
           this.taunts.fire("craft_item", { itemId: result.outputId });
           this.checkAchievements("craft_item", { itemId: result.outputId });
           if (!this.replay) telemetry.craft(this.currentRoomId, result.outputId);
+          const outDef = this.state.item(result.outputId);
+          if (outDef?.useMode) this.switchHotbarSelection(outDef.id);
         }
       } else {
         sfx.play("craftFail");
@@ -917,6 +919,7 @@ export class Game {
         e.collected = true;
         this.state.mutations(this.currentRoomId).collected.add(e.index);
         this.state.add(item.id, e.def.count ?? 1);
+        if (item.useMode) this.switchHotbarSelection(item.id);
         this.checkAchievements("pickup_item", { itemId: item.id });
         if (!this.replay) telemetry.collect(this.currentRoomId, item.id);
         sfx.play("pickup");
@@ -943,6 +946,7 @@ export class Game {
       if (rectsOverlap(prect, d)) {
         this.state.add(d.itemId, d.count);
         const item = this.state.item(d.itemId);
+        if (item?.useMode) this.switchHotbarSelection(item.id);
         this.floaty(`+${d.count} ${item?.name ?? d.itemId}`, d.x + 7, d.y);
         this.roomRt.removePickupDrop(d);
         sfx.play("pickup");
