@@ -822,6 +822,11 @@ export class RoomEditor {
       }
       if (!("closeFuseId" in s)) s.closeFuseId = "";
       if (!("startOpen" in s)) s.startOpen = false;
+      // Fuse wiring only means anything on a gate — a door authored (or
+      // exported before this fix) with fuse fields set but gate left
+      // unchecked wires up perfectly and then silently never blocks
+      // anything. If wiring is present, it's clearly meant to gate.
+      if (!sel.gate && (s.openFuseId || s.closeFuseId || s.startOpen)) s.gate = true;
     }
     this.inspectorEl.append(
       el("div", { className: "pp-hint" }, `${sel.type} @ ${sel.x},${sel.y}`),
