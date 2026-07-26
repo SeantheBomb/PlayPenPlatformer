@@ -114,8 +114,8 @@
     "color": "#9aa7b8",
     "element": "metal",
     "useMode": "swing",
-    "fillsTo": "bucket_full",
-    "description": "Swing it at water to scoop. The facility's most advanced technology."
+    "scoopsInto": { "water": "bucket_full", "lava": "bucket_lava" },
+    "description": "Swing it at water or lava to scoop. The facility's most advanced technology."
   },
   {
     "id": "bucket_full",
@@ -127,6 +127,19 @@
     "useMode": "splash",
     "emptiesTo": "bucket",
     "description": "Sloshing and ready. Douses fire, washes goo away. Refillable."
+  },
+  {
+    "id": "bucket_lava",
+    "name": "Bucket (lava)",
+    "kind": "tool",
+    "shape": "bucket",
+    "color": "#ff5e2b",
+    "element": "lava",
+    "useMode": "splash",
+    "emptiesTo": "bucket",
+    "dousedBy": "water",
+    "dousesTo": "bucket",
+    "description": "Scalding and unwise. Ignites flammables, melts ice and metal, upsets creatures. Water quenches it."
   },
   {
     "id": "frost_vial",

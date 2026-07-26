@@ -53,7 +53,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
   const map: Record<string, string[]> = {
     // References to other content definitions
     item: itemIds, itemId: itemIds, igniteTo: itemIds, dousesTo: itemIds,
-    fillsTo: itemIds, emptiesTo: itemIds, output: itemIds,
+    emptiesTo: itemIds, output: itemIds,
     to: [...roomIds, "next"], roomId: roomIds,
     element: elementIds, actor: elementIds, target: elementIds, dousedBy: elementIds,
     enemy: enemyIds,

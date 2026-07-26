@@ -719,14 +719,15 @@ export class Game {
           }
         }
       }
-      // Water douses carried flames (torches revert to unlit)
+      // Water douses carried flames and quenches carried lava (torches
+      // revert to unlit, a lava-filled bucket reverts to empty).
       if (inWater) {
         for (const [id] of [...this.state.inventory]) {
           const def = this.state.item(id);
           if (def?.dousedBy === "water" && def.dousesTo) {
             this.state.transform(id, def.dousesTo);
             sfx.play("splash");
-            this.floaty("Torch doused!", this.player.centerX, this.player.y - 10, "#4fc3f7");
+            this.floaty("Doused!", this.player.centerX, this.player.y - 10, "#4fc3f7");
           }
         }
       }
@@ -1369,11 +1370,15 @@ export class Game {
           this.floaty("Lit!", this.player.centerX, this.player.y - 8, "#ff7043");
           return;
         }
-        if (item.fillsTo && this.roomRt.boxTouchesWater(box)) {
-          this.state.transform(item.id, item.fillsTo);
-          sfx.play("splash");
-          this.floaty("Scooped.", this.player.centerX, this.player.y - 8, "#4fc3f7");
-          return;
+        if (item.scoopsInto) {
+          for (const [element, destId] of Object.entries(item.scoopsInto)) {
+            if (!this.roomRt.boxTouchesElement(element, box)) continue;
+            this.state.transform(item.id, destId);
+            sfx.play("splash");
+            const destColor = this.state.item(destId)?.color ?? "#4fc3f7";
+            this.floaty("Scooped.", this.player.centerX, this.player.y - 8, destColor);
+            return;
+          }
         }
         const events = [
           ...this.roomRt.applyElementToTiles(item.element, box),
@@ -1404,7 +1409,7 @@ export class Game {
         sfx.play("splash");
         this.particles.burst({
           x: p.centerX + dir * 24, y: p.centerY,
-          count: 18, color: "#4fc3f7", speed: 110, upBias: 30, life: 0.5,
+          count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
         });
         this.handleElementEvents(events);
         if (item.emptiesTo) this.state.transform(item.id, item.emptiesTo);

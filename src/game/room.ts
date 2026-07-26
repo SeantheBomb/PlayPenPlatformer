@@ -1055,15 +1055,15 @@ export class RoomRuntime {
     );
   }
 
-  /** Does this box touch water (for filling buckets)? */
-  boxTouchesWater(box: Rect): { tx: number; ty: number } | null {
+  /** Does this box touch a tile of this element (for scooping into tools)? */
+  boxTouchesElement(element: string, box: Rect): { tx: number; ty: number } | null {
     const tx0 = Math.floor(box.x / TILE);
     const tx1 = Math.floor((box.x + box.w) / TILE);
     const ty0 = Math.floor(box.y / TILE);
     const ty1 = Math.floor((box.y + box.h) / TILE);
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
-        if (this.map.at(tx, ty)?.element === "water") return { tx, ty };
+        if (this.map.at(tx, ty)?.element === element) return { tx, ty };
       }
     }
     return null;

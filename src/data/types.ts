@@ -189,7 +189,7 @@ export interface ItemDef extends SpriteFields {
   dousesTo?: string;     // item id it reverts to when doused
   douseOnDeselect?: boolean; // also revert to dousesTo when no longer the held/selected item
   igniteTo?: string;     // item id this becomes automatically near a fire source while held
-  fillsTo?: string;      // item id this becomes when swung at water (bucket)
+  scoopsInto?: Record<string, string>; // element -> item id this becomes when swung at it (bucket)
   emptiesTo?: string;    // item id this reverts to after a splash
   placeType?: "spring" | "trap";
   capabilities?: string[];
