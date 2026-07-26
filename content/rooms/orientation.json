@@ -40,19 +40,19 @@
       "type": "hint",
       "x": 6,
       "y": 17,
-      "text": "A / D — move · SPACE — jump"
+      "text": "{move} — move · {jump} — jump"
     },
     {
       "type": "hint",
       "x": 14,
       "y": 15,
-      "text": "hold SPACE to jump higher"
+      "text": "hold {jump} to jump higher"
     },
     {
       "type": "hint",
       "x": 25,
       "y": 15,
-      "text": "TAB — craft what you find"
+      "text": "{craft} — craft what you find"
     },
     {
       "type": "hint",

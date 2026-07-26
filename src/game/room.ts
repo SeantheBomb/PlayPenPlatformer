@@ -1429,6 +1429,12 @@ export class RoomRuntime {
 
   // ================= DRAWING =================
 
+  /** Content-authored hint text can reference scheme-aware control tokens
+   *  like "{move} — move · {jump} — jump" instead of hardcoding keyboard
+   *  keys; the game sets this from Input.label() each frame so the same
+   *  authored string reads correctly on keyboard, gamepad, and touch. */
+  resolveHintText: (raw: string) => string = (raw) => raw;
+
   draw(ctx: CanvasRenderingContext2D, animT: number): void {
     this.drawFuseWires(ctx, animT);
     for (const e of this.entities) this.drawEntity(ctx, e, animT);
@@ -1738,7 +1744,7 @@ export class RoomRuntime {
         break;
       }
       case "hint": {
-        const txt = e.def.text ?? "";
+        const txt = this.resolveHintText(e.def.text ?? "");
         ctx.font = "9px monospace";
         ctx.fillStyle = "rgba(232,226,244,0.42)";
         const tw = ctx.measureText(txt).width;

@@ -200,15 +200,20 @@ export class Input {
   get navUp() { return this.justPressed("ArrowUp", "KeyW", "GpUp"); }
   get navDown() { return this.justPressed("ArrowDown", "KeyS", "GpDown"); }
 
-  /** Scheme-appropriate label for a semantic action (for prompts/HUD). */
-  label(action: "interact" | "use" | "craft" | "cycle" | "jump" | "start"): string {
+  /** Scheme-appropriate label for a semantic action (for prompts/HUD/authored
+   *  hint text — see {token} substitution in room.ts's "hint" entity draw). */
+  label(action: "interact" | "use" | "craft" | "cycle" | "jump" | "start" | "move"): string {
     const kb: Record<string, string> = {
-      interact: "E", use: "F", craft: "TAB", cycle: "Q", jump: "SPACE", start: "ENTER",
+      interact: "E", use: "F", craft: "TAB", cycle: "Q", jump: "SPACE", start: "ENTER", move: "A / D",
     };
     const gp: Record<string, string> = {
-      interact: "X", use: "B", craft: "Y", cycle: "LB/RB", jump: "A", start: "START",
+      interact: "X", use: "B", craft: "Y", cycle: "LB/RB", jump: "A", start: "START", move: "STICK",
+    };
+    const touch: Record<string, string> = {
+      interact: "E", use: "F", craft: "CRAFT", cycle: "Q", jump: "▲", start: "TAP", move: "◀ ▶",
     };
     if (this.scheme === "gamepad") return gp[action];
-    return kb[action]; // touch draws its own labeled buttons
+    if (this.scheme === "touch") return touch[action];
+    return kb[action];
   }
 }

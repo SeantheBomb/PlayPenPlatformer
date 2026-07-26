@@ -231,7 +231,10 @@ export class CraftUI {
 
   // ---------- keyboard / gamepad ----------
 
+  private scheme: Input["scheme"] = "keyboard";
+
   update(input: Input, state: RunState): void {
+    this.scheme = input.scheme;
     const L = this.layout();
     const n = this.materials(state).length;
     if (n > 0) {
@@ -505,8 +508,13 @@ export class CraftUI {
     ctx.fillText("WORKBENCH OF QUESTIONABLE SCIENCE", L.ox + pad, L.oy + pad + L.f.title);
     ctx.font = `${L.f.sub}px monospace`;
     ctx.fillStyle = "#8f87ad";
+    const hint = this.scheme === "touch"
+      ? "drag one material onto another · or tap two · X closes"
+      : this.scheme === "gamepad"
+      ? "move with stick/dpad · A picks · Y closes"
+      : "drag one material onto another · or pick two · tab/esc closes";
     ctx.fillText(
-      "drag one material onto another · or pick two · tab/esc closes",
+      hint,
       L.ox + pad, L.oy + pad + L.f.title + L.f.sub + 4
     );
 

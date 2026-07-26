@@ -53,7 +53,7 @@
       "type": "hint",
       "x": 20,
       "y": 19,
-      "text": "F — scoop water · F — throw it"
+      "text": "{use} — scoop water · {use} — throw it"
     },
     {
       "type": "pickup",

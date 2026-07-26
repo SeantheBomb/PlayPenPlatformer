@@ -70,17 +70,17 @@ export function drawAir(
 }
 
 export function drawToolbelt(
-  ctx: CanvasRenderingContext2D, state: RunState, viewW: number, hud: HudLayout
+  ctx: CanvasRenderingContext2D, state: RunState, viewW: number, hud: HudLayout, uiScale = 1
 ): void {
   // Passive tools only — anything usable lives in the hotbar instead.
   const tools = state.ownedTools().filter((t) => !t.useMode);
   tools.forEach((t, i) => {
-    const x = viewW - hud.toolbeltRightOffset - i * hud.toolbeltSpacing;
-    const y = hud.toolbeltTopOffset;
+    const x = viewW - hud.toolbeltRightOffset * uiScale - i * hud.toolbeltSpacing * uiScale;
+    const y = hud.toolbeltTopOffset * uiScale;
     ctx.fillStyle = "rgba(28,24,40,0.85)";
-    roundRect(ctx, x - 10, y, 20, 20, 4);
+    roundRect(ctx, x - 10 * uiScale, y, 20 * uiScale, 20 * uiScale, 4 * uiScale);
     ctx.fill();
-    drawItemIcon(ctx, t, x, y + 10, 1.1);
+    drawItemIcon(ctx, t, x, y + 10 * uiScale, 1.1 * uiScale);
   });
 }
 

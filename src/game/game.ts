@@ -349,7 +349,15 @@ export class Game {
         break;
       case "pause": {
         const lx = VIEW_W / 2 - 70;
-        if (x >= lx && x <= lx + 200 && y >= 178 && y <= 192) {
+        if (x >= lx && x <= lx + 200 && y >= 146 && y <= 160) {
+          // "M — sound ON/OFF" — mute has no touch/gamepad key otherwise.
+          sfx.muted = !sfx.muted;
+        } else if (x >= lx && x <= lx + 200 && y >= 162 && y <= 176) {
+          // "Q — quit to menu" — same gap as mute.
+          this.overlay = "none";
+          this.scene = "menu";
+          if (!this.replay) recorder.end("quit", this);
+        } else if (x >= lx && x <= lx + 200 && y >= 178 && y <= 192) {
           // "R — report an issue"
           this.overlay = "report";
           this.openReportUI();
@@ -1599,6 +1607,10 @@ export class Game {
     ctx.translate(-camX, -camY);
     drawBackdrop(ctx, this.roomRt.room.background, camX, camY, vw, vh);
     drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
+    this.roomRt.resolveHintText = (raw) => raw.replace(
+      /\{(move|jump|craft|use|interact|cycle|start)\}/g,
+      (_, tok) => this.input.label(tok)
+    );
     this.roomRt.draw(ctx, this.animT);
     // Charging a throw: dotted arc preview that rises as the charge builds.
     const charge = this.chargedThrowVelocity();
@@ -1676,7 +1688,7 @@ export class Game {
     if (this.player.swimState === "under" || this.air < this.content.game.rules.airBlips) {
       drawAir(ctx, this.air, this.content.game.rules.airBlips, hud, uiScale);
     }
-    drawToolbelt(ctx, this.state, VIEW_W, hud);
+    drawToolbelt(ctx, this.state, VIEW_W, hud, uiScale);
     const hotbarHint =
       this.input.scheme === "gamepad" ? "LB/RB cycle · B use" :
       this.input.scheme === "touch" ? "tap a slot to hold it" :
@@ -1715,6 +1727,8 @@ export class Game {
             : undefined,
       });
     } else if (this.overlay === "pause") {
+      const scheme = this.input.scheme;
+      const resumeHint = scheme === "touch" ? "tap here — resume" : "Esc — resume";
       ctx.fillStyle = "rgba(8,6,14,0.75)";
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
       ctx.fillStyle = "#e8e2f4";
@@ -1722,23 +1736,41 @@ export class Game {
       ctx.fillText("PAUSED", VIEW_W / 2 - 30, 110);
       ctx.font = "10px monospace";
       ctx.fillStyle = "#bbb3d6";
-      ctx.fillText("Esc — resume", VIEW_W / 2 - 70, 140);
-      ctx.fillText(`M — sound ${sfx.muted ? "ON" : "OFF"}`, VIEW_W / 2 - 70, 156);
-      ctx.fillText("Q — quit to menu", VIEW_W / 2 - 70, 172);
+      ctx.fillText(resumeHint, VIEW_W / 2 - 70, 140);
+      ctx.fillText(`${scheme === "touch" ? "tap" : "M"} — sound ${sfx.muted ? "ON" : "OFF"}`, VIEW_W / 2 - 70, 156);
+      ctx.fillText(`${scheme === "touch" ? "tap" : "Q"} — quit to menu`, VIEW_W / 2 - 70, 172);
       ctx.fillStyle = "#9be8b0";
-      ctx.fillText("R — report an issue", VIEW_W / 2 - 70, 188);
+      ctx.fillText(`${scheme === "touch" ? "tap" : "R"} — report an issue`, VIEW_W / 2 - 70, 188);
       ctx.fillStyle = "#e8a2b4";
-      ctx.fillText("X — reset this room (if stuck)", VIEW_W / 2 - 70, 204);
+      ctx.fillText(`${scheme === "touch" ? "tap" : "X"} — reset this room (if stuck)`, VIEW_W / 2 - 70, 204);
       ctx.fillStyle = "#8f87ad";
       ctx.fillText("CONTROLS", VIEW_W / 2 - 70, 222);
-      const controls = [
-        "A/D or ←/→ ... move",
-        "SPACE / W ... jump (hold = higher)",
-        "S / ↓ ....... drop through platforms",
-        "E ........... interact / hide / doors",
-        "TAB ......... crafting",
-        "Q / F ....... cycle / use item",
-      ];
+      const controls = scheme === "touch"
+        ? [
+            "◀ ▶ .......... move",
+            "▲ ............ jump (hold = higher)",
+            "▼ ............ drop through platforms",
+            "E ............ interact / hide / doors",
+            "CRAFT ........ crafting",
+            "F ............ use item",
+          ]
+        : scheme === "gamepad"
+        ? [
+            "STICK / DPAD . move",
+            "A ............ jump (hold = higher)",
+            "DOWN ......... drop through platforms",
+            "X ............ interact / hide / doors",
+            "Y ............ crafting",
+            "LB/RB / B .... cycle / use item",
+          ]
+        : [
+            "A/D or ←/→ ... move",
+            "SPACE / W ... jump (hold = higher)",
+            "S / ↓ ....... drop through platforms",
+            "E ........... interact / hide / doors",
+            "TAB ......... crafting",
+            "Q / F ....... cycle / use item",
+          ];
       controls.forEach((l, i) =>
         ctx.fillText(l, VIEW_W / 2 - 70, 238 + i * 14)
       );

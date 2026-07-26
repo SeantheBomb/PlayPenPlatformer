@@ -74,7 +74,7 @@
       "type": "hint",
       "x": 25,
       "y": 7,
-      "text": "F — place · jump on it · E — reclaim"
+      "text": "{use} — place · jump on it · {interact} — reclaim"
     },
     {
       "type": "door",
