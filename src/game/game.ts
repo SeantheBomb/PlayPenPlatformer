@@ -1147,7 +1147,7 @@ export class Game {
     if (e.def.gate && !e.open) {
       sfx.play("locked");
       this.floaty(
-        e.def.fuseId ? "Dead. Needs power." : "Sealed shut.",
+        (e.def.openFuseId ?? e.def.fuseId) ? "Dead. Needs power." : "Sealed shut.",
         e.x + e.w / 2, e.y, "#e8a2b4"
       );
       return;

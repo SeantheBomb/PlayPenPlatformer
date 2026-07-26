@@ -299,7 +299,10 @@ export interface RoomEntity extends SpriteFields {
   // door
   to?: string; // room id or "next"
   gate?: boolean;  // opens in place instead of teleporting
-  fuseId?: string; // gate opens when a fusebox with the same fuseId is energized
+  fuseId?: string; // deprecated alias for openFuseId, still honored
+  openFuseId?: string;  // gate opens when a fusebox with this fuseId trips
+  closeFuseId?: string; // gate closes when a fusebox with this fuseId trips
+  startOpen?: boolean;  // authored initial state, before any fuse trips this run
   // enemy
   enemy?: string;
   patrolMinX?: number;

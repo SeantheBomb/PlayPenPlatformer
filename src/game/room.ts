@@ -203,11 +203,17 @@ export class RoomRuntime {
       }
       const [w, h] = ENTITY_SIZES[def.type] ?? [16, 16];
       const litOverride = muts.brazierLit.find(([i]) => i === index);
+      // Doors/trapdoors can be authored to start open; a fuse trip (open or
+      // close) overrides that for the rest of the run once it happens.
+      const isGate = def.type === "door" || def.type === "trapdoor";
+      const open = isGate && !muts.gateTouched.has(index)
+        ? !!def.startOpen
+        : muts.openedDoors.has(index);
       this.entities.push({
         index, def, kind: def.type,
         x: cx - w / 2, y: feetY - h, w, h,
         collected: muts.collected.has(index),
-        open: muts.openedDoors.has(index),
+        open,
         helped: muts.helpedNpcs.has(index),
         lit: litOverride ? litOverride[1] : def.lit ?? true,
       });
@@ -876,10 +882,19 @@ export class RoomRuntime {
     this.muts.openedDoors.add(fb.index);
     events.push({ effect: "fuse", x: fb.x + fb.w / 2, y: fb.y, color: "#ffe95a" });
     for (const e of this.entities) {
-      if ((e.kind === "door" || e.kind === "trapdoor") && e.def.fuseId && e.def.fuseId === fb.def.fuseId && !e.open) {
+      if (e.kind !== "door" && e.kind !== "trapdoor") continue;
+      const openId = e.def.openFuseId ?? e.def.fuseId;
+      if (openId && openId === fb.def.fuseId && !e.open) {
         e.open = true;
         this.muts.openedDoors.add(e.index);
+        this.muts.gateTouched.add(e.index);
         events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#9be8b0" });
+      }
+      if (e.def.closeFuseId && e.def.closeFuseId === fb.def.fuseId && e.open) {
+        e.open = false;
+        this.muts.openedDoors.delete(e.index);
+        this.muts.gateTouched.add(e.index);
+        events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#e8a2b4" });
       }
     }
   }
@@ -1262,6 +1277,7 @@ export class RoomRuntime {
   // ================= DRAWING =================
 
   draw(ctx: CanvasRenderingContext2D, animT: number): void {
+    this.drawFuseWires(ctx, animT);
     for (const e of this.entities) this.drawEntity(ctx, e, animT);
     for (const p of this.placed) this.drawPlaced(ctx, p, animT);
     for (const b of this.bundles) this.drawBundle(ctx, b, animT);
@@ -1385,6 +1401,46 @@ export class RoomRuntime {
     }
   }
 
+  /** Wires from every gated door/trapdoor to its linked fusebox(es) — drawn
+   *  first so they read as background wiring, entities render on top. Green
+   *  is the open-link (lit while the gate is open), red the close-link (lit
+   *  while closed) — a gate can have both at once, to different fuseboxes. */
+  private drawFuseWires(ctx: CanvasRenderingContext2D, animT: number): void {
+    for (const e of this.entities) {
+      if (e.kind !== "door" && e.kind !== "trapdoor") continue;
+      const openId = e.def.openFuseId ?? e.def.fuseId;
+      if (openId) this.drawFuseWire(ctx, e, openId, "#3ddc84", e.open === true, animT);
+      if (e.def.closeFuseId) this.drawFuseWire(ctx, e, e.def.closeFuseId, "#e0475a", e.open !== true, animT);
+    }
+  }
+
+  private drawFuseWire(
+    ctx: CanvasRenderingContext2D, gate: EntityInstance, fuseId: string,
+    color: string, lit: boolean, animT: number
+  ): void {
+    const fb = this.entities.find((f) => f.kind === "fusebox" && f.def.fuseId === fuseId);
+    if (!fb) return;
+    const ax = gate.x + gate.w / 2, ay = gate.y + gate.h / 2;
+    const bx = fb.x + fb.w / 2, by = fb.y + fb.h / 2;
+    const dx = bx - ax, dy = by - ay;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const sag = Math.min(24, len * 0.18);
+    // Perpendicular offset off the midpoint so it droops like a real wire
+    // instead of cutting a straight rigid line through the room.
+    const cx = (ax + bx) / 2 - (dy / len) * sag;
+    const cy = (ay + by) / 2 + (dx / len) * sag;
+    const pulse = lit ? 0.55 + Math.sin(animT * 3 + gate.index) * 0.25 : 0.18;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = pulse;
+    ctx.lineWidth = lit ? 2 : 1.2;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(cx, cy, bx, by);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   private drawEntity(ctx: CanvasRenderingContext2D, e: EntityInstance, animT: number): void {
     const bob = Math.sin(animT * 2.6 + e.index) * 2;
     switch (e.kind) {
@@ -1412,7 +1468,7 @@ export class RoomRuntime {
         break;
       }
       case "door": {
-        const powered = !!e.def.fuseId;
+        const powered = !!(e.def.openFuseId ?? e.def.fuseId) || !!e.def.closeFuseId;
         const c = e.open ? "#4f8a5e" : powered ? "#8a6f4f" : "#6e5c8a";
         ctx.fillStyle = shade(c, -25);
         ctx.fillRect(e.x - 2, e.y - 2, e.w + 4, e.h + 2);
@@ -1444,7 +1500,7 @@ export class RoomRuntime {
         // A horizontal hatch: two hinged flaps that swing open downward,
         // vs. the door's vertical panel — reads as blocking up/down, not
         // sideways.
-        const powered = !!e.def.fuseId;
+        const powered = !!(e.def.openFuseId ?? e.def.fuseId) || !!e.def.closeFuseId;
         const c = e.open ? "#4f8a5e" : powered ? "#8a6f4f" : "#6e5c8a";
         ctx.fillStyle = shade(c, -25);
         ctx.fillRect(e.x - 2, e.y - 1, e.w + 4, e.h + 3);

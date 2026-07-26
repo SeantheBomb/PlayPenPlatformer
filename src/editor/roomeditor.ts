@@ -738,8 +738,8 @@ export class RoomEditor {
       pickup: { item: firstMaterial, count: 1 },
       note: { text: "A note.", recipe: "" },
       hint: { text: "hint text here" },
-      door: { to: "next", gate: false, fuseId: "" },
-      trapdoor: { to: "next", gate: false, fuseId: "" },
+      door: { to: "next", gate: false, openFuseId: "", closeFuseId: "", startOpen: false },
+      trapdoor: { to: "next", gate: false, openFuseId: "", closeFuseId: "", startOpen: false },
       fusebox: { fuseId: "A" },
       enemy: { enemy: firstEnemy, patrolMinX: tx - 3, patrolMaxX: tx + 3 },
       npc: {
@@ -814,7 +814,14 @@ export class RoomEditor {
       const s = sel as unknown as Record<string, unknown>;
       if (!("to" in s)) s.to = "next";
       if (!("gate" in s)) s.gate = false;
-      if (!("fuseId" in s)) s.fuseId = "";
+      // fuseId is the old single "opens on trip" field — fold it into
+      // openFuseId once, so the inspector only ever shows the current names.
+      if (!("openFuseId" in s)) {
+        s.openFuseId = typeof s.fuseId === "string" ? s.fuseId : "";
+        delete s.fuseId;
+      }
+      if (!("closeFuseId" in s)) s.closeFuseId = "";
+      if (!("startOpen" in s)) s.startOpen = false;
     }
     this.inspectorEl.append(
       el("div", { className: "pp-hint" }, `${sel.type} @ ${sel.x},${sel.y}`),
@@ -996,6 +1003,7 @@ export class RoomEditor {
     // Real runtime preview: same rendering the game uses.
     const emptyMuts = {
       collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
+      gateTouched: new Set<number>(),
       helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), bundles: [],
       placedItems: [], brazierLit: [],
     };

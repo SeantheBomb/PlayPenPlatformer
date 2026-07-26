@@ -13,6 +13,9 @@ export interface RoomMutations {
   collected: Set<number>;     // entity indexes taken (pickups)
   tileOverrides: [number, string | null][]; // tile index -> new tile id ("" -> null)
   openedDoors: Set<number>;   // entity indexes of opened gates / lit checkpoints
+  gateTouched: Set<number>;   // door/trapdoor indexes a fuse has flipped this run
+                              // (open or closed) — lets startOpen fall through
+                              // to openedDoors only once something's overridden it
   helpedNpcs: Set<number>;
   disabledEnemies: Set<number>; // trapped/killed enemies stay gone
   bundles: { x: number; y: number; items: [string, number][] }[]; // death drops
@@ -68,6 +71,7 @@ export class RunState {
         collected: new Set(),
         tileOverrides: [],
         openedDoors: new Set(),
+        gateTouched: new Set(),
         helpedNpcs: new Set(),
         disabledEnemies: new Set(),
         bundles: [],
