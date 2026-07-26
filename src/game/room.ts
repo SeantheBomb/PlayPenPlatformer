@@ -76,6 +76,9 @@ const WATER_FLOW_INTERVAL = 0.5; // seconds between fluid flow ticks
 // Fall-fed fluid spreads with no distance cap — only walls or a drain stop
 // it. Finite (melted/poured) fluid is conserved and never replicates at all.
 const SOURCED = -1;
+// How long a SOURCED body takes to fully recede once a gate closing cuts it
+// off from every fall — staggered by distance from the gate, not instant.
+const RECEDE_MS = 2000;
 
 export class RoomRuntime {
   map: TileMap;
@@ -94,6 +97,10 @@ export class RoomRuntime {
   energized = new Map<number, number>();
   /** tile index -> tiles-from-source (SOURCED = fall-fed, uncapped spread) */
   private waterFlowDist = new Map<number, number>();
+  /** tile index -> simNow() timestamp a cut-off SOURCED tile fully recedes.
+   *  Stops flowing the instant it's cut off (removed from waterFlowDist);
+   *  the tile itself lingers and drains visually until this fires. */
+  private draining = new Map<number, number>();
   /** tile indexes of fall tiles (waterfall/lavafall) that grow + emit fluid */
   private fallTiles = new Set<number>();
   /** tile index -> fluid def flowing THROUGH a grate flush against solid
@@ -895,7 +902,64 @@ export class RoomRuntime {
         this.muts.openedDoors.delete(e.index);
         this.muts.gateTouched.add(e.index);
         events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#e8a2b4" });
+        this.recedeCutOffFluid(e, events);
       }
+    }
+  }
+
+  /**
+   * A closed gate can sever the only path back to whatever fall fed a
+   * SOURCED body through it — that body doesn't just get to stay infinite
+   * forever once nothing feeds it. Re-floods from every live fall through
+   * EXISTING fluid only (a SOURCED tile is, by definition, already fluid —
+   * open air can't be carrying a connection between two fluid bodies, so it
+   * isn't part of this check, unlike the room-load version of this flood
+   * that seeds a fall's own growth). Any SOURCED tile no longer reachable
+   * stops flowing immediately and is scheduled to drain out over
+   * RECEDE_MS, farthest from the closed gate first — so it reads as the
+   * pool shrinking back toward the gate, not blinking out all at once.
+   */
+  private recedeCutOffFluid(closedGate: EntityInstance, events: ElementEvent[]): void {
+    const reachable = new Set<number>(this.fallTiles);
+    const queue = [...this.fallTiles];
+    while (queue.length > 0) {
+      const idx = queue.pop()!;
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      const here = this.map.at(tx, ty);
+      const hereElement = here && this.isFluid(here) ? here.element : undefined;
+      for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
+        if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
+        const nidx = this.map.index(nx, ny);
+        if (reachable.has(nidx) || this.doorBlocksFluid(nx, ny)) continue;
+        const ndef = this.map.at(nx, ny);
+        // A grate (fluid passes through) or matching-element fluid —
+        // anything else (open air, a wall, the opposite element) stops
+        // the flood here; only existing fluid carries a connection.
+        const passable = (ndef?.style === "platform") ||
+          (!!ndef && this.isFluid(ndef) && (!hereElement || ndef.element === hereElement));
+        if (!passable) continue;
+        reachable.add(nidx);
+        queue.push(nidx);
+      }
+    }
+    const now = simNow();
+    const cx = closedGate.x + closedGate.w / 2, cy = closedGate.y + closedGate.h / 2;
+    const cut: { idx: number; d: number }[] = [];
+    let maxDist = 0;
+    for (const [idx, dist] of this.waterFlowDist) {
+      if (dist !== SOURCED || reachable.has(idx) || this.draining.has(idx)) continue;
+      const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      const d = Math.hypot(tx * TILE + TILE / 2 - cx, ty * TILE + TILE / 2 - cy);
+      cut.push({ idx, d });
+      if (d > maxDist) maxDist = d;
+    }
+    for (const { idx, d } of cut) {
+      const ratio = maxDist > 0 ? d / maxDist : 1;
+      this.draining.set(idx, now + RECEDE_MS * (1 - ratio));
+      this.waterFlowDist.delete(idx);
+      const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
     }
   }
 
@@ -1158,6 +1222,14 @@ export class RoomRuntime {
     if (this.waterFlowClock >= WATER_FLOW_INTERVAL) {
       this.waterFlowClock = 0;
       this.tickWaterFlow(events);
+    }
+
+    for (const [idx, at] of [...this.draining]) {
+      if (at > now) continue;
+      this.draining.delete(idx);
+      const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      this.clearFluid(tx, ty);
+      events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
     }
 
     // ---- Enemies ----
