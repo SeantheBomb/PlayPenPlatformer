@@ -16,12 +16,40 @@ export interface SessionData {
   events: SessionEvent[];
 }
 
+export interface IdlePeriod { from: number; to: number; }
+
+/** No key held and no tap/craft/confirm event for at least this many steps
+ *  (3s @ 60fps) counts as an idle stretch — see IdlePeriod below. */
+const IDLE_THRESHOLD_STEPS = 180;
+
+/** Stretches of the recording where the player held no key and produced no
+ *  tap/craft/confirm event for at least IDLE_THRESHOLD_STEPS — derived once
+ *  from the sparse transition log, no re-simulation needed. A lone tap/craft
+ *  mid-gap still breaks the gap (it's a real action), but doesn't itself
+ *  keep anything "held" afterward, so idle resumes immediately after it. */
+export function computeIdlePeriods(events: SessionEvent[], totalSteps: number): IdlePeriod[] {
+  const sorted = [...events].sort((a, b) => a.f - b.f);
+  const periods: IdlePeriod[] = [];
+  let held = 0;
+  let last = 0;
+  for (const ev of sorted) {
+    if (held <= 0 && ev.f - last >= IDLE_THRESHOLD_STEPS) periods.push({ from: last, to: ev.f });
+    if (ev.t === "k") held += ev.d === 1 ? 1 : -1;
+    last = ev.f;
+  }
+  if (held <= 0 && totalSteps - last >= IDLE_THRESHOLD_STEPS) periods.push({ from: last, to: totalSteps });
+  return periods;
+}
+
 export class ReplayDriver {
   game: Game;
   step = 0;              // sim steps executed so far
   playing = false;
   speed = 1;
   readonly totalSteps: number;
+  /** Idle stretches — see computeIdlePeriods. Drawn as timeline bands and
+   *  used by the "skip idle" button in the sessions editor tab. */
+  readonly idlePeriods: IdlePeriod[];
   private eventsByStep = new Map<number, SessionEvent[]>();
   private acc = 0;
   private lastFrame = 0;
@@ -41,7 +69,13 @@ export class ReplayDriver {
       if (list) list.push(ev);
       else this.eventsByStep.set(ev.f, [ev]);
     }
+    this.idlePeriods = computeIdlePeriods(session.events, this.totalSteps);
     this.game = this.buildGame();
+  }
+
+  /** The idle period containing `step`, if any — null when actively playing. */
+  idlePeriodAt(step: number): IdlePeriod | null {
+    return this.idlePeriods.find((p) => step >= p.from && step < p.to) ?? null;
   }
 
   private buildGame(): Game {

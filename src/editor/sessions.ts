@@ -233,8 +233,55 @@ export function renderSessionsTab(
     const roomEl = el("span", { className: "pp-hint" }, "");
     const keysEl = el("span", { className: "pp-hint", style: "font-family:monospace" }, "");
     const driftEl = el("span", { className: "pp-hint" }, "");
-    const seek = el("input", { type: "range", min: 0, max: 1000, value: 0 });
-    seek.style.flex = "1";
+
+    // Canvas timeline: colored idle/active bands + playhead, click/drag to
+    // seek. Canvas (not a plain range input) so bug-report milestones can
+    // draw and hover on the same surface later.
+    const timeline = el("canvas", { width: 640, height: 22 }) as HTMLCanvasElement;
+    timeline.style.width = "100%";
+    timeline.style.height = "22px";
+    timeline.style.cursor = "pointer";
+    timeline.style.borderRadius = "4px";
+    timeline.style.flex = "1";
+    let draggingSeek = false;
+    const stepFromEvent = (e: PointerEvent): number => {
+      const rect = timeline.getBoundingClientRect();
+      const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      return Math.round(t * (driver?.totalSteps ?? 1));
+    };
+    timeline.addEventListener("pointerdown", (e) => {
+      draggingSeek = true;
+      if (driver) driver.seek(stepFromEvent(e));
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (draggingSeek && driver) driver.seek(stepFromEvent(e));
+    });
+    window.addEventListener("pointerup", () => { draggingSeek = false; });
+
+    function drawTimeline(): void {
+      if (!driver) return;
+      const tctx = timeline.getContext("2d")!;
+      const w = timeline.width, h = timeline.height;
+      tctx.clearRect(0, 0, w, h);
+      tctx.fillStyle = "#221d30";
+      tctx.fillRect(0, 0, w, h);
+      tctx.fillStyle = "#3a3350";
+      for (const p of driver.idlePeriods) {
+        const x0 = (p.from / driver.totalSteps) * w;
+        const x1 = (p.to / driver.totalSteps) * w;
+        tctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
+      }
+      const px = (driver.step / driver.totalSteps) * w;
+      tctx.fillStyle = "#e8e2f4";
+      tctx.fillRect(Math.max(0, px - 1), 0, 2, h);
+    }
+
+    const skipIdleBtn = el("button", { className: "pp-btn", style: "display:none" }, "⏭ skip idle");
+    skipIdleBtn.onclick = () => {
+      if (!driver) return;
+      const p = driver.idlePeriodAt(driver.step);
+      if (p) driver.seek(p.to);
+    };
 
     const playBtn = el("button", { className: "pp-btn" }, "⏸");
     playBtn.onclick = () => {
@@ -248,10 +295,6 @@ export function renderSessionsTab(
       speed = speed === 1 ? 2 : speed === 2 ? 4 : 1;
       speedBtn.textContent = `${speed}x`;
       if (driver) driver.speed = speed;
-    };
-    seek.oninput = () => {
-      if (!driver) return;
-      driver.seek(Math.round((Number(seek.value) / 1000) * driver.totalSteps));
     };
 
     const closeModal = () => {
@@ -268,10 +311,10 @@ export function renderSessionsTab(
         ),
         canvas,
         el("div", { style: "display:flex;gap:8px;align-items:center;margin-top:8px" },
-          playBtn, speedBtn, seek, timeEl
+          playBtn, speedBtn, timeline, timeEl
         ),
         el("div", { style: "display:flex;gap:14px;align-items:center;margin-top:6px" },
-          roomEl, keysEl, driftEl,
+          roomEl, keysEl, driftEl, skipIdleBtn,
           queue.length > 1 ? nextBtn : el("span", {})
         )
       )
@@ -305,11 +348,12 @@ export function renderSessionsTab(
       driver.speed = speed;
       driver.onFrame = () => {
         const d = driver!;
-        seek.value = String(Math.round((d.step / d.totalSteps) * 1000));
+        drawTimeline();
         const secs = Math.floor(d.step / 60);
         timeEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} / ${fmtDur(d.totalSteps)}`;
         roomEl.textContent = `room: ${d.game.currentRoomId}`;
         keysEl.textContent = d.game.input.heldCodes().join(" ") || "·";
+        skipIdleBtn.style.display = d.idlePeriodAt(d.step) ? "" : "none";
         if (segEnd !== null && d.step >= segEnd) {
           d.pause();
           playBtn.textContent = "▶";
