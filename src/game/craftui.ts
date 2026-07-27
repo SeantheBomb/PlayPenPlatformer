@@ -17,7 +17,7 @@ import type { Input } from "../engine/input";
 import { drawItemIcon, roundRect } from "../engine/renderer";
 import { sfx } from "../engine/audio";
 import type { RunState } from "./state";
-import { tryCraft, tryDismantle, type CraftResult } from "./crafting";
+import { findRecipe, tryCraft, tryDismantle, type CraftResult } from "./crafting";
 
 // Classic logical design (mapped by view scale on desktop).
 const COLS = 5;
@@ -547,6 +547,26 @@ export class CraftUI {
     ctx.font = `bold ${L.f.label}px monospace`;
     ctx.fillText("MATERIALS", L.gridX, L.gridY - L.f.label * 0.6);
 
+    // "Craftable now": every material that has SOME partner already sitting
+    // in the grid, so a player can tell at a glance what's actually ready
+    // to combine instead of only finding out mid-pick (or by trial and
+    // error). Ambient — separate from the mid-pick target pulse below.
+    const readyIds = new Set<string>();
+    if (!combining) {
+      for (let i = 0; i < mats.length; i++) {
+        // Two of the same material, when a recipe calls for a pair of it.
+        if (mats[i].count >= 2 && findRecipe(this.content, mats[i].item.id, mats[i].item.id)) {
+          readyIds.add(mats[i].item.id);
+        }
+        for (let j = i + 1; j < mats.length; j++) {
+          if (findRecipe(this.content, mats[i].item.id, mats[j].item.id)) {
+            readyIds.add(mats[i].item.id);
+            readyIds.add(mats[j].item.id);
+          }
+        }
+      }
+    }
+
     const total = COLS * 3;
     for (let i = 0; i < total; i++) {
       const col = i % L.cols;
@@ -557,8 +577,14 @@ export class CraftUI {
       const isCursor = i === this.cursor && mats.length > 0;
       const isPicked = i === this.firstPick;
       const isDragging = i === this.dragIdx;
-      // A valid combine target while you're mid-pick / mid-drag.
-      const isTarget = combining && slot != null && !isPicked && !isDragging;
+      // A combine target while mid-pick/mid-drag — only highlighted when
+      // it'd actually produce something. Every filled slot used to light
+      // up identically regardless of whether the pair had a real recipe,
+      // which taught nothing about what's actually craftable right now.
+      const pickedId = this.firstPick !== null ? mats[this.firstPick]?.item.id
+        : this.dragIdx !== null ? mats[this.dragIdx]?.item.id : undefined;
+      const isTarget = combining && slot != null && !isPicked && !isDragging &&
+        pickedId !== undefined && !!findRecipe(this.content, pickedId, slot.item.id);
 
       ctx.fillStyle = isPicked ? "#3d3556" : "#252134";
       roundRect(ctx, sx, sy, L.slot, L.slot, L.slot * 0.15);
@@ -574,6 +600,13 @@ export class CraftUI {
         const pulse = 0.4 + 0.3 * Math.sin(this.now / 180);
         ctx.strokeStyle = `rgba(127,216,232,${pulse})`;
         ctx.lineWidth = Math.max(1.5, L.icon * 1.5);
+        roundRect(ctx, sx, sy, L.slot, L.slot, L.slot * 0.15);
+        ctx.stroke();
+      } else if (slot && readyIds.has(slot.item.id)) {
+        // Ambient "this has a partner in the grid right now" glow — visible
+        // before the player even picks anything, not just mid-combine.
+        ctx.strokeStyle = "rgba(155,232,176,0.55)";
+        ctx.lineWidth = Math.max(1, L.icon);
         roundRect(ctx, sx, sy, L.slot, L.slot, L.slot * 0.15);
         ctx.stroke();
       }
@@ -612,7 +645,7 @@ export class CraftUI {
     const equip = this.equipment(state);
     ctx.fillStyle = "#7fd8e8";
     ctx.font = `bold ${L.f.label}px monospace`;
-    ctx.fillText("EQUIPMENT (tap one to inspect)", L.equipX, L.equipY - L.f.label * 0.6);
+    ctx.fillText("EQUIPMENT (tap one to break it back apart)", L.equipX, L.equipY - L.f.label * 0.6);
     if (equip.length === 0) {
       ctx.fillStyle = "#5a5470";
       ctx.font = `${L.f.body}px monospace`;
@@ -640,20 +673,28 @@ export class CraftUI {
         ctx.fillText("x" + slot.count, sx + L.equipSlot * 0.5, L.equipY + L.equipSlot - L.equipSlot * 0.1);
       }
     });
-    // "Break apart" — undo a craft to reclaim its ingredients
-    if (this.selectedEquip) {
+    // "Break apart" — undo a craft to reclaim its ingredients. Always
+    // visible (not just once something's selected) — crafted the wrong
+    // thing and not realizing this exists is exactly what stranded a
+    // tester in playtest notes ("craft wrong things, not know how to
+    // break apart"). Dimmed with a hint until an item is actually picked.
+    if (equip.length > 0) {
       const d = L.dismantle;
-      ctx.fillStyle = "#4a2432";
+      const active = !!this.selectedEquip;
+      ctx.fillStyle = active ? "#4a2432" : "#241a20";
       roundRect(ctx, d.x, d.y, d.w, d.h, d.h * 0.25);
       ctx.fill();
-      ctx.strokeStyle = "#7a3e50";
+      ctx.strokeStyle = active ? "#7a3e50" : "#4a3038";
       ctx.lineWidth = Math.max(1, L.icon);
       roundRect(ctx, d.x, d.y, d.w, d.h, d.h * 0.25);
       ctx.stroke();
-      ctx.fillStyle = "#e8a2b4";
+      ctx.fillStyle = active ? "#e8a2b4" : "#7a6672";
       ctx.font = `bold ${L.f.body}px monospace`;
       ctx.textBaseline = "middle";
-      ctx.fillText("⟲ break apart", d.x + d.h * 0.4, d.y + d.h / 2);
+      ctx.fillText(
+        active ? "⟲ break apart" : "⟲ select an item above first",
+        d.x + d.h * 0.4, d.y + d.h / 2
+      );
       ctx.textBaseline = "alphabetic";
     }
   }
