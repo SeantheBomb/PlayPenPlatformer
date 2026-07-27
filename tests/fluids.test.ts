@@ -465,4 +465,39 @@ describe("a drain fully empties a flat, non-fall-fed lake via the grab-chain", (
     const after = countWater();
     expect(before - after).toBe(1);
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, 2026-07-27): the boiler room's actual layout — a tank,
+  // an open trapdoor breaking into a wide room below, one narrow drain in
+  // that room's floor. The first grab-chain (which tried vertical neighbors
+  // too) filled this room partway and then plateaued forever: the tile
+  // touching the drain and the tile directly above it just swapped back and
+  // forth every tick, net zero progress, because case 3 ("column pressure
+  // squeeze") already defers "the column above falls next tick" by design —
+  // grabbing vertically raced that and undid it every single tick. Fixed by
+  // making the grab horizontal-only (falling stays case 1's job, unconditional
+  // every tick, no grab needed).
+  // -------------------------------------------------------------------------
+  it("a tank feeding a wide room through an open trapdoor fully drains, not just partway", () => {
+    const rows = [
+      "#################",
+      "#wwwwwwwwwwwwwww#", // tank
+      "#################", // sealed ceiling (trapdoor breaks x=8)
+      "#...............#", // wide room, 3 tall
+      "#...............#",
+      "#...............#",
+      "#########D#######", // floor, one drain at x=9
+      "#################",
+    ];
+    const trapdoor: RoomEntity = { type: "trapdoor", x: 8, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trapdoor]);
+    const inst = rt.entities.find((e) => e.kind === "trapdoor")!;
+    inst.open = true;
+    tick(rt, 40); // 20 simulated seconds
+    for (let y = 3; y <= 5; y++) {
+      for (let x = 1; x <= 15; x++) {
+        expect(fluidAt(rt, x, y, "water"), `expected (${x},${y}) to have drained`).toBe(false);
+      }
+    }
+  });
 });

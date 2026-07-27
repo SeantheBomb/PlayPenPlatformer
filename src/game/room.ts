@@ -443,17 +443,27 @@ export class RoomRuntime {
 
   /**
    * A fluid tile just left (tx,ty) empty — whether it moved elsewhere or was
-   * eaten by a drain. Rather than leave a hole, grab ONE orthogonal neighbor
-   * (up/down/left/right, in that fixed order) that still has fluid and pull
-   * it in to take the vacated spot. That neighbor's own old cell is now
-   * empty too, so this chains outward the same way — Sean's rule: "if a
-   * water block moves, it should grab at least one neighbor to take its
-   * place," applied uniformly wherever fluid disappears from a cell (drain
-   * absorption included), which is what lets a whole connected flat body
-   * (not just a tiered/sourced one) actually empty into a drain instead of
-   * losing only the one tile touching it. `visited` stops a chain from
-   * doubling back on itself in a loop; conservation (never duplicates) is
-   * automatic since each step is a MOVE, not a copy.
+   * eaten by a drain. Rather than leave a hole, grab ONE horizontal neighbor
+   * (left, then right) that still has fluid and pull it in to take the
+   * vacated spot. That neighbor's own old cell is now empty too, so this
+   * chains outward the same way — Sean's rule: "if a water block moves, it
+   * should grab at least one neighbor to take its place," applied uniformly
+   * wherever fluid disappears from a cell (drain absorption included),
+   * which is what lets a whole connected flat body (not just a
+   * tiered/sourced one) actually empty into a drain instead of losing only
+   * the one tile touching it. `visited` stops a chain from doubling back on
+   * itself in a loop; conservation (never duplicates) is automatic since
+   * each step is a MOVE, not a copy.
+   *
+   * Deliberately horizontal-only — no up/down. Vertical movement is already
+   * handled unconditionally, every tick, by case 1 (fall) for every
+   * registered tile, and case 3 explicitly defers "the column above falls
+   * into the vacated space" to the *next* tick, by design. Grabbing
+   * vertically here would race that same-tick and immediately undo it —
+   * confirmed by a repro (a fall feeding a wide room through a narrow neck):
+   * with vertical grabbing included, the tile touching the drain and the
+   * tile above it swapped back and forth every tick, netting zero progress
+   * forever, well before the room ever ran dry.
    *
    * `grab` is false for a SOURCED tile's own routine fall/slide — that body
    * already has its own unconditional "replicate outward, no cap" mechanic
@@ -469,7 +479,7 @@ export class RoomRuntime {
     this.waterFlowDist.delete(idx);
     if (!grab) return;
     visited.add(idx);
-    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]] as const;
+    const dirs = [[-1, 0], [1, 0]] as const;
     for (const [dx, dy] of dirs) {
       const nx = tx + dx, ny = ty + dy;
       if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
