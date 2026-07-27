@@ -541,4 +541,42 @@ describe("a drain fully empties a flat, non-fall-fed lake via the grab-chain", (
     const after = countAll();
     expect(before - after).toBeGreaterThanOrEqual(26);
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, 2026-07-27): "I just want it to drain evenly." A wide,
+  // perfectly uniform tank (identical depth in every column, no fall, all
+  // finite) still didn't drain evenly — the leftmost column consistently
+  // emptied first and the rightmost consistently lagged ~40-60s behind in
+  // real testing, purely from "which side to check first" always being
+  // tried left-before-right (in the lateral-move neighbor checks AND in the
+  // main loop's intra-row processing order) — a fixed tie-break compounds
+  // into a strong one-directional sweep over hundreds of ticks. Fixed by
+  // alternating both tie-breaks on flowSideFlip, which flips every tick.
+  // Signature of the bug: at a fixed tick count, column depth increases
+  // almost monotonically left-to-right (most adjacent pairs "increasing").
+  // -------------------------------------------------------------------------
+  it("a uniform wide tank does not drain as a one-directional left-to-right sweep", () => {
+    const width = 14;
+    const rows: string[] = [];
+    rows.push("#".repeat(width));
+    for (let i = 0; i < 20; i++) rows.push("#" + "w".repeat(12) + "#");
+    rows.push("#" + ".".repeat(12) + "#"); // open shaft
+    rows.push("#" + "D".repeat(12) + "#"); // full-width drain
+    rows.push("#".repeat(width));
+    const rt = makeRoom(rows);
+    const colDepth = (x: number) => {
+      let n = 0;
+      for (let y = 1; y <= 20; y++) if (fluidAt(rt, x, y, "water")) n++;
+      return n;
+    };
+    tick(rt, 40); // 20 simulated seconds
+    const depths = Array.from({ length: 12 }, (_, i) => colDepth(1 + i));
+    let increasing = 0;
+    for (let i = 0; i < depths.length - 1; i++) {
+      if (depths[i] < depths[i + 1]) increasing++;
+    }
+    // The old left-first bias produced a near-monotonic ramp (9 of 11
+    // adjacent steps increasing in a real run); the fix breaks that pattern.
+    expect(increasing, `column depths were ${depths.join(",")}`).toBeLessThanOrEqual(6);
+  });
 });

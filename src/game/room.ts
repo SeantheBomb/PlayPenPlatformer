@@ -112,6 +112,15 @@ export class RoomRuntime {
   private waterFlowEnabled: boolean;
   private spreadClock = 0;
   private waterFlowClock = 0;
+  /** Flips every flow tick. Every "which side first" neighbor check below
+   *  alternates on this instead of always trying left first — a fixed
+   *  left-first order compounds over hundreds of ticks into a strong,
+   *  visible drift (a wide tank observed draining leftmost-column-first,
+   *  rightmost-column-last, ~40s apart, despite every column starting with
+   *  identical depth and no fall feeding any of them — confirmed by a clean
+   *  synthetic repro). Alternating cancels the bias out over time instead of
+   *  compounding it in one direction. */
+  private flowSideFlip = false;
   private tilesById = new Map<string, TileDef>();
   /** Seeded (not Math.random) so scatter-drop launch velocity replays
    *  deterministically, same as taunts. */
@@ -479,7 +488,7 @@ export class RoomRuntime {
     this.waterFlowDist.delete(idx);
     if (!grab) return;
     visited.add(idx);
-    const dirs = [[-1, 0], [1, 0]] as const;
+    const dirs = this.flowSideFlip ? [[1, 0], [-1, 0]] as const : [[-1, 0], [1, 0]] as const;
     for (const [dx, dy] of dirs) {
       const nx = tx + dx, ny = ty + dy;
       if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
@@ -712,8 +721,14 @@ export class RoomRuntime {
    * Water and lava meeting quenches the lava into its extinguishesTo
    * (cracked stone) — the water survives.
    */
+  /** [tx-1, tx+1] or [tx+1, tx-1], alternating per tick — see flowSideFlip. */
+  private sideXs(tx: number): [number, number] {
+    return this.flowSideFlip ? [tx + 1, tx - 1] : [tx - 1, tx + 1];
+  }
+
   private tickWaterFlow(events: ElementEvent[]): void {
     if (!this.waterFlowEnabled) return;
+    this.flowSideFlip = !this.flowSideFlip;
     this.tickFalls(events);
 
     // Pre-pass: drains eat every adjacent fluid tile BEFORE anything moves,
@@ -756,7 +771,22 @@ export class RoomRuntime {
     //      fluid only MOVES toward an adjacent hole (fully conserved)
     // Net effect: fluid never widens until it has fully fallen downward,
     // and a finite body slushes downhill as a body — it never multiplies.
-    const sorted = [...this.waterFlowDist].sort((a, b) => b[0] - a[0]);
+    //
+    // Row order (descending y) must stay fixed — that's what makes a column
+    // funnel downward in a single pass. But the intra-row tie-break (which
+    // column within the same row gets processed, and so gets first pick of
+    // an open neighbor, before the others) also alternates with
+    // flowSideFlip: leaving it fixed (always descending x) reintroduced the
+    // same left/right drain-rate bias as the neighbor-check order, just from
+    // a different source — whichever side processes first also gets to move
+    // first, tick after tick, in the same direction.
+    const width = this.map.width;
+    const sorted = [...this.waterFlowDist].sort((a, b) => {
+      const ay = Math.floor(a[0] / width), by = Math.floor(b[0] / width);
+      if (ay !== by) return by - ay;
+      const ax = a[0] % width, bx = b[0] % width;
+      return this.flowSideFlip ? ax - bx : bx - ax;
+    });
     for (const [idx, distance] of sorted) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
@@ -819,7 +849,7 @@ export class RoomRuntime {
         const columnGrounded = belowBelowInfo.ty >= this.map.height ||
           (belowBelowInfo.solid && !(belowBelowInfo.def && this.isFluid(belowBelowInfo.def)));
         if (columnGrounded) {
-          for (const nx of [tx - 1, tx + 1]) {
+          for (const nx of this.sideXs(tx)) {
             if (nx < 0 || nx >= this.map.width) continue;
             const target = this.fluidOccupied(nx, ty);
             if (target.solid) continue;
@@ -838,7 +868,7 @@ export class RoomRuntime {
       if (hasFluidAbove) {
         // 3. Column pressure: the base squeezes out sideways (a move), the
         // column above falls into the vacated space next tick.
-        for (const nx of [tx - 1, tx + 1]) {
+        for (const nx of this.sideXs(tx)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty);
           if (target.solid) continue;
@@ -851,7 +881,7 @@ export class RoomRuntime {
       if (distance === SOURCED) {
         // Fall-fed fluid IS an infinite source — it replicates outward until
         // walls or a drain stop it.
-        for (const nx of [tx - 1, tx + 1]) {
+        for (const nx of this.sideXs(tx)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty);
           if (target.solid) continue;
@@ -867,7 +897,7 @@ export class RoomRuntime {
       // It only moves toward an adjacent hole it can fall into, so when a
       // neighboring tile drops away the grounded body follows it down: the
       // whole thing slushes downhill instead of becoming an infinite source.
-      for (const nx of [tx - 1, tx + 1]) {
+      for (const nx of this.sideXs(tx)) {
         if (nx < 0 || nx >= this.map.width) continue;
         const target = this.fluidOccupied(nx, ty);
         if (target.solid) continue;
@@ -940,7 +970,7 @@ export class RoomRuntime {
       // the pool by emitting into open side tiles, one row above the solid
       // (which may be several rows below the fall if grates were skipped).
       const baseTy = belowTy - 1;
-      for (const nx of [tx - 1, tx + 1]) {
+      for (const nx of this.sideXs(tx)) {
         if (nx < 0 || nx >= this.map.width) continue;
         // baseTy itself may be a grate spanning the whole walkway (flush over
         // the real floor, no gap) — resolve through it same as falling does,
