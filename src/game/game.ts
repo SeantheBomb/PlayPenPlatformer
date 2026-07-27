@@ -1465,6 +1465,7 @@ export class Game {
           ...this.roomRt.applyElementToBraziers(item.element, box),
         ];
         this.handleElementEvents(events);
+        if (events.length === 0) sfx.play("craftFail"); // nothing in reach reacted
         if (item.kind === "consumable" && events.length > 0) {
           this.state.remove(item.id); // frost vial spends itself on a real effect
         }
@@ -1492,6 +1493,7 @@ export class Game {
           count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
         });
         this.handleElementEvents(events);
+        if (events.length === 0) sfx.play("craftFail"); // nothing in reach reacted
         if (item.emptiesTo) this.state.transform(item.id, item.emptiesTo);
         break;
       }
