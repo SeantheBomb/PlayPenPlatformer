@@ -111,6 +111,13 @@ export class RoomRuntime {
   private grateFluid = new Map<number, TileDef>();
   private waterFlowEnabled: boolean;
   private spreadClock = 0;
+  /** Tile indices a lava-caused melt vacated last spread tick — radiate
+   *  lava's heat for exactly one more tick so a consecutive run of metal
+   *  (or ice) chain-melts tile by tile, the same way an actively burning
+   *  tile keeps igniting its own neighbors each tick. Melting is otherwise
+   *  instantaneous with no equivalent "still hot" phase, so without this
+   *  only the ONE tile directly touching the lava would ever melt. */
+  private meltedHot = new Set<number>();
   private waterFlowClock = 0;
   /** Flips every flow tick. Every "which side first" neighbor check below
    *  alternates on this instead of always trying left first — a fixed
@@ -1470,6 +1477,13 @@ export class RoomRuntime {
           igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE), "fire"]);
         }
       }
+      // Cells a lava melt vacated last tick radiate lava's heat once more —
+      // see meltedHot above. Single-shot: swap to a fresh set each tick so
+      // it's exactly one more ring, not a permanent hot spot.
+      for (const idx of this.meltedHot) {
+        igniters.push([idx % this.map.width, Math.floor(idx / this.map.width), "lava"]);
+      }
+      this.meltedHot = new Set();
       // Neighbors get the source's full ruleset — flammables ignite, ice
       // melts. (A lit goo line can melt a distant ice wall.)
       for (const [tx, ty, elem] of igniters) {
@@ -1484,6 +1498,7 @@ export class RoomRuntime {
           if (rule?.effect === "melt" && ndef.meltsTo !== undefined) {
             this.transformTile(nx, ny, ndef.meltsTo);
             events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: elem });
+            if (elem === "lava") this.meltedHot.add(this.map.index(nx, ny));
           }
         }
       }
