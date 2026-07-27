@@ -1298,9 +1298,11 @@ export class RoomRuntime {
     this.muts.placedItems = this.muts.placedItems.filter((p) => p !== inst.data);
   }
 
-  placedSpringNear(px: number, py: number, range = 20): PlacedInstance | null {
+  /** Any placed item (spring OR trap) within range — reclaimable with E,
+   *  same as a spring always has been. A placed item you can't take back
+   *  is a softlock waiting to happen if the level needs it moved. */
+  placedItemNear(px: number, py: number, range = 20): PlacedInstance | null {
     for (const p of this.placed) {
-      if (p.data.type !== "spring") continue;
       if (dist(px, py, p.x + p.w / 2, p.y + p.h / 2) <= range) return p;
     }
     return null;

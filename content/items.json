@@ -190,7 +190,7 @@
     "element": "goo",
     "useMode": "place",
     "placeType": "trap",
-    "description": "Place it down. Creatures that touch it are done having a good time."
+    "description": "Place it down (F). Creatures that touch it are done having a good time. E picks it back up."
   },
   {
     "id": "warden_plush",

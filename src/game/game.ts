@@ -1085,7 +1085,7 @@ export class Game {
       };
       return { kind: "interact", label: verbs[near.kind] ?? "use" };
     }
-    if (this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY)) {
+    if (this.roomRt.placedItemNear(this.player.centerX, this.player.centerY)) {
       return { kind: "interact", label: "take" };
     }
     const items = this.state.usableItems();
@@ -1108,15 +1108,22 @@ export class Game {
     }
     const e = this.roomRt.interactableNear(this.player.centerX, this.player.centerY);
     if (!e) {
-      // Reclaim a placed spring
-      const spring = this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY);
-      if (spring) {
-        this.roomRt.removePlaced(spring);
-        this.state.add("spring");
-        this.state.bump("springReclaims");
-        this.checkAchievements("counter");
-        sfx.play("pickup");
-        this.floaty("+1 Spring", spring.x + spring.w / 2, spring.y);
+      // Reclaim a placed item (spring or trap) — always reclaimable, so a
+      // placed item never strands a run just because the level needs it
+      // picked up and moved elsewhere.
+      const placed = this.roomRt.placedItemNear(this.player.centerX, this.player.centerY);
+      if (placed) {
+        const item = this.content.items.find((i) => i.placeType === placed.data.type);
+        this.roomRt.removePlaced(placed);
+        if (item) {
+          this.state.add(item.id);
+          if (item.id === "spring") {
+            this.state.bump("springReclaims");
+            this.checkAchievements("counter");
+          }
+          sfx.play("pickup");
+          this.floaty(`+1 ${item.name}`, placed.x + placed.w / 2, placed.y);
+        }
       }
       return;
     }
@@ -1713,9 +1720,10 @@ export class Game {
           };
           drawPrompt(ctx, `${iKey} — ${verbs[near.kind] ?? "use"}`, near.x + near.w / 2, near.y - 6);
         } else {
-          const spring = this.roomRt.placedSpringNear(this.player.centerX, this.player.centerY);
-          if (spring) {
-            drawPrompt(ctx, `${iKey} — take spring`, spring.x + spring.w / 2, spring.y - 10);
+          const placed = this.roomRt.placedItemNear(this.player.centerX, this.player.centerY);
+          if (placed) {
+            const item = this.content.items.find((i) => i.placeType === placed.data.type);
+            drawPrompt(ctx, `${iKey} — take ${item?.name ?? placed.data.type}`, placed.x + placed.w / 2, placed.y - 10);
           }
         }
       }
