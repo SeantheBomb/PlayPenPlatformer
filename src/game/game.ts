@@ -663,6 +663,7 @@ export class Game {
     if (this.input.craftPressed) {
       this.craftUI.show();
       this.overlay = "craft";
+      this.state.hasOpenedCraftUI = true;
       return;
     }
 
@@ -1379,6 +1380,17 @@ export class Game {
     }
   }
 
+  /** At least two distinct materials on hand, or one useful pickup —
+   *  enough that opening the craft screen would actually show something. */
+  private hasEnoughToCraftPrompt(): boolean {
+    let distinctMaterials = 0;
+    for (const [id, n] of this.state.inventory) {
+      if (n <= 0) continue;
+      if (this.state.item(id)?.kind === "material") distinctMaterials++;
+    }
+    return distinctMaterials >= 2;
+  }
+
   private swingBox(): { x: number; y: number; w: number; h: number } {
     const p = this.player;
     const front = p.facing >= 0 ? p.x + p.w : p.x;
@@ -1724,6 +1736,11 @@ export class Game {
           if (placed) {
             const item = this.content.items.find((i) => i.placeType === placed.data.type);
             drawPrompt(ctx, `${iKey} — take ${item?.name ?? placed.data.type}`, placed.x + placed.w / 2, placed.y - 10);
+          } else if (!this.state.hasOpenedCraftUI && this.hasEnoughToCraftPrompt()) {
+            // Nobody's told the player Tab exists yet, and they've now got
+            // something to actually do with it — nudge until they open it
+            // once. Two testers never found the craft screen on their own.
+            drawPrompt(ctx, `${this.input.label("craft")} — check what you're carrying`, this.player.centerX, this.player.y - 26);
           }
         }
       }

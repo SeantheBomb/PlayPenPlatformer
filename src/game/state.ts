@@ -54,6 +54,10 @@ export class RunState {
   roomStates = new Map<string, RoomMutations>();
   selectedConsumable = 0;
   hasDiedOnce = false;
+  /** Has the player ever opened the craft/inventory screen (Tab) this run?
+   *  Drives a persistent on-screen nudge until they do — two testers didn't
+   *  know the key existed at all. */
+  hasOpenedCraftUI = false;
   counters = new Map<string, number>();      // achievement counters
   earned = new Set<string>();                // achievement ids earned this run
   readNotes = new Set<string>();             // "roomId:entityIndex" of notes read
