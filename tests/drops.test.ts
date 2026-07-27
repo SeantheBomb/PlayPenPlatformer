@@ -94,3 +94,45 @@ describe("scattered drops fall and settle onto solid ground", () => {
     expect(rt2.drops[0].vy).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, playtest 2026-07-26, Des + Meredith: "materials fall
+// in lava can't be reached" / "item stuck between block and fire, lost &
+// found"): a dropped item must never come to rest inside a damaging tile —
+// lava/fire aren't solid, so gravity alone would let one sink straight
+// through and settle unreachable beneath the surface.
+// ---------------------------------------------------------------------------
+describe("scattered drops are repelled out of lava/fire instead of sinking in", () => {
+  it("never sinks through a deep lava pool to settle buried beneath it", () => {
+    // A wide, 3-tile-deep lava pool (cols 0-6) with a small safe gap at the
+    // far edge (cols 7-8) — real floor only underneath. Lava isn't solid,
+    // so without a repel an item launched over the middle of the pool just
+    // free-falls straight through to the bottom, ending up trapped under
+    // three tiles of lava; launch drift alone can't reach the safe gap from
+    // the middle, so only repeated repel-bounces (each with a fresh random
+    // kick) can walk it there.
+    const room: RoomDef = {
+      id: "test3", name: "test3", width: 9, height: 6,
+      background: "#000",
+      tiles: [
+        ".........",
+        ".........",
+        "LLLLLLL..",
+        "LLLLLLL..",
+        "LLLLLLL..",
+        "#########",
+      ],
+      entities: [],
+    } as RoomDef;
+    const muts = makeMuts();
+    const rt = new RoomRuntime(room, makeContent(), muts, new Set(), 3);
+    rt.scatterItems(3 * 16 + 8, 8, [["scrap_metal", 1]]);
+    const d = rt.drops[0];
+    for (let i = 0; i < 600; i++) rt.update(1 / 60, null, 0, () => {});
+    expect(d.settled).toBe(true);
+    const tx = Math.floor((d.x + d.w / 2) / 16);
+    const ty = Math.floor((d.y + d.h / 2) / 16);
+    expect(rt.map.at(tx, ty)?.damage).toBeFalsy(); // not resting in the hazard itself
+    expect(rt.map.at(tx, ty - 1)?.damage).toBeFalsy(); // and nothing damaging sits right above it
+  });
+});

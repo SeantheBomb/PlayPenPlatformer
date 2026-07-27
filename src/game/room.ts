@@ -1628,6 +1628,19 @@ export class RoomRuntime {
       d.vy = Math.min(d.vy + 900 * dt, 520);
       const res = this.map.move(d.x, d.y, d.w, d.h, d.vx, d.vy, dt);
       d.x = res.x; d.y = res.y; d.vy = res.vy; d.vx = res.vx;
+      // Never let a dropped item come to rest in (or sink into) a damaging
+      // tile — lava/fire aren't solid, so gravity alone would happily let
+      // an item fall straight through and settle unreachable beneath the
+      // surface. Bounce it back out instead, same spirit as the player's
+      // own knockback off a hazard.
+      const hereDef = this.map.at(
+        Math.floor((d.x + d.w / 2) / TILE), Math.floor((d.y + d.h / 2) / TILE)
+      );
+      if (hereDef?.damage) {
+        d.vy = -260;
+        d.vx = (this.rng.next() - 0.5) * 240;
+        continue;
+      }
       if (res.onGround) {
         d.vx *= Math.pow(0.0004, dt);
         if (Math.abs(d.vx) < 3) {
