@@ -1384,17 +1384,27 @@ export class RoomRuntime {
     const d = en.def;
     const aheadX = want > 0 ? en.x + d.width + 3 : en.x - 3;
     const footY = en.y + d.height;
+    const aheadTx = Math.floor(aheadX / TILE);
+    // A real wall directly ahead blocks regardless of element — checked
+    // proactively here (not just reactively via hitWall) so patrol's
+    // "try the other direction" fallback can actually trust the answer
+    // instead of committing to a direction that's just as blocked, which
+    // — combined with the water-refusal check below — used to flip an
+    // enemy's facing back and forth every frame with zero progress
+    // whenever both patrol directions were blocked (reads as "frozen").
+    const tyBody0 = Math.floor(en.y / TILE);
+    const tyBody1 = Math.floor((footY - 1) / TILE);
+    for (let ty = tyBody0; ty <= tyBody1; ty++) {
+      if (this.map.at(aheadTx, ty)?.solid) return false;
+    }
     // Metal creatures refuse water — pools are a safe zone.
     if (d.element === "metal") {
-      const tile = this.map.at(Math.floor(aheadX / TILE), Math.floor((footY - 4) / TILE));
+      const tile = this.map.at(aheadTx, Math.floor((footY - 4) / TILE));
       if (tile?.element === "water") return false;
     }
     // No drops it can't climb back out of (max 1 tile down).
     for (let step = 0; step < 2; step++) {
-      const def = this.map.at(
-        Math.floor(aheadX / TILE),
-        Math.floor((footY + 4 + step * TILE) / TILE)
-      );
+      const def = this.map.at(aheadTx, Math.floor((footY + 4 + step * TILE) / TILE));
       if (def?.solid) return true;
     }
     return false;
@@ -1570,7 +1580,16 @@ export class RoomRuntime {
         want = en.facing;
         if (cx <= en.patrolMin) want = 1;
         else if (cx >= en.patrolMax) want = -1;
-        if (!this.canStepAhead(en, want)) want = -en.facing;
+        if (!this.canStepAhead(en, want)) {
+          // Blocked ahead (a wall, or water a metal enemy refuses) — try
+          // the other direction, but only commit if THAT one is actually
+          // walkable too. Water can flood in dynamically and block one end
+          // of a patrol range; blindly flipping into an equally-blocked
+          // opposite side every frame flips `facing` back and forth forever
+          // (hitWall flips it right back) without ever actually moving —
+          // reads as the enemy freezing in place. Stand still instead.
+          want = this.canStepAhead(en, -want) ? -want : 0;
+        }
       } else if (en.state === "chase" && player) {
         speed = d.chaseSpeed ?? d.speed * 2;
         const dx = player.centerX - cx;
