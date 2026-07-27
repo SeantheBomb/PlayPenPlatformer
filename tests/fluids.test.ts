@@ -500,4 +500,45 @@ describe("a drain fully empties a flat, non-fall-fed lake via the grab-chain", (
       }
     }
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, 2026-07-27): "why is it only draining 3 blocks at a
+  // time?" — a wide bank of drains under a tall tank should drain much
+  // faster than the same width of a single-layer puddle, because there's a
+  // whole tank of water above ready to fall in. It didn't: eating a
+  // drain-touching tile immediately grab-chained sideways into the tile
+  // next to it — which was ALSO about to be independently eaten by the same
+  // drain pass — wasting the chain reshuffling water that was getting
+  // erased either way, instead of leaving the row alone so the tank above
+  // could fall the full width to replace it. Fixed by computing every
+  // drain-touching tile first, then vacating them all with that whole set
+  // excluded from each other's grab search.
+  // -------------------------------------------------------------------------
+  it("a full-width drain under a tall tank sustains a fast removal rate, not a throttled trickle", () => {
+    const rows = [
+      "##############",
+      "#wwwwwwwwwwww#",
+      "#wwwwwwwwwwww#",
+      "#wwwwwwwwwwww#",
+      "#wwwwwwwwwwww#",
+      "#wwwwwwwwwwww#",
+      "#wwwwwwwwwwww#",
+      "#DDDDDDDDDDDD#",
+      "##############",
+    ];
+    const rt = makeRoom(rows);
+    const countAll = () => {
+      let n = 0;
+      for (let y = 1; y <= 6; y++) for (let x = 1; x <= 12; x++) if (fluidAt(rt, x, y, "water")) n++;
+      return n;
+    };
+    const before = countAll();
+    // The first tick alone doesn't discriminate well (both old and new code
+    // clear most of the direct-contact row immediately); the throttling
+    // showed up over the next few ticks, once the row above had to refill
+    // the gap. Old: 11+4+5+3 = 23 removed by tick 4. New: 12+6+5+4 = 27.
+    tick(rt, 4);
+    const after = countAll();
+    expect(before - after).toBeGreaterThanOrEqual(26);
+  });
 });

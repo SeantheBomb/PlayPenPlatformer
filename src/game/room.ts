@@ -720,18 +720,30 @@ export class RoomRuntime {
     // so water queued above a drain vanishes instead of overflowing around
     // the queue. This ordering is what lets base-side drains fully contain
     // a melting tower's runoff.
-    for (const [idx] of [...this.waterFlowDist]) {
+    //
+    // Find every drain-touching tile FIRST, then vacate them all with that
+    // whole set pre-excluded from the grab-chain. Without this, a wide bank
+    // of drains only drained a couple of tiles per tick: eating tile A would
+    // immediately grab-chain sideways into tile B, which was ALSO about to
+    // be independently eaten this same pass — wasted effort reshuffling
+    // water that was getting erased either way, instead of actually
+    // removing more of it. Excluding the whole doomed row forces the chain
+    // to reach past it into water that wouldn't otherwise go this tick, so
+    // a wide drain genuinely drains proportionally faster, and the row
+    // above falls to replace the whole gap via the ordinary (unconditional,
+    // every tick) case 1 fall — no chain needed for that part at all.
+    const doomed = new Set<number>();
+    for (const [idx] of this.waterFlowDist) {
       const tx = idx % this.map.width;
       const ty = Math.floor(idx / this.map.width);
-      const def = this.fluidDefAt(tx, ty);
-      if (!def) {
-        this.waterFlowDist.delete(idx);
-        continue;
-      }
-      if (this.tileTouchesDrain(tx, ty)) {
-        events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
-        this.vacate(tx, ty, events);
-      }
+      if (this.fluidDefAt(tx, ty) && this.tileTouchesDrain(tx, ty)) doomed.add(idx);
+    }
+    for (const idx of doomed) {
+      const tx = idx % this.map.width;
+      const ty = Math.floor(idx / this.map.width);
+      if (!this.fluidDefAt(tx, ty)) continue; // an earlier chain in this pass already took it
+      events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
+      this.vacate(tx, ty, events, new Set(doomed));
     }
 
     // Main pass, bottom-up (lower tiles vacate first so columns funnel
