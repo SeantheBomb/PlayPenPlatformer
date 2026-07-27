@@ -255,19 +255,37 @@ export class Game {
     return v;
   }
 
-  /** Stuck? Put the whole room back the way it started (softlock escape). */
+  /** Stuck? Put the whole room back the way it started (softlock escape).
+   *  Lands back at your last checkpoint if it's in this room — not the
+   *  room's original spawn — so resetting doesn't also throw away progress
+   *  toward wherever you actually were. */
   private confirmResetRoom(): void {
     if (!this.askConfirm("Reset this room? Items, doors, and your inventory go back to how the room began.")) {
       return;
     }
     this.overlay = "none";
+    const keepCheckpoint = this.state.checkpoint.roomId === this.currentRoomId
+      ? { ...this.state.checkpoint } : null;
     this.state.roomStates.delete(this.currentRoomId);
     this.state.inventory.clear();
     this.state.selectedConsumable = 0;
     this.loadRoom(this.currentRoomId);
-    this.state.checkpoint = {
+    this.state.checkpoint = keepCheckpoint ?? {
       roomId: this.currentRoomId, x: this.roomRt.spawnX, y: this.roomRt.spawnY,
     };
+    this.player.placeFeetAt(this.state.checkpoint.x, this.state.checkpoint.y);
+    if (keepCheckpoint) {
+      // Re-mark the checkpoint entity itself as touched — the reset just
+      // wiped that mutation, but the player is standing right back on it.
+      const cpEntity = this.roomRt.entities.find(
+        (e) => e.kind === "checkpoint" &&
+          Math.abs(e.x + e.w / 2 - keepCheckpoint.x) < 1 && Math.abs(e.y + e.h - keepCheckpoint.y) < 1
+      );
+      if (cpEntity) {
+        cpEntity.open = true;
+        this.state.mutations(this.currentRoomId).openedDoors.add(cpEntity.index);
+      }
+    }
     this.floaty("Room reset.", this.player.centerX, this.player.y - 12, "#9be8b0");
     sfx.play("checkpoint");
   }
