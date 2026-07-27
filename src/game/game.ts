@@ -1799,12 +1799,20 @@ export class Game {
     // stay in the logical 640x360 view.
     if (this.overlay === "note" || this.overlay === "dialog" || this.overlay === "npcConfirm") {
       const isNpc = this.overlay !== "note" && this.overlayEntity?.kind === "npc";
+      // A note's recipe reward used to only flash a fleeting "Recipe
+      // learned!" floaty — easy to miss, and said nothing about WHICH
+      // recipe. Name it directly in the note's own footer instead, visible
+      // the whole time it's open (and on every re-read, as a reminder).
+      const noteRecipeId = this.overlay === "note" ? this.overlayEntity?.def.recipe : undefined;
+      const noteRecipe = noteRecipeId ? this.content.recipes.find((r) => r.id === noteRecipeId) : undefined;
+      const noteOutput = noteRecipe ? this.state.item(noteRecipe.output) : undefined;
       this.confirmButtons = drawTextOverlay(ctx, {
         title: this.overlayTitle,
         titleColor: this.overlay === "note" ? "#c9a86a" : "#7fd8e8",
         body: this.overlayText,
-        footer:
-          this.overlay === "npcConfirm"
+        footer: noteOutput
+          ? `Recipe: ${noteOutput.name}  ·  ${this.input.label("interact")} / Enter — close`
+          : this.overlay === "npcConfirm"
             ? `${this.input.label("interact")} — give · Esc — keep it`
             : `${this.input.label("interact")} / Enter — close`,
         viewW: VIEW_W, viewH: VIEW_H,
