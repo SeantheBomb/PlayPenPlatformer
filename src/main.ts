@@ -75,6 +75,32 @@ async function boot() {
   });
   if (new URLSearchParams(location.search).has("editor")) toggleEditor();
 
+  // ---- Debug item menu (` key): add any content item to inventory ----
+  let debugMenu: import("./game/debugmenu").DebugMenu | null = null;
+  const toggleDebugMenu = async () => {
+    if (editorOpen || !game.state) return;
+    if (!debugMenu) {
+      const mod = await import("./game/debugmenu");
+      debugMenu = new mod.DebugMenu(game, () => {
+        game.resume();
+        canvas.focus();
+      });
+    }
+    if (debugMenu.isOpen) {
+      debugMenu.close();
+    } else {
+      game.pause();
+      debugMenu.open();
+    }
+  };
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Backquote") return;
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    e.preventDefault();
+    void toggleDebugMenu();
+  });
+
   // ---- Debug handle (used for AI-driven playtesting; harmless to ship) ----
   (window as unknown as Record<string, unknown>).PP = {
     game,
