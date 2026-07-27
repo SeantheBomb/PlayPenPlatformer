@@ -75,6 +75,34 @@ async function boot() {
   });
   if (new URLSearchParams(location.search).has("editor")) toggleEditor();
 
+  // ---- Shareable deep links: ?room=<id> or ?room=<id>&checkpoint=<id> ----
+  // Jumps straight into a room (or a specific checkpoint within it),
+  // bypassing the main menu and normal campaign order — for handing
+  // someone a link straight into a level instead of "click new game, then
+  // navigate the level-select". Not organic play, so tainted like
+  // PP.warp/PP.give — a demo walkthrough shouldn't count in playtest stats.
+  // Web-build only: Electron has no address bar to paste a link into.
+  const deepLinkRoom = new URLSearchParams(location.search).get("room");
+  if (deepLinkRoom && content.rooms[deepLinkRoom]) {
+    recorder.taint("deep-link");
+    game.newRun(deepLinkRoom);
+    const checkpointId = new URLSearchParams(location.search).get("checkpoint");
+    if (checkpointId) {
+      const cp = game.roomRt.entities.find(
+        (e) => e.kind === "checkpoint" && e.def.id === checkpointId
+      );
+      if (cp) {
+        const x = cp.x + cp.w / 2, y = cp.y + cp.h;
+        game.player.placeFeetAt(x, y);
+        game.state.checkpoint = { roomId: deepLinkRoom, x, y, loadout: cp.def.loadout };
+        if (cp.def.loadout) {
+          game.state.inventory.clear();
+          for (const { item, count } of cp.def.loadout) game.state.add(item, count);
+        }
+      }
+    }
+  }
+
   // ---- Debug item menu (` key): add any content item to inventory ----
   let debugMenu: import("./game/debugmenu").DebugMenu | null = null;
   const toggleDebugMenu = async () => {

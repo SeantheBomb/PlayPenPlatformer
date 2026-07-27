@@ -426,7 +426,11 @@ export class RoomEditor {
       el("div", { className: "pp-btnrow" },
         el("button", { className: "pp-btn pp-primary", onclick: () => this.save() }, "Save room"),
         el("button", { className: "pp-btn", onclick: () => this.onTestRoom(room.id) }, "▶ Test"),
-        el("button", { className: "pp-btn pp-danger", onclick: () => this.deleteRoom() }, "Delete")
+        el("button", { className: "pp-btn pp-danger", onclick: () => this.deleteRoom() }, "Delete"),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => this.copyShareLink(room.id),
+        }, "🔗 copy link")
       )
     );
   }
@@ -847,7 +851,21 @@ export class RoomEditor {
             const feetY = (sel.y + 1) * TILE;
             this.onTestRoom(room.id, { x: cx, y: feetY });
           },
-        }, "▶ Start Test From Here")
+        }, "▶ Start Test From Here"),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            if (!room) return;
+            // Self-heal: a share link needs a stable id, so mint one on
+            // first use rather than requiring it be hand-authored first.
+            if (!sel.id) {
+              sel.id = `cp-${Math.random().toString(36).slice(2, 8)}`;
+              this.markDirty();
+              this.renderInspector();
+            }
+            this.copyShareLink(room.id, sel.id);
+          },
+        }, "🔗 copy link to here")
       ) : el("span", {}),
       sel.type === "checkpoint" ? this.checkpointLoadoutRow(sel) : el("span", {}),
       el("div", { className: "pp-btnrow" },
@@ -958,6 +976,21 @@ export class RoomEditor {
           this.renderInspector();
         },
       }, "Clear")
+    );
+  }
+
+  /** Copy a ?room=<id>[&checkpoint=<id>] deep link — jumps straight into
+   *  the room (or a specific checkpoint) on load, bypassing the main menu.
+   *  Web-build only: Electron loads from file://, no address bar to share
+   *  a link into, so this always points at the deployed site's origin. */
+  private copyShareLink(roomId: string, checkpointId?: string): void {
+    const origin = location.protocol === "file:" ? "https://playpen.pages.dev" : location.origin;
+    const params = new URLSearchParams({ room: roomId });
+    if (checkpointId) params.set("checkpoint", checkpointId);
+    const url = `${origin}/?${params.toString()}`;
+    navigator.clipboard?.writeText(url).then(
+      () => toast(`Copied: ${url}`),
+      () => toast("Couldn't copy — clipboard blocked", false)
     );
   }
 
