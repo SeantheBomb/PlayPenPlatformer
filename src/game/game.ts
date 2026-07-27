@@ -962,6 +962,7 @@ export class Game {
         this.state.mutations(this.currentRoomId).openedDoors.add(e.index);
         this.state.checkpoint = {
           roomId: this.currentRoomId, x: e.x + e.w / 2, y: e.y + e.h,
+          loadout: e.def.loadout,
         };
         if (this.content.game.rules.healAtCheckpoints) {
           this.state.health = this.state.maxHealth;
@@ -1609,6 +1610,15 @@ export class Game {
       this.loadRoom(cp.roomId);
     }
     this.player.placeFeetAt(cp.x, cp.y);
+    if (cp.loadout) {
+      // Preload for the area ahead — replaces whatever's left, same spirit
+      // as resetInventoryBetweenRooms (a checkpoint hands you back a fixed
+      // kit, not a merge with what you happened to be carrying).
+      this.state.inventory.clear();
+      this.state.selectedConsumable = 0;
+      for (const { item, count } of cp.loadout) this.state.add(item, count);
+      this.floaty("Reloaded for this area.", this.player.centerX, this.player.y - 24, "#7fd8e8");
+    }
     this.player.invulnUntil = simNow() + g.rules.respawnInvulnMs;
     this.player.hiddenIn = null;
     this.bombs = [];

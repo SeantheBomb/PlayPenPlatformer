@@ -11,8 +11,10 @@ import { openPixelEditor, rasterize } from "./pixeleditor";
 // pixel-editor seed and preview at the right aspect ratio.
 const NPC_W = 12, NPC_H = 16;
 
-// Raw data-URIs are edited via the dedicated panels below, not as text fields.
-const SPRITE_KEYS = ["portrait", "sprite", "spriteFrames", "spriteFps"];
+// Fields with a dedicated custom editor below — autoForm's generic
+// per-type rendering would otherwise show a second, redundant (and for
+// loadout, raw-JSON) editor for the same field.
+const SPRITE_KEYS = ["portrait", "sprite", "spriteFrames", "spriteFps", "loadout"];
 
 type Tool =
   | { kind: "select" }
@@ -847,6 +849,7 @@ export class RoomEditor {
           },
         }, "▶ Start Test From Here")
       ) : el("span", {}),
+      sel.type === "checkpoint" ? this.checkpointLoadoutRow(sel) : el("span", {}),
       el("div", { className: "pp-btnrow" },
         el("button", {
           className: "pp-btn",
@@ -955,6 +958,55 @@ export class RoomEditor {
           this.renderInspector();
         },
       }, "Clear")
+    );
+  }
+
+  /** Item/count row editor for a checkpoint's respawn loadout — what
+   *  respawning here hands the player back instead of nothing. No generic
+   *  autoForm support for arrays-of-objects, so this is hand-built, same
+   *  shape as NPC rewardItems ({item,count}[]). */
+  private checkpointLoadoutRow(sel: RoomEntity): HTMLElement {
+    const itemIds = this.content.items.map((i) => i.id);
+    const listId = "pp-dl-loadout-items";
+    const loadout = sel.loadout ?? (sel.loadout = []);
+    const rows = loadout.map((entry, i) =>
+      el("div", { className: "pp-btnrow" },
+        el("input", {
+          type: "text", value: entry.item, list: listId, style: "width:110px",
+          oninput: (e) => {
+            entry.item = (e.target as HTMLInputElement).value;
+            this.markDirty();
+          },
+        }),
+        el("input", {
+          type: "number", value: String(entry.count), min: "1", style: "width:50px",
+          oninput: (e) => {
+            entry.count = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
+            this.markDirty();
+          },
+        }),
+        el("button", {
+          className: "pp-btn pp-danger", title: "remove",
+          onclick: () => {
+            loadout.splice(i, 1);
+            this.markDirty();
+            this.renderInspector();
+          },
+        }, "✕")
+      )
+    );
+    return el("div", { className: "pp-field" },
+      el("div", { className: "pp-hint" }, "spawn loadout (what respawning here hands you)"),
+      ...rows,
+      el("datalist", { id: listId }, ...itemIds.map((id) => el("option", { value: id }))),
+      el("button", {
+        className: "pp-btn",
+        onclick: () => {
+          loadout.push({ item: itemIds[0] ?? "", count: 1 });
+          this.markDirty();
+          this.renderInspector();
+        },
+      }, "+ add item")
     );
   }
 

@@ -50,7 +50,12 @@ export class RunState {
   craftedRecipes = new Set<string>();  // actually produced at least once
   health: number;
   maxHealth: number;
-  checkpoint: { roomId: string; x: number; y: number };
+  checkpoint: {
+    roomId: string; x: number; y: number;
+    /** Authored on the checkpoint entity — what respawning here hands the
+     *  player back instead of whatever they had (or nothing). */
+    loadout?: { item: string; count: number }[];
+  };
   roomStates = new Map<string, RoomMutations>();
   selectedConsumable = 0;
   hasDiedOnce = false;

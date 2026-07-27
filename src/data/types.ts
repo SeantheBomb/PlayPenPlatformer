@@ -307,6 +307,15 @@ export interface RoomEntity extends SpriteFields {
   enemy?: string;
   patrolMinX?: number;
   patrolMaxX?: number;
+  // checkpoint
+  /** Stable id for deep-linking straight to this checkpoint (?checkpoint=
+   *  <id> in a share link) — optional, author it when you want one. */
+  id?: string;
+  /** Items the player spawns with whenever respawning from this checkpoint
+   *  — replaces current inventory, same spirit as resetInventoryBetweenRooms
+   *  (nothing carries over by default; this is what a checkpoint hands you
+   *  back instead of nothing). */
+  loadout?: { item: string; count: number }[];
   // brazier
   lit?: boolean; // default true; author false for a cold brazier the player must light
   // npc
