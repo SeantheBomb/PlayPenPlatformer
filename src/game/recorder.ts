@@ -23,7 +23,28 @@ export type SessionEvent =
   | { f: number; t: "k"; c: string; d: 0 | 1 }
   | { f: number; t: "tap"; x: number; y: number }
   | { f: number; t: "craft"; op: CraftOp }
-  | { f: number; t: "confirm"; v: boolean };
+  | { f: number; t: "confirm"; v: boolean }
+  // Ground-truth position at a moment we know it exactly — not itself
+  // replayed input, but a fact the replay driver checks its own simulated
+  // position against. "checkpoint": soft-snap position only if it's drifted.
+  // "death": a death definitely happened here live, full stop — force the
+  // complete respawn (position, health, invuln, enemies) unconditionally,
+  // even if the replay's own simulation doesn't (yet, or ever) agree a death
+  // occurred, since whatever caused the mismatch already broke its own
+  // ability to self-report correctly. See replay.ts's applyAnchors.
+  | { f: number; t: "anchor"; kind: "checkpoint" | "death"; x: number; y: number }
+  // A walk-over item gain (static room pickup or a scattered drop) — same
+  // ground-truth spirit as anchors, but for inventory instead of position.
+  // "pickup" carries the room entity's stable index; "drop" (scattered,
+  // no stable id) carries its position instead, so replay can find the
+  // nearest still-uncollected matching drop. Forcing this in is idempotent
+  // (a no-op if the replay's own detection already collected the same
+  // source), which is what makes it safe to always apply — see
+  // Game.forceItemGain.
+  | {
+      f: number; t: "item"; itemId: string; count: number;
+      src: "pickup" | "drop"; idx?: number; x?: number; y?: number;
+    };
 
 export interface RoomSegment {
   id: string;
@@ -179,6 +200,27 @@ class Recorder {
   recordConfirm(v: boolean): void {
     if (!this.meta) return;
     this.push({ f: this.tag(), t: "confirm", v });
+  }
+
+  recordAnchor(kind: "checkpoint" | "death", x: number, y: number): void {
+    if (!this.meta) return;
+    this.push({
+      f: this.tag(), t: "anchor", kind,
+      x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
+    });
+  }
+
+  recordPickupGain(itemId: string, count: number, idx: number): void {
+    if (!this.meta) return;
+    this.push({ f: this.tag(), t: "item", itemId, count, src: "pickup", idx });
+  }
+
+  recordDropGain(itemId: string, count: number, x: number, y: number): void {
+    if (!this.meta) return;
+    this.push({
+      f: this.tag(), t: "item", itemId, count, src: "drop",
+      x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
+    });
   }
 
   markRoom(roomId: string, stepCount: number): void {

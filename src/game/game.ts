@@ -956,6 +956,7 @@ export class Game {
         e.collected = true;
         this.state.mutations(this.currentRoomId).collected.add(e.index);
         this.state.add(item.id, e.def.count ?? 1);
+        if (!this.replay) recorder.recordPickupGain(item.id, e.def.count ?? 1, e.index);
         if (item.useMode) this.switchHotbarSelection(item.id);
         this.checkAchievements("pickup_item", { itemId: item.id });
         if (!this.replay) telemetry.collect(this.currentRoomId, item.id);
@@ -976,6 +977,7 @@ export class Game {
         if (this.content.game.rules.healAtCheckpoints) {
           this.state.health = this.state.maxHealth;
         }
+        if (!this.replay) recorder.recordAnchor("checkpoint", this.player.centerX, this.player.feetY);
         sfx.play("checkpoint");
         this.floaty("Checkpoint!", e.x + e.w / 2, e.y, "#5ad1a5");
       }
@@ -983,6 +985,7 @@ export class Game {
     for (const d of [...this.roomRt.drops]) {
       if (rectsOverlap(prect, d)) {
         this.state.add(d.itemId, d.count);
+        if (!this.replay) recorder.recordDropGain(d.itemId, d.count, d.x, d.y);
         const item = this.state.item(d.itemId);
         if (item?.useMode) this.switchHotbarSelection(item.id);
         this.floaty(`+${d.count} ${item?.name ?? d.itemId}`, d.x + 7, d.y);
@@ -1609,29 +1612,81 @@ export class Game {
       this.state.hasDiedOnce = true;
       this.taunts.fire("first_death");
     }
-    // Respawn — fresh lungs too, else a checkpoint inside water (flooded
-    // rooms make that possible) re-drowns you instantly on an empty meter.
-    this.state.health = this.state.maxHealth;
-    this.air = this.content.game.rules.airBlips;
-    this.prevSwim = "none";
     const cp = this.state.checkpoint;
     if (cp.roomId !== this.currentRoomId) {
       this.loadRoom(cp.roomId);
     }
-    this.player.placeFeetAt(cp.x, cp.y);
-    if (cp.loadout) {
+    if (!this.replay) recorder.recordAnchor("death", cp.x, cp.y);
+    this.respawnAt(cp.x, cp.y, cp.loadout);
+  }
+
+  /** Position + health/air/inventory/enemy reset for a respawn — shared by
+   *  a live death (killPlayer, above) and a replay forcing a recorded death
+   *  its own simulation didn't (or doesn't yet) agree happened, see
+   *  forceRespawn below. Fresh lungs too, else a checkpoint inside water
+   *  (flooded rooms make that possible) re-drowns you instantly on an
+   *  empty meter. */
+  private respawnAt(x: number, y: number, loadout?: { item: string; count: number }[]): void {
+    this.state.health = this.state.maxHealth;
+    this.air = this.content.game.rules.airBlips;
+    this.prevSwim = "none";
+    this.player.placeFeetAt(x, y);
+    if (loadout) {
       // Preload for the area ahead — replaces whatever's left, same spirit
       // as resetInventoryBetweenRooms (a checkpoint hands you back a fixed
       // kit, not a merge with what you happened to be carrying).
       this.state.inventory.clear();
       this.state.selectedConsumable = 0;
-      for (const { item, count } of cp.loadout) this.state.add(item, count);
+      for (const { item, count } of loadout) this.state.add(item, count);
       this.floaty("Reloaded for this area.", this.player.centerX, this.player.y - 24, "#7fd8e8");
     }
-    this.player.invulnUntil = simNow() + g.rules.respawnInvulnMs;
+    this.player.invulnUntil = simNow() + this.content.game.rules.respawnInvulnMs;
     this.player.hiddenIn = null;
     this.bombs = [];
     this.roomRt.resetEnemies();
+  }
+
+  /** Replay driver: a recorded "death" anchor says a death definitely
+   *  happened here live — force the full respawn unconditionally, even if
+   *  this replay's own simulation hasn't independently reached zero health
+   *  (whatever caused that disagreement already broke its own ability to
+   *  self-report correctly, so don't trust it to catch up on its own). */
+  forceRespawn(x: number, y: number): void {
+    this.respawnAt(x, y, this.state.checkpoint.loadout);
+  }
+
+  /** Replay driver: a recorded item gain definitely happened here live —
+   *  force it in if this replay's own walk-over detection hasn't already
+   *  collected the same source. Idempotent: a no-op when it has (the static
+   *  pickup is already marked collected, or the matching drop is already
+   *  gone), so it's safe to always call at the recorded step. Returns
+   *  whether a correction actually happened, for the replay's resync log. */
+  forceItemGain(
+    itemId: string, count: number, src: "pickup" | "drop", idx?: number, x?: number, y?: number
+  ): boolean {
+    if (src === "pickup" && idx !== undefined) {
+      const e = this.roomRt.entities.find((en) => en.kind === "pickup" && en.index === idx);
+      if (!e || e.collected) return false;
+      e.collected = true;
+      this.state.mutations(this.currentRoomId).collected.add(idx);
+      this.state.add(itemId, count);
+      return true;
+    }
+    if (src === "drop" && x !== undefined && y !== undefined) {
+      // No stable id for a scattered drop — match by item + nearest position.
+      let nearest: (typeof this.roomRt.drops)[number] | null = null;
+      let bestDist = Infinity;
+      for (const d of this.roomRt.drops) {
+        if (d.itemId !== itemId) continue;
+        const dist = Math.hypot(d.x - x, d.y - y);
+        if (dist < bestDist) { bestDist = dist; nearest = d; }
+      }
+      if (!nearest || bestDist > 24) return false; // already collected, or none close enough
+      this.state.add(itemId, count);
+      this.roomRt.removePickupDrop(nearest);
+      return true;
+    }
+    return false;
   }
 
   private winGame(): void {

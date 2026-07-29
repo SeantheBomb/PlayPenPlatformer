@@ -505,9 +505,15 @@ export function renderSessionsTab(
         playBtn.textContent = "▶";
         const drift = driver!.drift();
         if (drift !== null) {
-          driftEl.textContent = drift < 1
+          const n = driver!.resyncs.length;
+          const m = driver!.itemFixups.length;
+          const notes = [
+            n > 0 ? `${n} resync${n === 1 ? "" : "s"}` : null,
+            m > 0 ? `${m} item fixup${m === 1 ? "" : "s"}` : null,
+          ].filter(Boolean).join(", ");
+          driftEl.textContent = (drift < 1
             ? "✔ deterministic (0px drift)"
-            : `⚠ drift ${drift.toFixed(1)}px`;
+            : `⚠ drift ${drift.toFixed(1)}px`) + (notes ? ` (${notes} applied)` : "");
           driftEl.style.color = drift < 1 ? "#9be8b0" : "#ffd166";
         }
         if (queue.length > 1) advance();

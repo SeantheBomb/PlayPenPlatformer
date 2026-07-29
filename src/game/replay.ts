@@ -18,6 +18,16 @@ export interface SessionData {
 
 export interface IdlePeriod { from: number; to: number; }
 
+export interface Resync { step: number; kind: "checkpoint" | "death"; dx: number; dy: number; }
+
+export interface ItemFixup { step: number; itemId: string; count: number; }
+
+/** Beyond this many px of disagreement with a recorded checkpoint-touch
+ *  anchor, snap to it rather than let whatever caused the gap keep
+ *  compounding for the rest of the session. Death anchors don't use this —
+ *  they always force a full respawn, see applyAnchors. */
+const ANCHOR_TOLERANCE = 2;
+
 /** No key held and no tap/craft/confirm event for at least this many steps
  *  (3s @ 60fps) counts as an idle stretch — see IdlePeriod below. */
 const IDLE_THRESHOLD_STEPS = 180;
@@ -50,6 +60,14 @@ export class ReplayDriver {
   /** Idle stretches — see computeIdlePeriods. Drawn as timeline bands and
    *  used by the "skip idle" button in the sessions editor tab. */
   readonly idlePeriods: IdlePeriod[];
+  /** Every time a recorded anchor disagreed with the simulated position
+   *  enough to be snapped — see ANCHOR_TOLERANCE. Empty means every anchor
+   *  checked out, i.e. this replay tracked the original run exactly. */
+  resyncs: Resync[] = [];
+  /** Every time a recorded item gain wasn't already picked up by this
+   *  replay's own walk-over detection — see Game.forceItemGain. Empty means
+   *  every recorded pickup/drop was collected naturally, right on schedule. */
+  itemFixups: ItemFixup[] = [];
   private eventsByStep = new Map<number, SessionEvent[]>();
   private acc = 0;
   private lastFrame = 0;
@@ -109,13 +127,64 @@ export class ReplayDriver {
         }
         case "craft": this.game.applyCraftOp(ev.op); break;
         case "confirm": this.game.replayConfirms.push(ev.v); break;
+        case "anchor": break; // ground truth, not input — see applyAnchors
+        case "item": break;   // ground truth, not input — see applyItemGains
       }
+    }
+  }
+
+  /** Check the just-simulated step's ground-truth anchors (if any) against
+   *  where the player actually ended up, snapping on disagreement so one
+   *  divergence doesn't compound for the rest of the (possibly very long)
+   *  session. Runs after stepOnce(), since an anchor records the position at
+   *  the END of the tick it was captured on (post checkpoint/respawn logic),
+   *  not the input state going into it. */
+  private applyAnchors(step: number): void {
+    const list = this.eventsByStep.get(step);
+    if (!list) return;
+    for (const ev of list) {
+      if (ev.t !== "anchor") continue;
+      const p = this.game.player;
+      // Anchors are recorded as (centerX, feetY) — see game.ts's two
+      // recordAnchor call sites — matching placeFeetAt's own inputs.
+      const dx = ev.x - p.centerX, dy = ev.y - p.feetY;
+      if (ev.kind === "death") {
+        // A death definitely happened here live — force the full respawn
+        // unconditionally, regardless of whether this replay's own
+        // simulation agrees a death occurred (it may not, if whatever
+        // caused an earlier mismatch already broke its own health/hazard
+        // tracking too).
+        this.resyncs.push({ step, kind: "death", dx, dy });
+        this.game.forceRespawn(ev.x, ev.y);
+        continue;
+      }
+      if (Math.hypot(dx, dy) > ANCHOR_TOLERANCE) {
+        this.resyncs.push({ step, kind: "checkpoint", dx, dy });
+        p.placeFeetAt(ev.x, ev.y);
+      }
+    }
+  }
+
+  /** Check the just-simulated step's recorded item gains (if any) against
+   *  this replay's own walk-over detection, forcing in anything it missed —
+   *  see Game.forceItemGain. Runs after stepOnce() for the same reason as
+   *  applyAnchors: a gain records state at the END of the tick it happened
+   *  on, not input going into it. */
+  private applyItemGains(step: number): void {
+    const list = this.eventsByStep.get(step);
+    if (!list) return;
+    for (const ev of list) {
+      if (ev.t !== "item") continue;
+      const fixed = this.game.forceItemGain(ev.itemId, ev.count, ev.src, ev.idx, ev.x, ev.y);
+      if (fixed) this.itemFixups.push({ step, itemId: ev.itemId, count: ev.count });
     }
   }
 
   private stepOne(): void {
     this.applyEvents(this.step);
     this.game.stepOnce();
+    this.applyAnchors(this.step);
+    this.applyItemGains(this.step);
     this.step++;
   }
 
@@ -171,6 +240,8 @@ export class ReplayDriver {
     if (target < this.step) {
       this.game = this.buildGame();
       this.step = 0;
+      this.resyncs = [];
+      this.itemFixups = [];
     }
     const wasMuted = sfx.muted;
     sfx.muted = true; // fast-forward without an sfx storm
