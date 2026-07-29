@@ -9,7 +9,6 @@ export class Loop {
   private rafId = 0;
   private fallbackId = 0;
   private lastFrameAt = 0;
-  hitStopUntil = 0; // performance.now() timestamp; updates pause, renders continue
 
   constructor(
     private update: (dt: number) => void,
@@ -20,13 +19,9 @@ export class Loop {
     this.lastFrameAt = now;
     this.acc += Math.min(MAX_ACCUM, (now - this.last) / 1000);
     this.last = now;
-    if (now >= this.hitStopUntil) {
-      while (this.acc >= STEP) {
-        this.update(STEP);
-        this.acc -= STEP;
-      }
-    } else {
-      this.acc = 0;
+    while (this.acc >= STEP) {
+      this.update(STEP);
+      this.acc -= STEP;
     }
     this.render();
   }
@@ -54,9 +49,5 @@ export class Loop {
     this.running = false;
     cancelAnimationFrame(this.rafId);
     clearInterval(this.fallbackId);
-  }
-
-  hitStop(ms: number): void {
-    this.hitStopUntil = Math.max(this.hitStopUntil, performance.now() + ms);
   }
 }

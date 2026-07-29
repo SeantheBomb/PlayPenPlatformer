@@ -2,6 +2,7 @@
 import type { Content, ItemDef } from "../data/types";
 import { Input } from "../engine/input";
 import { Loop } from "../engine/loop";
+import { HitStop } from "../engine/hitstop";
 import { Camera } from "../engine/camera";
 import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
@@ -43,6 +44,9 @@ export class Game {
   simTime = 0;
   /** Fixed-timestep updates executed so far — the replay event timeline unit. */
   stepCount = 0;
+  /** Freeze-frame timer for hard-hit juice — step-counted, not wall-clock,
+   *  so it replays identically (see engine/hitstop.ts for why). */
+  private hitStopClock = new HitStop();
   private lastInputSim = 0; // simTime of the last real/injected input (idle logic)
   runSeed = 0;
   /** Confirm-dialog answers queued by the replay driver (see askConfirm). */
@@ -548,6 +552,7 @@ export class Game {
     this.stepCount++;
     this.simTime += dt * 1000;
     setSimTime(this.simTime);
+    if (this.hitStopClock.tick()) return; // frozen beat — stepCount above already advanced
     if (!this.replay) this.input.pollGamepads(); // replays never read real pads
     if (this.input.consumeActivity()) this.lastInputSim = this.simTime;
     this.animT += dt;
@@ -566,6 +571,10 @@ export class Game {
   /** Advance exactly one fixed sim step — the replay driver's clock tick. */
   stepOnce(): void {
     this.update(1 / 60);
+  }
+
+  private hitStop(ms: number): void {
+    this.hitStopClock.trigger(ms);
   }
 
   /** Replay driver: re-apply a recorded semantic craft-menu action. */
@@ -1349,7 +1358,7 @@ export class Game {
         case "shatter":
           sfx.play("break");
           this.camera.shake(3, 0.2);
-          this.loop.hitStop(this.content.game.juice.hitStopMs * 0.6);
+          this.hitStop(this.content.game.juice.hitStopMs * 0.6);
           this.particles.burst({ x: ev.x, y: ev.y, count: 14, color: ev.color, speed: 120, life: 0.55 });
           break;
         case "energize":
@@ -1553,7 +1562,7 @@ export class Game {
     this.player.hurt(fromX, g.player.invulnMs);
     sfx.play("hurt");
     this.camera.shake(4, 0.25);
-    this.loop.hitStop(g.juice.hitStopMs);
+    this.hitStop(g.juice.hitStopMs);
     this.particles.burst({
       x: this.player.centerX, y: this.player.centerY,
       count: 10, color: "#ff5470", speed: 100, life: 0.4,
