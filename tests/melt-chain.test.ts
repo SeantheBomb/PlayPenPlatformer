@@ -12,13 +12,14 @@ import type { RoomMutations } from "../src/game/state";
 import tilesJson from "../content/tiles.json";
 import rulesJson from "../content/rules.json";
 import gameJson from "../content/game.json";
+import behaviorsJson from "../content/behaviors.json";
 
 const TILES = tilesJson as TileDef[];
 
 function makeContent(): Content {
   return {
     game: gameJson as Content["game"],
-    elements: [], rules: rulesJson as RuleDef[], achievements: [],
+    elements: [], behaviors: behaviorsJson as never, rules: rulesJson as RuleDef[], achievements: [],
     tiles: TILES, items: [], recipes: [], enemies: [], taunts: [],
     campaign: { rooms: [] }, rooms: {},
   } as unknown as Content;

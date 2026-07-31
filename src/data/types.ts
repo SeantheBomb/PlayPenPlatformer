@@ -116,6 +116,59 @@ export interface RuleDef {
 
 export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
 
+// ---- Behavior grammar (trigger -> conditions -> actions) ----
+// Serialized in content/behaviors.json; interpreted by src/game/behavior.ts.
+// Engine code provides the vocabulary (condition/action verbs); content wires
+// which hosts run which rules with which params. New gameplay should be a new
+// behavior doc first — new verbs only when the grammar genuinely can't say it.
+
+/** When a behavior rule fires. */
+export type BehaviorTrigger =
+  | "tick"           // every fixed sim step (enemies, entities)
+  | "flowTick"       // every fluid-flow tick (entities — braziers douse here)
+  | "elementContact" // an element was applied to the host (tool hit, hazard overlap)
+  | "use"            // the player used the host item (F)
+  | "heldTick"       // per-step while the host item is the selected hotbar item
+  | "carriedTick";   // per-step for every item in the inventory
+
+/** ["conditionName", ...args] — all listed conditions must hold. */
+export type BehaviorCondition = [string, ...unknown[]];
+/** ["actionName", ...args] — run in order. */
+export type BehaviorAction = [string, ...unknown[]];
+
+export interface BehaviorRuleDef {
+  on: BehaviorTrigger;
+  if?: BehaviorCondition[];
+  do: BehaviorAction[];
+  note?: string;
+}
+
+export interface BehaviorDef {
+  id: string;
+  name?: string;
+  description?: string;
+  /** What kind of host this attaches to (editor filtering + validation). */
+  host?: "enemy" | "item" | "entity" | "global";
+  /** Semantic markers other systems key on (e.g. "sight" = hunts by sight:
+   *  smoke hides the player from it and it draws a vision cone). */
+  tags?: string[];
+  /** Auto-attach to every entity of these types (host "entity"). */
+  attachTo?: { entities?: EntityType[] };
+  /** Tunable defaults, overridable per attachment. String values starting
+   *  with "$" are references: "$host.field" reads the host's own def. */
+  params?: Record<string, unknown>;
+  /** Per-instance variables, initialized on first use. */
+  vars?: Record<string, number | string | boolean>;
+  rules: BehaviorRuleDef[];
+}
+
+/** A behavior attached to a def: plain id, or id + param overrides. */
+export interface BehaviorRef {
+  id: string;
+  params?: Record<string, unknown>;
+}
+export type BehaviorAttachment = string | BehaviorRef;
+
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
   | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall" | "drain"
@@ -167,6 +220,9 @@ export interface TileDef extends SpriteFields {
   fallSpawns?: string;  // a fall tile: grows downward, emits this tile id at its base
   // Loot: destructive transforms (melt/shatter/dissolve/burn) drop this item
   dropsItem?: string;
+  /** Composable behavior attachments (behaviors.json ids) — reserved for
+   *  tile-hosted rules (elementContact overrides and future tile scripting). */
+  behaviors?: BehaviorAttachment[];
 }
 
 export type ItemKind = "material" | "tool" | "consumable" | "curio";
@@ -194,6 +250,9 @@ export interface ItemDef extends SpriteFields {
   placeType?: "spring" | "trap";
   capabilities?: string[];
   params?: Record<string, number>;
+  /** Composable behavior attachments (behaviors.json ids), run in order.
+   *  When absent, derived from useMode/dousedBy/igniteTo (see itemAttachments). */
+  behaviors?: BehaviorAttachment[];
 }
 
 export interface RecipeDef {
@@ -208,7 +267,11 @@ export type EnemyBehavior = "patrol" | "chase";
 export interface EnemyDef extends SpriteFields {
   id: string;
   name: string;
+  /** Legacy preset. When `behaviors` is present it wins; this remains as the
+   *  fallback mapping for stale content (see enemyAttachments in behavior.ts). */
   behavior: EnemyBehavior;
+  /** Composable behavior attachments (behaviors.json ids), run in order. */
+  behaviors?: BehaviorAttachment[];
   width: number;
   height: number;
   color: string;
@@ -359,6 +422,7 @@ export interface Content {
   game: GameConfig;
   elements: ElementDef[];
   rules: RuleDef[];
+  behaviors: BehaviorDef[];
   achievements: AchievementDef[];
   tiles: TileDef[];
   items: ItemDef[];

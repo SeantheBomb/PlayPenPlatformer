@@ -214,6 +214,63 @@ Also that day: a deliberately quiet **level select** on the main menu — dim
 gamepad, and touch nav. Intentionally subtle so the default flow still funnels
 players into room one; don't promote it to a big menu button.
 
+## 2026-07-31 — The behavior grammar (content-scripted behaviors round)
+
+**Sean's ask**: an editor expansion so tile/entity/enemy/tool behavior is
+configurable and scriptable from content, not engine code — compose existing
+behaviors onto new entities, modify/create behaviors, and self-serve tuning of
+two specific bugs (water "sloshing" indecisively; lava chain-melting ALL
+touching metal "like wood"). Interview locked: trigger→condition→action rules
+(not a full DSL), port existing behaviors now, fluid sim core stays engine
+with lifted tunables, forms-first editor authoring. Explicit constraint:
+nothing functionally changes in the game this round.
+
+**What shipped**:
+- `content/behaviors.json` — a library of named behavior docs (rules:
+  `on` trigger, `if` conditions, `do` actions; `params` with `$name` /
+  `$host.field` / `$data.field` refs; optional per-instance `vars`).
+  Interpreter: `src/game/behavior.ts` (`BehaviorSystem`), verb registries in
+  `room.ts` (enemy/entity verbs) and `game.ts` (item verbs, static block).
+- **Enemy AI fully ported**: patrol/chase/return/stun/traps/hazards/reactions
+  all run as docs (`hazard_reactions`, `element_reactions`, `stun_cycle`,
+  `chase_on_sight`, `patrol_route`, `return_home`, `grounded_move`,
+  `trappable`). `enemies.json` carries explicit `behaviors` arrays; defs
+  without one get the legacy-derived set (`enemyAttachments`). The sight cone
+  drawing + smoke immunity key on the `"sight"` behavior TAG, not the old
+  `behavior: "chase"` enum (which remains only as the legacy fallback).
+- **Item use ported**: swing/splash/place/burst + passive douse/ignite/brazier
+  lighting are `use_*`/`doused_in_liquid`/`ignites_near_fire`/`lights_braziers`
+  docs (derived from `useMode` etc. via `itemAttachments` unless an item has
+  an explicit list). Brazier douse/relight is the `brazier_flame` entity doc
+  (auto-attached via `attachTo.entities`).
+- **Global tunable docs** (code consts are fallbacks; content wins):
+  `fluid_flow` (`intervalSec`, **`sideBias`** alternate/left/right — the slosh
+  knob, `recedeMs`, `toyblockPushSec`), `heat_spread` (`intervalSec`,
+  **`chainMeltRange`** — -1 unlimited (shipped default = old behavior), 0 =
+  direct-contact only, N = chain cap; the lava-melts-all-metal knob),
+  `element_effects` (`energizeMs`, freeze/energize flood caps).
+- **Editor**: new **behaviors** tab (list + auto-form + per-rule builder with
+  trigger dropdown and validated-JSON if/do rows + verb legend generated live
+  from the registries) and a behavior-attachments widget on the enemy/item
+  inspectors (derived-list display with "customize" to materialize, ordered
+  rows, add-with-datalist, revert-to-derived).
+- **Tests**: `tests/enemy-behaviors.test.ts` (26 characterization tests
+  written against the OLD engine loop first, kept green through the port),
+  `tests/behaviors.test.ts` (customization contract: custom docs override
+  engine behavior, attachment params override defaults, chainMeltRange 0/1/-1,
+  sideBias left/right). All content-bearing test harnesses now include
+  behaviors.json. 105 tests green.
+
+**Deliberate scope cuts** (talk to Sean before "fixing"): tile player-physics
+flags (`damage`/`repels`/`bounce`/`slow`/`wade`/`slippery`) stay direct-read
+TileDef fields — they're already per-tile content tunables and live in the hot
+collision path; `TileDef.behaviors` exists in the schema but no tile-host docs
+ship yet. Water/lava contact outcome (who hardens) stays engine (it already
+reads tile `extinguishesTo`). The burst CHARGING input flow still keys on
+`useMode === "burst"` (input pacing), only the throw itself is a doc. Old
+recorded sessions replay through the same merged-bundled behaviors.json, so
+drift should stay 0px — worth eyeballing one old session in the sessions tab.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

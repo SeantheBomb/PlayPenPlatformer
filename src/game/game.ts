@@ -8,7 +8,7 @@ import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
 import { TILE } from "../engine/tilemap";
 import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, roundRect } from "../engine/renderer";
-import { rectsOverlap, randRange } from "../engine/math";
+import { rectsOverlap, randRange, type Rect } from "../engine/math";
 import { RunState } from "./state";
 import { Player } from "./player";
 import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
@@ -19,6 +19,7 @@ import { Warden } from "./warden";
 import { telemetry } from "./telemetry";
 import { simNow, setSimTime } from "../engine/simclock";
 import { randomSeed } from "../engine/rng";
+import { itemAttachments, registerAction, registerCondition, type BehaviorCtx } from "./behavior";
 import { recorder, type CraftOp } from "./recorder";
 import {
   drawAir, drawFloaties, drawHearts, drawHotbar, drawPrompt,
@@ -743,56 +744,31 @@ export class Game {
         }
         this.damagePlayer(1, this.player.centerX, hazard);
       }
-      // Water douse check uses the player's actual body box — exclusive right/
-      // bottom edges, no underfoot probe — unlike the hazard scan above, so a
-      // tile diagonally adjacent (never visually touched) can't douse a torch.
-      let inWater = false;
-      {
-        const wtx0 = Math.floor(this.player.x / TILE);
-        const wtx1 = Math.floor((this.player.x + this.player.w - 1) / TILE);
-        const wty0 = Math.floor(this.player.y / TILE);
-        const wty1 = Math.floor((this.player.feetY - 1) / TILE);
-        for (let ty = wty0; ty <= wty1; ty++) {
-          for (let tx = wtx0; tx <= wtx1; tx++) {
-            if (this.roomRt.map.at(tx, ty)?.element === "water") inWater = true;
-          }
-        }
+      // Carried-item behaviors (doused_in_liquid: standing in water reverts
+      // lit torches / quenches carried lava, wherever they sit in the pack).
+      for (const [id] of [...this.state.inventory]) {
+        const def = this.state.item(id);
+        if (!def) continue;
+        this.roomRt.bhv.fire("carriedTick", {
+          hostDef: def as unknown as Record<string, unknown>,
+          hostKey: "item:" + def.id,
+          attachments: itemAttachments(def),
+          api: { g: this, item: def },
+        });
       }
-      // Water douses carried flames and quenches carried lava (torches
-      // revert to unlit, a lava-filled bucket reverts to empty).
-      if (inWater) {
-        for (const [id] of [...this.state.inventory]) {
-          const def = this.state.item(id);
-          if (def?.dousedBy === "water" && def.dousesTo) {
-            this.state.transform(id, def.dousesTo);
-            sfx.play("splash");
-            this.floaty("Doused!", this.player.centerX, this.player.y - 10, "#4fc3f7");
-          }
-        }
-      }
-      // Passive lighting: just holding an unlit torch up to a flame lights it —
-      // no button press needed. (Applying fire to the WORLD still needs F.)
+      // Held-item behaviors (passive lighting: ignites_near_fire lights an
+      // unlit torch held up to any flame; lights_braziers lets a lit torch
+      // light a cold brazier just by walking into it).
       {
         const usable = this.state.usableItems();
         const held = usable[Math.min(this.state.selectedConsumable, usable.length - 1)];
-        const box = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
-        if (held?.igniteTo) {
-          if (this.roomRt.boxTouchesFire(box)) {
-            this.state.transform(held.id, held.igniteTo);
-            sfx.play("ignite");
-            this.floaty("Lit!", this.player.centerX, this.player.y - 8, "#ff7043");
-            const after = this.state.usableItems();
-            const idx = after.findIndex((i) => i.id === held.igniteTo);
-            if (idx >= 0) this.state.selectedConsumable = idx;
-          }
-        } else if (held?.element === "fire") {
-          // The reverse: carrying a lit torch into a cold brazier lights IT.
-          const litEvents = this.roomRt.applyElementToBraziers("fire", box);
-          if (litEvents.length > 0) {
-            sfx.play("ignite");
-            this.floaty("Brazier lit!", this.player.centerX, this.player.y - 8, "#ffc861");
-            this.handleElementEvents(litEvents);
-          }
+        if (held) {
+          this.roomRt.bhv.fire("heldTick", {
+            hostDef: held as unknown as Record<string, unknown>,
+            hostKey: "item:" + held.id,
+            attachments: itemAttachments(held),
+            api: { g: this, item: held },
+          });
         }
       }
       // First steps on ice (achievement)
@@ -914,9 +890,9 @@ export class Game {
       const inSmoke = this.roomRt.smokeAtPoint(this.player.centerX, this.player.centerY);
       for (const en of this.roomRt.enemies) {
         if (en.state === "stunned" || en.state === "trapped") continue;
-        // Smoke only fools enemies that hunt by SIGHT (behavior "chase").
-        // Blind bodily hazards like crawlers hurt you smoke or no smoke.
-        if (inSmoke && en.def.behavior === "chase") continue;
+        // Smoke only fools enemies that hunt by SIGHT (a "sight"-tagged
+        // behavior). Blind bodily hazards like crawlers hurt you regardless.
+        if (inSmoke && this.roomRt.isSightHunter(en.def)) continue;
         if (rectsOverlap(prect, { x: en.x, y: en.y, w: en.def.width, h: en.def.height })) {
           this.damagePlayer(en.def.damage, en.x + en.def.width / 2, "enemy");
           break;
@@ -1021,7 +997,7 @@ export class Game {
           const rules = this.content.game.rules;
           const t = Math.min(1, (this.simTime - this.throwChargeSince) / (rules.throwChargeSeconds * 1000));
           this.throwChargeSince = null;
-          this.throwBomb(held, t);
+          this.useItem(held, t); // use_burst's throwSelf reads the charge
         }
       }
     } else {
@@ -1393,7 +1369,6 @@ export class Game {
     this.checkAchievements("counter");
   }
 
-  /** The swing/apply box in front of the player. */
   /** Walking into a toyblock leans on it; RoomRuntime.pushToyblock tracks
    *  the sustained-contact timer and hops it one grid tile over once it's
    *  crossed the threshold. */
@@ -1422,15 +1397,6 @@ export class Game {
     return distinctMaterials >= 2;
   }
 
-  private swingBox(): { x: number; y: number; w: number; h: number } {
-    const p = this.player;
-    const front = p.facing >= 0 ? p.x + p.w : p.x;
-    const reach = p.facing * 22;
-    const x0 = Math.min(front, front + reach);
-    const x1 = Math.max(front, front + reach);
-    return { x: x0, y: p.y - 16, w: x1 - x0, h: p.feetY + 10 - (p.y - 16) };
-  }
-
   /** Balloons pop from any tool's use box — pure whimsy, not an elemental
    *  rule, so it runs independent of (and alongside) whatever else the
    *  swing/splash does. */
@@ -1444,91 +1410,18 @@ export class Game {
     }
   }
 
-  private useItem(item: ItemDef): void {
-    const now = simNow(); // swing cooldown is gameplay state — sim clock
-    const rules = this.content.game.rules;
-    switch (item.useMode) {
-      case "swing": {
-        if (now - this.lastSwingAt < 320) return;
-        this.lastSwingAt = now;
-        this.player.swing();
-        sfx.play("swing");
-        const box = this.swingBox();
-        this.popBalloons(box);
-        // Carrier transformations first: light the torch, fill the bucket.
-        if (item.igniteTo && this.roomRt.boxTouchesFire(box)) {
-          this.state.transform(item.id, item.igniteTo);
-          sfx.play("ignite");
-          this.floaty("Lit!", this.player.centerX, this.player.y - 8, "#ff7043");
-          return;
-        }
-        if (item.scoopsInto) {
-          for (const [element, destId] of Object.entries(item.scoopsInto)) {
-            if (!this.roomRt.boxTouchesElement(element, box)) continue;
-            this.state.transform(item.id, destId);
-            sfx.play("splash");
-            const destColor = this.state.item(destId)?.color ?? "#4fc3f7";
-            this.floaty("Scooped.", this.player.centerX, this.player.y - 8, destColor);
-            return;
-          }
-        }
-        const events = [
-          ...this.roomRt.applyElementToTiles(item.element, box),
-          ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
-          ...this.roomRt.applyElementToBraziers(item.element, box),
-        ];
-        this.handleElementEvents(events);
-        if (events.length === 0) sfx.play("craftFail"); // nothing in reach reacted
-        if (item.kind === "consumable" && events.length > 0) {
-          this.state.remove(item.id); // frost vial spends itself on a real effect
-        }
-        break;
-      }
-      case "splash": {
-        if (now - this.lastSwingAt < 320) return;
-        this.lastSwingAt = now;
-        this.player.swing();
-        const p = this.player;
-        const dir = p.facing;
-        const box = {
-          x: dir >= 0 ? p.x : p.x - 52, y: p.y - 8,
-          w: 52 + p.w, h: p.h + 26,
-        };
-        this.popBalloons(box);
-        const events = [
-          ...this.roomRt.applyElementToTiles(item.element, box),
-          ...this.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
-          ...this.roomRt.applyElementToBraziers(item.element, box),
-        ];
-        sfx.play("splash");
-        this.particles.burst({
-          x: p.centerX + dir * 24, y: p.centerY,
-          count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
-        });
-        this.handleElementEvents(events);
-        if (events.length === 0) sfx.play("craftFail"); // nothing in reach reacted
-        if (item.emptiesTo) this.state.transform(item.id, item.emptiesTo);
-        break;
-      }
-      case "place": {
-        if (!item.placeType) return;
-        const tx = this.player.centerX + this.player.facing * 14;
-        this.state.remove(item.id);
-        this.roomRt.placeItem(item.placeType, tx - 8, this.player.feetY - 8);
-        sfx.play("trap");
-        this.floaty(
-          item.placeType === "spring" ? "Sprung. (E to take back)" : "Trap set.",
-          tx, this.player.y
-        );
-        break;
-      }
-      case "burst": {
-        // Throwables normally charge via press-and-hold (see updatePlay);
-        // reaching here directly means a minimum-strength lob.
-        this.throwBomb(item, 0);
-        break;
-      }
-    }
+  /** Use the held item: dispatches the "use" trigger through its behavior
+   *  attachments (use_swing / use_splash / use_place / use_burst docs in
+   *  behaviors.json, or anything custom). `charge` only matters to
+   *  throwables (0 = tap, 1 = full hold). */
+  private useItem(item: ItemDef, charge = 0): void {
+    this.roomRt.bhv.fire("use", {
+      hostDef: item as unknown as Record<string, unknown>,
+      hostKey: "item:" + item.id,
+      attachments: itemAttachments(item),
+      data: { charge },
+      api: { g: this, item },
+    });
   }
 
   /** Launch a throwable at charge `t` (0 = tap, 1 = full). Velocities lerp
@@ -2151,4 +2044,174 @@ export class Game {
       "Enter — back to menu";
     ctx.fillText(p, (VIEW_W - ctx.measureText(p).width) / 2, 320);
   }
+
+  // =========================================================================
+  // Item-hosted behavior verbs (use_swing / use_splash / doused_in_liquid /
+  // ignites_near_fire ... in content/behaviors.json compose these). Static so
+  // the closures can reach Game privates; runs once at module load, below.
+  // =========================================================================
+  static registerItemVerbs(): void {
+    type ItemApi = { g: Game; item: ItemDef };
+    const api = (ctx: BehaviorCtx) => ctx.api as unknown as ItemApi;
+    const boxFor = (g: Game, kind: string, reach: number): Rect => {
+      const p = g.player;
+      if (kind === "splash") {
+        // The wide soak area ahead (extends behind a touch, matches the
+        // old splash box: 52px reach + the player's own width).
+        return { x: p.facing >= 0 ? p.x : p.x - reach, y: p.y - 8, w: reach + p.w, h: p.h + 26 };
+      }
+      if (kind === "body") return { x: p.x, y: p.y, w: p.w, h: p.h };
+      // "swing": an arc in front of the player.
+      const front = p.facing >= 0 ? p.x + p.w : p.x;
+      const r = p.facing * reach;
+      const x0 = Math.min(front, front + r);
+      const x1 = Math.max(front, front + r);
+      return { x: x0, y: p.y - 16, w: x1 - x0, h: p.feetY + 10 - (p.y - 16) };
+    };
+    const argBox = (ctx: BehaviorCtx, args: unknown[], defKind: string, defReach: number): Rect => {
+      const g = api(ctx).g;
+      const kind = ctx.str(ctx.opt(args, "box"), defKind);
+      return boxFor(g, kind, ctx.num(ctx.opt(args, "reach"), defReach));
+    };
+
+    registerCondition("swingBlocked", (ctx, args) => {
+      const { g } = api(ctx);
+      return simNow() - g.lastSwingAt < ctx.num(ctx.opt(args, "cooldownMs"), 320);
+    });
+    registerCondition("hostHas", (ctx, args) => {
+      const field = typeof args[0] === "string" ? args[0] : "";
+      return field !== "" && ctx.hostDef[field] !== undefined;
+    });
+    registerCondition("boxTouchesFire", (ctx, args) => {
+      const { g } = api(ctx);
+      return g.roomRt.boxTouchesFire(argBox(ctx, args, "swing", 22));
+    });
+    registerCondition("playerTouchesFire", (ctx) => {
+      const { g } = api(ctx);
+      return g.roomRt.boxTouchesFire(boxFor(g, "body", 0));
+    });
+    registerCondition("playerInElement", (ctx, args) => {
+      const { g } = api(ctx);
+      const el = ctx.str(args[0], "");
+      if (!el) return false;
+      // The player's actual body box — exclusive right/bottom edges, no
+      // underfoot probe — so a tile diagonally adjacent (never visually
+      // touched) can't count. Same scan the old inWater douse check used.
+      const p = g.player;
+      const tx0 = Math.floor(p.x / TILE);
+      const tx1 = Math.floor((p.x + p.w - 1) / TILE);
+      const ty0 = Math.floor(p.y / TILE);
+      const ty1 = Math.floor((p.feetY - 1) / TILE);
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          if (g.roomRt.map.at(tx, ty)?.element === el) return true;
+        }
+      }
+      return false;
+    });
+
+    registerAction("armSwing", (ctx) => {
+      const { g } = api(ctx);
+      g.lastSwingAt = simNow(); // swing cooldown is gameplay state — sim clock
+      g.player.swing();
+    });
+    registerAction("sfx", (ctx, args) => {
+      sfx.play(ctx.str(args[0], "swing") as never);
+    });
+    registerAction("floaty", (ctx, args) => {
+      const { g } = api(ctx);
+      g.floaty(ctx.str(args[0], ""), g.player.centerX, g.player.y - 8, ctx.str(args[1], "#ffd166"));
+    });
+    registerAction("popBalloons", (ctx, args) => {
+      const { g } = api(ctx);
+      g.popBalloons(argBox(ctx, args, "swing", 22));
+    });
+    registerAction("transformSelf", (ctx, args) => {
+      const { g, item } = api(ctx);
+      const to = ctx.arg(args[0]);
+      if (typeof to === "string" && to) g.state.transform(item.id, to);
+    });
+    registerAction("selectItem", (ctx, args) => {
+      const { g } = api(ctx);
+      const id = ctx.arg(args[0]);
+      if (typeof id !== "string") return;
+      const after = g.state.usableItems();
+      const idx = after.findIndex((i) => i.id === id);
+      if (idx >= 0) g.state.selectedConsumable = idx;
+    });
+    registerAction("scoopFromBox", (ctx, args) => {
+      const { g, item } = api(ctx);
+      if (!item.scoopsInto) return;
+      const box = argBox(ctx, args, "swing", 22);
+      for (const [element, destId] of Object.entries(item.scoopsInto)) {
+        if (!g.roomRt.boxTouchesElement(element, box)) continue;
+        g.state.transform(item.id, destId);
+        sfx.play("splash");
+        const destColor = g.state.item(destId)?.color ?? "#4fc3f7";
+        g.floaty("Scooped.", g.player.centerX, g.player.y - 8, destColor);
+        ctx.halt = true; // the scoop consumed this use
+        return;
+      }
+    });
+    registerAction("applyElements", (ctx, args) => {
+      const { g, item } = api(ctx);
+      const box = argBox(ctx, args, "swing", 22);
+      const rules = g.content.game.rules;
+      const events = [
+        ...g.roomRt.applyElementToTiles(item.element, box),
+        ...g.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
+        ...g.roomRt.applyElementToBraziers(item.element, box),
+      ];
+      const sfxName = ctx.str(ctx.opt(args, "sfx"), "");
+      if (sfxName) sfx.play(sfxName as never);
+      if (ctx.str(ctx.opt(args, "particles"), "") === "splash") {
+        const p = g.player;
+        g.particles.burst({
+          x: p.centerX + p.facing * 24, y: p.centerY,
+          count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
+        });
+      }
+      g.handleElementEvents(events);
+      if (events.length === 0) sfx.play("craftFail"); // nothing in reach reacted
+      ctx.data.effects = events.length;
+    });
+    registerAction("spendSelfOnEffect", (ctx) => {
+      const { g, item } = api(ctx);
+      const effects = ctx.data.effects;
+      if (item.kind === "consumable" && typeof effects === "number" && effects > 0) {
+        g.state.remove(item.id); // frost vial spends itself on a real effect
+      }
+    });
+    registerAction("placeSelf", (ctx) => {
+      const { g, item } = api(ctx);
+      if (!item.placeType) return;
+      const tx = g.player.centerX + g.player.facing * 14;
+      g.state.remove(item.id);
+      g.roomRt.placeItem(item.placeType, tx - 8, g.player.feetY - 8);
+      sfx.play("trap");
+      g.floaty(
+        item.placeType === "spring" ? "Sprung. (E to take back)" : "Trap set.",
+        tx, g.player.y
+      );
+    });
+    registerAction("throwSelf", (ctx, args) => {
+      const { g, item } = api(ctx);
+      g.throwBomb(item, Math.max(0, Math.min(1, ctx.num(ctx.opt(args, "charge"), 0))));
+    });
+    registerAction("applyToBraziers", (ctx, args) => {
+      const { g } = api(ctx);
+      const element = ctx.arg(ctx.opt(args, "element"));
+      if (typeof element !== "string" || !element) return;
+      const events = g.roomRt.applyElementToBraziers(element, boxFor(g, "body", 0));
+      if (events.length > 0) {
+        sfx.play("ignite");
+        g.floaty(
+          ctx.str(ctx.opt(args, "floaty"), "Brazier lit!"),
+          g.player.centerX, g.player.y - 8, "#ffc861"
+        );
+        g.handleElementEvents(events);
+      }
+    });
+  }
 }
+Game.registerItemVerbs();

@@ -1,0 +1,258 @@
+[
+  {
+    "id": "hazard_reactions",
+    "name": "Reacts to tile hazards",
+    "host": "enemy",
+    "description": "Fire/lava/spark tiles the enemy overlaps apply their element to it (through its reactions table), rate-limited by cooldownMs.",
+    "params": { "cooldownMs": 500 },
+    "rules": [
+      { "on": "tick", "do": [["reactToTileHazards", { "cooldownMs": "$cooldownMs" }]] }
+    ]
+  },
+  {
+    "id": "element_reactions",
+    "name": "Element reactions table",
+    "host": "enemy",
+    "description": "When an element hits this enemy, look it up in the enemy's reactions map (kill / stun / knockback / none).",
+    "rules": [
+      { "on": "elementContact", "do": [["reactFromTable"]] }
+    ]
+  },
+  {
+    "id": "stun_cycle",
+    "name": "Stunnable (sleep + wake)",
+    "host": "enemy",
+    "description": "While stunned the enemy does nothing at all; when the stun timer runs out it wakes into wakeTo (patrol, or return for homebound enemies).",
+    "params": { "wakeTo": "patrol" },
+    "rules": [
+      {
+        "on": "tick",
+        "if": [["stateIs", "stunned"], ["stunElapsed"]],
+        "do": [["setState", "$wakeTo"], ["halt"]],
+        "note": "Even the wake tick skips movement — matches the old engine loop."
+      },
+      { "on": "tick", "if": [["stateIs", "stunned"]], "do": [["halt"]] }
+    ]
+  },
+  {
+    "id": "chase_on_sight",
+    "name": "Chases on sight",
+    "host": "enemy",
+    "tags": ["sight"],
+    "description": "Forward vision cone: seeing the player escalates to chase; losing them (hidden, smoke, or loseTargetMs without sight) gives up into giveUpTo. Smoke on either end breaks sight.",
+    "params": {
+      "range": "$host.sightRange",
+      "halfSlope": 0.55,
+      "conePad": 12,
+      "loseTargetMs": "$host.loseTargetMs",
+      "chaseSpeed": "$host.chaseSpeed",
+      "giveUpTo": "patrol"
+    },
+    "rules": [
+      {
+        "on": "tick",
+        "if": [["seesPlayer", { "range": "$range", "halfSlope": "$halfSlope", "conePad": "$conePad" }]],
+        "do": [["setState", "chase"], ["noteSeen"]]
+      },
+      {
+        "on": "tick",
+        "if": [["stateIs", "chase"], ["sightLost", { "loseTargetMs": "$loseTargetMs" }]],
+        "do": [["setState", "$giveUpTo"]]
+      },
+      {
+        "on": "tick",
+        "if": [["stateIs", "chase"]],
+        "do": [["steerChase", { "speed": "$chaseSpeed" }]]
+      }
+    ]
+  },
+  {
+    "id": "patrol_route",
+    "name": "Patrols a route",
+    "host": "enemy",
+    "description": "Drifts between its patrol bounds at speed, refusing steps it can't safely take (walls, refused elements, drops deeper than a tile). Blocked both ways = stand still.",
+    "params": { "speed": "$host.speed" },
+    "rules": [
+      { "on": "tick", "if": [["stateIs", "patrol"]], "do": [["steerPatrol", { "speed": "$speed" }]] }
+    ]
+  },
+  {
+    "id": "return_home",
+    "name": "Returns to its post",
+    "host": "enemy",
+    "description": "In the return state, walks back toward its spawn point at speed.",
+    "params": { "speed": "$host.speed" },
+    "rules": [
+      { "on": "tick", "if": [["stateIs", "return"]], "do": [["steerHome", { "speed": "$speed" }]] }
+    ]
+  },
+  {
+    "id": "grounded_move",
+    "name": "Gravity + walking physics",
+    "host": "enemy",
+    "description": "Applies gravity and resolves movement against the map. Hitting a wall while patrolling flips the facing.",
+    "params": { "gravity": 1400, "maxFall": 460, "flipOnWallIn": "patrol" },
+    "rules": [
+      {
+        "on": "tick",
+        "do": [["applyGravityAndMove", { "gravity": "$gravity", "maxFall": "$maxFall", "flipOnWallIn": "$flipOnWallIn" }]]
+      }
+    ]
+  },
+  {
+    "id": "trappable",
+    "name": "Trappable",
+    "host": "enemy",
+    "description": "Walking onto a player-placed trap captures this enemy (removed from play, trap consumed).",
+    "rules": [
+      { "on": "tick", "do": [["checkTraps"]] }
+    ]
+  },
+  {
+    "id": "brazier_flame",
+    "name": "Brazier flame",
+    "host": "entity",
+    "attachTo": { "entities": ["brazier"] },
+    "description": "Water douses a lit brazier; fire relights a cold one. Flowing/pooled water tiles touching it douse it too.",
+    "params": { "dousedBy": "water", "relitBy": "fire" },
+    "rules": [
+      {
+        "on": "elementContact",
+        "if": [["elementIs", "$dousedBy"], ["isLit", true]],
+        "do": [["setLit", false], ["emitEvent", { "effect": "extinguish", "color": "#8f9bb3", "at": "top" }]]
+      },
+      {
+        "on": "elementContact",
+        "if": [["elementIs", "$relitBy"], ["isLit", false]],
+        "do": [["setLit", true], ["emitEvent", { "effect": "ignite", "color": "#ffc861", "at": "top" }]]
+      },
+      {
+        "on": "flowTick",
+        "if": [["isLit", true], ["touchesTileElement", "$dousedBy"]],
+        "do": [["setLit", false], ["emitEvent", { "effect": "extinguish", "color": "#8f9bb3", "at": "top" }]]
+      }
+    ]
+  },
+  {
+    "id": "use_swing",
+    "name": "Use: swing",
+    "host": "item",
+    "description": "F swings the item in an arc ahead: lights/scoops the carrier first if it can, otherwise applies the item's element to tiles, enemies, and braziers in reach. Consumables spend themselves on a real effect.",
+    "params": { "cooldownMs": 320, "reach": 22 },
+    "rules": [
+      { "on": "use", "if": [["swingBlocked", { "cooldownMs": "$cooldownMs" }]], "do": [["halt"]] },
+      { "on": "use", "do": [["armSwing"], ["sfx", "swing"], ["popBalloons", { "box": "swing", "reach": "$reach" }]] },
+      {
+        "on": "use",
+        "if": [["hostHas", "igniteTo"], ["boxTouchesFire", { "box": "swing", "reach": "$reach" }]],
+        "do": [["transformSelf", "$host.igniteTo"], ["sfx", "ignite"], ["floaty", "Lit!", "#ff7043"], ["halt"]]
+      },
+      { "on": "use", "do": [["scoopFromBox", { "box": "swing", "reach": "$reach" }]] },
+      {
+        "on": "use",
+        "do": [["applyElements", { "box": "swing", "reach": "$reach" }], ["spendSelfOnEffect"]]
+      }
+    ]
+  },
+  {
+    "id": "use_splash",
+    "name": "Use: splash",
+    "host": "item",
+    "description": "F splashes the item's element over a wide area ahead (tiles, enemies, braziers), then the container reverts to its empty form.",
+    "params": { "cooldownMs": 320, "reach": 52 },
+    "rules": [
+      { "on": "use", "if": [["swingBlocked", { "cooldownMs": "$cooldownMs" }]], "do": [["halt"]] },
+      {
+        "on": "use",
+        "do": [
+          ["armSwing"],
+          ["popBalloons", { "box": "splash", "reach": "$reach" }],
+          ["applyElements", { "box": "splash", "reach": "$reach", "sfx": "splash", "particles": "splash" }],
+          ["transformSelf", "$host.emptiesTo"]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "use_place",
+    "name": "Use: place",
+    "host": "item",
+    "description": "F places the item in front of the player (spring pad or trap). E takes it back.",
+    "rules": [
+      { "on": "use", "do": [["placeSelf"]] }
+    ]
+  },
+  {
+    "id": "use_burst",
+    "name": "Use: throw",
+    "host": "item",
+    "description": "F lobs the item; hold to charge the arc. It bursts into a smoke veil where it lands.",
+    "rules": [
+      { "on": "use", "do": [["throwSelf", { "charge": "$data.charge" }]] }
+    ]
+  },
+  {
+    "id": "doused_in_liquid",
+    "name": "Doused by an element",
+    "host": "item",
+    "description": "Standing in the item's dousedBy element reverts it to its doused form (a lit torch goes out in water) — wherever it sits in the inventory.",
+    "rules": [
+      {
+        "on": "carriedTick",
+        "if": [["playerInElement", "$host.dousedBy"], ["hostHas", "dousesTo"]],
+        "do": [["transformSelf", "$host.dousesTo"], ["sfx", "splash"], ["floaty", "Doused!", "#4fc3f7"]]
+      }
+    ]
+  },
+  {
+    "id": "ignites_near_fire",
+    "name": "Lights near fire",
+    "host": "item",
+    "description": "Just holding this up to any flame (fire tiles, burning tiles, lit braziers) lights it into its lit form — no button press needed.",
+    "rules": [
+      {
+        "on": "heldTick",
+        "if": [["playerTouchesFire"]],
+        "do": [["transformSelf", "$host.igniteTo"], ["sfx", "ignite"], ["floaty", "Lit!", "#ff7043"], ["selectSelfResult"]]
+      }
+    ]
+  },
+  {
+    "id": "lights_braziers",
+    "name": "Lights braziers while held",
+    "host": "item",
+    "description": "Carrying this (a lit fire source) into a cold brazier lights the brazier.",
+    "rules": [
+      { "on": "heldTick", "do": [["applyToBraziers", { "element": "$host.element", "floaty": "Brazier lit!" }]] }
+    ]
+  },
+  {
+    "id": "fluid_flow",
+    "name": "Fluid flow (global tunables)",
+    "host": "global",
+    "description": "Tunables for the fluid sim core. intervalSec = seconds between flow ticks. sideBias = which side fluid tries first when spreading/sliding: alternate (flips each tick, cancels drift), left, or right. recedeMs = how long a cut-off sourced pool takes to fully recede. toyblockPushSec = lean time before a toyblock hops.",
+    "params": {
+      "intervalSec": 0.5,
+      "sideBias": "alternate",
+      "recedeMs": 2000,
+      "toyblockPushSec": 0.25
+    },
+    "rules": []
+  },
+  {
+    "id": "heat_spread",
+    "name": "Heat spread (global tunables)",
+    "host": "global",
+    "description": "Tunables for fire/lava radiating into neighbors. intervalSec = seconds between spread ticks. chainMeltRange = how many tiles beyond direct lava contact a melt can chain through consecutive meltables (-1 = unlimited, 0 = only tiles touching real lava, N = at most N tiles deep).",
+    "params": { "intervalSec": 0.7, "chainMeltRange": -1 },
+    "rules": []
+  },
+  {
+    "id": "element_effects",
+    "name": "Element effect verbs (global tunables)",
+    "host": "global",
+    "description": "Tunables for the effect verbs. energizeMs = how long charge lingers on conductive tiles. freezeSpreadMax / energizeSpreadMax = flood-fill caps for freeze and energize.",
+    "params": { "energizeMs": 1500, "freezeSpreadMax": 32, "energizeSpreadMax": 600 },
+    "rules": []
+  }
+]

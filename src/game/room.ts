@@ -9,6 +9,10 @@ import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
 import { Rng } from "../engine/rng";
 import type { PlacedItem, RoomMutations, ScatterDrop } from "./state";
+import {
+  BehaviorSystem, enemyAttachments, enemyResetState,
+  registerAction, registerCondition, type BehaviorCtx,
+} from "./behavior";
 
 export interface EntityInstance extends Rect {
   index: number;
@@ -66,6 +70,8 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   fusebox: [14, 18],
 };
 
+// Code-level fallbacks for the global tunables in content/behaviors.json
+// (heat_spread / fluid_flow / element_effects docs) — the content values win.
 const SPREAD_INTERVAL = 0.7; // seconds between fire spread ticks
 const ENERGIZE_MS = 1500;
 const HAZARD_COOLDOWN_MS = 500;
@@ -111,13 +117,15 @@ export class RoomRuntime {
   private grateFluid = new Map<number, TileDef>();
   private waterFlowEnabled: boolean;
   private spreadClock = 0;
-  /** Tile indices a lava-caused melt vacated last spread tick — radiate
-   *  lava's heat for exactly one more tick so a consecutive run of metal
-   *  (or ice) chain-melts tile by tile, the same way an actively burning
-   *  tile keeps igniting its own neighbors each tick. Melting is otherwise
-   *  instantaneous with no equivalent "still hot" phase, so without this
-   *  only the ONE tile directly touching the lava would ever melt. */
-  private meltedHot = new Set<number>();
+  /** Tile index -> chain depth for cells a lava-caused melt vacated last
+   *  spread tick — they radiate lava's heat for exactly one more tick so a
+   *  consecutive run of metal (or ice) chain-melts tile by tile, the same
+   *  way an actively burning tile keeps igniting its own neighbors each
+   *  tick. Melting is otherwise instantaneous with no equivalent "still
+   *  hot" phase, so without this only the ONE tile directly touching the
+   *  lava would ever melt. The depth is how many tiles beyond direct lava
+   *  contact the chain has traveled — heat_spread's chainMeltRange caps it. */
+  private meltedHot = new Map<number, number>();
   private waterFlowClock = 0;
   /** Flips every flow tick. Every "which side first" neighbor check below
    *  alternates on this instead of always trying left first — a fixed
@@ -128,7 +136,23 @@ export class RoomRuntime {
    *  synthetic repro). Alternating cancels the bias out over time instead of
    *  compounding it in one direction. */
   private flowSideFlip = false;
+  /** The side order actually used this tick: flowSideFlip when fluid_flow's
+   *  sideBias is "alternate", else pinned left/right (Sean's slosh tunable). */
+  private flowFlipEff = false;
   private tilesById = new Map<string, TileDef>();
+  /** The behavior-grammar interpreter for this room (content-driven). */
+  readonly bhv: BehaviorSystem;
+  // Global tunables (behaviors.json global docs; consts above as fallbacks)
+  private flowIntervalSec = WATER_FLOW_INTERVAL;
+  private spreadIntervalSec = SPREAD_INTERVAL;
+  private recedeMsEff = RECEDE_MS;
+  private toyblockPushSec = TOYBLOCK_PUSH_TIME;
+  private energizeMs = ENERGIZE_MS;
+  private freezeSpreadMax = 32;
+  private energizeSpreadMax = 600;
+  private sideBias = "alternate";
+  /** Max tiles a lava melt may chain beyond direct contact (-1 = unlimited). */
+  private chainMeltRange = -1;
   /** Seeded (not Math.random) so scatter-drop launch velocity replays
    *  deterministically, same as taunts. */
   private rng: Rng;
@@ -136,7 +160,7 @@ export class RoomRuntime {
   constructor(
     public room: RoomDef,
     private content: Content,
-    private muts: RoomMutations,
+    readonly muts: RoomMutations,
     /** npcIds helped anywhere this run — gates requiresHelped/hiddenIfHelped
      *  entities (pair scenes, the send-off). Optional so the editor's
      *  preview and headless tests see every unconditional entity. */
@@ -146,6 +170,24 @@ export class RoomRuntime {
     this.rng = new Rng((runSeed >>> 0) || 1);
     this.map = new TileMap(room, content.tiles);
     for (const t of content.tiles) this.tilesById.set(t.id, t);
+    this.bhv = new BehaviorSystem(content);
+    {
+      // Global sim tunables from behaviors.json (content wins, consts fall back).
+      const num = (v: unknown, fb: number) =>
+        typeof v === "number" && Number.isFinite(v) ? v : fb;
+      const flow = this.bhv.globalParams("fluid_flow");
+      this.flowIntervalSec = num(flow.intervalSec, WATER_FLOW_INTERVAL);
+      this.sideBias = typeof flow.sideBias === "string" ? flow.sideBias : "alternate";
+      this.recedeMsEff = num(flow.recedeMs, RECEDE_MS);
+      this.toyblockPushSec = num(flow.toyblockPushSec, TOYBLOCK_PUSH_TIME);
+      const heat = this.bhv.globalParams("heat_spread");
+      this.spreadIntervalSec = num(heat.intervalSec, SPREAD_INTERVAL);
+      this.chainMeltRange = num(heat.chainMeltRange, -1);
+      const fx = this.bhv.globalParams("element_effects");
+      this.energizeMs = num(fx.energizeMs, ENERGIZE_MS);
+      this.freezeSpreadMax = num(fx.freezeSpreadMax, 32);
+      this.energizeSpreadMax = num(fx.energizeSpreadMax, 600);
+    }
     for (const [idx, tileId] of muts.tileOverrides) {
       this.map.overrides.set(idx, tileId ? this.tilesById.get(tileId) ?? null : null);
     }
@@ -495,7 +537,7 @@ export class RoomRuntime {
     this.waterFlowDist.delete(idx);
     if (!grab) return;
     visited.add(idx);
-    const dirs = this.flowSideFlip ? [[1, 0], [-1, 0]] as const : [[-1, 0], [1, 0]] as const;
+    const dirs = this.flowFlipEff ? [[1, 0], [-1, 0]] as const : [[-1, 0], [1, 0]] as const;
     for (const [dx, dy] of dirs) {
       const nx = tx + dx, ny = ty + dy;
       if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
@@ -594,7 +636,7 @@ export class RoomRuntime {
       return true;
     }
     const t = (this.toyblockPush.get(idx) ?? 0) + dt;
-    if (t >= TOYBLOCK_PUSH_TIME) {
+    if (t >= this.toyblockPushSec) {
       this.setTileById(destX, ty, def.id);
       this.setTileById(tx, ty, undefined);
       this.toyblockPush.delete(idx);
@@ -728,14 +770,17 @@ export class RoomRuntime {
    * Water and lava meeting quenches the lava into its extinguishesTo
    * (cracked stone) — the water survives.
    */
-  /** [tx-1, tx+1] or [tx+1, tx-1], alternating per tick — see flowSideFlip. */
+  /** [tx-1, tx+1] or [tx+1, tx-1], per the sideBias tunable — see flowFlipEff. */
   private sideXs(tx: number): [number, number] {
-    return this.flowSideFlip ? [tx + 1, tx - 1] : [tx - 1, tx + 1];
+    return this.flowFlipEff ? [tx + 1, tx - 1] : [tx - 1, tx + 1];
   }
 
   private tickWaterFlow(events: ElementEvent[]): void {
     if (!this.waterFlowEnabled) return;
     this.flowSideFlip = !this.flowSideFlip;
+    // sideBias tunable: "alternate" keeps the drift-cancelling flip;
+    // "left"/"right" pin every side check to one direction.
+    this.flowFlipEff = this.sideBias === "alternate" ? this.flowSideFlip : this.sideBias === "right";
     this.tickFalls(events);
 
     // Pre-pass: drains eat every adjacent fluid tile BEFORE anything moves,
@@ -792,7 +837,7 @@ export class RoomRuntime {
       const ay = Math.floor(a[0] / width), by = Math.floor(b[0] / width);
       if (ay !== by) return by - ay;
       const ax = a[0] % width, bx = b[0] % width;
-      return this.flowSideFlip ? ax - bx : bx - ax;
+      return this.flowFlipEff ? ax - bx : bx - ax;
     });
     for (const [idx, distance] of sorted) {
       const tx = idx % this.map.width;
@@ -914,7 +959,7 @@ export class RoomRuntime {
         break;
       }
     }
-    this.douseBraziersTouchingWater(events);
+    this.dispatchEntityFlowTick(events);
   }
 
   /**
@@ -993,24 +1038,18 @@ export class RoomRuntime {
     }
   }
 
-  /** Water reaching a brazier puts it out (steam, no drama). */
-  private douseBraziersTouchingWater(events: ElementEvent[]): void {
+  /** Per-flow-tick entity behaviors (brazier_flame's water-douse rule lives
+   *  here — flowing/pooled water reaching a lit brazier puts it out). */
+  private dispatchEntityFlowTick(events: ElementEvent[]): void {
     for (const e of this.entities) {
-      if (e.kind !== "brazier" || e.lit === false) continue;
-      const tx0 = Math.floor(e.x / TILE);
-      const tx1 = Math.floor((e.x + e.w - 1) / TILE);
-      const ty0 = Math.floor(e.y / TILE);
-      const ty1 = Math.floor((e.y + e.h - 1) / TILE);
-      let wet = false;
-      for (let ty = ty0; ty <= ty1 && !wet; ty++) {
-        for (let tx = tx0; tx <= tx1 && !wet; tx++) {
-          if (this.map.at(tx, ty)?.element === "water") wet = true;
-        }
-      }
-      if (wet) {
-        this.setBrazierLit(e, false);
-        events.push({ effect: "extinguish", x: e.x + e.w / 2, y: e.y, color: "#8f9bb3" });
-      }
+      const attachments = this.bhv.entityAttachments(e.kind);
+      if (attachments.length === 0) continue;
+      this.bhv.fire("flowTick", {
+        hostDef: e.def as unknown as Record<string, unknown>,
+        hostKey: "entity:" + e.index,
+        attachments,
+        api: { rt: this, e, events },
+      });
     }
   }
 
@@ -1028,16 +1067,18 @@ export class RoomRuntime {
    */
   applyElementToBraziers(element: string | undefined, box: Rect): ElementEvent[] {
     const events: ElementEvent[] = [];
-    if (element !== "water" && element !== "fire") return events;
+    if (!element) return events;
     for (const e of this.entities) {
-      if (e.kind !== "brazier" || !rectsOverlap(e, box)) continue;
-      if (element === "water" && e.lit !== false) {
-        this.setBrazierLit(e, false);
-        events.push({ effect: "extinguish", x: e.x + e.w / 2, y: e.y, color: "#8f9bb3" });
-      } else if (element === "fire" && e.lit === false) {
-        this.setBrazierLit(e, true);
-        events.push({ effect: "ignite", x: e.x + e.w / 2, y: e.y, color: "#ffc861" });
-      }
+      if (!rectsOverlap(e, box)) continue;
+      const attachments = this.bhv.entityAttachments(e.kind);
+      if (attachments.length === 0) continue;
+      this.bhv.fire("elementContact", {
+        hostDef: e.def as unknown as Record<string, unknown>,
+        hostKey: "entity:" + e.index,
+        attachments,
+        data: { element },
+        api: { rt: this, e, events },
+      });
     }
     return events;
   }
@@ -1048,7 +1089,7 @@ export class RoomRuntime {
     const stack = [[tx, ty]];
     const seen = new Set<number>();
     let count = 0;
-    while (stack.length > 0 && count < 32) {
+    while (stack.length > 0 && count < this.freezeSpreadMax) {
       const [cx, cy] = stack.pop()!;
       const idx = this.map.index(cx, cy);
       if (seen.has(idx)) continue;
@@ -1066,11 +1107,11 @@ export class RoomRuntime {
 
   /** Flood charge through connected conductive tiles; trip fuse boxes. */
   private energizeFrom(tx: number, ty: number, events: ElementEvent[]): void {
-    const until = simNow() + ENERGIZE_MS;
+    const until = simNow() + this.energizeMs;
     const stack = [[tx, ty]];
     const seen = new Set<number>();
     let count = 0;
-    while (stack.length > 0 && count < 600) {
+    while (stack.length > 0 && count < this.energizeSpreadMax) {
       const [cx, cy] = stack.pop()!;
       const idx = this.map.index(cx, cy);
       if (seen.has(idx)) continue;
@@ -1198,7 +1239,7 @@ export class RoomRuntime {
     }
     for (const { idx, d } of cut) {
       const ratio = maxDist > 0 ? d / maxDist : 1;
-      this.draining.set(idx, now + RECEDE_MS * (1 - ratio));
+      this.draining.set(idx, now + this.recedeMsEff * (1 - ratio));
       this.waterFlowDist.delete(idx);
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
       events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
@@ -1230,25 +1271,20 @@ export class RoomRuntime {
     return events;
   }
 
+  /** Apply an element to one enemy — dispatches the elementContact trigger
+   *  through its behaviors (element_reactions reads the reactions table; a
+   *  custom doc can do anything else) and reports what happened. */
   reactEnemy(en: EnemyInstance, element: string, stunMs: number): EnemyReaction {
-    const reaction: EnemyReaction = en.def.reactions?.[element] ?? "none";
-    switch (reaction) {
-      case "kill":
-        en.state = "trapped"; // reuse: removed from play
-        this.muts.disabledEnemies.add(en.index);
-        this.enemies = this.enemies.filter((e) => e !== en);
-        break;
-      case "stun":
-        en.state = "stunned";
-        en.stunUntil = simNow() + stunMs;
-        break;
-      case "knockback":
-        en.vx = en.facing * -120;
-        break;
-      case "none":
-        break;
-    }
-    return reaction;
+    const data: Record<string, unknown> = { element };
+    this.bhv.fire("elementContact", {
+      hostDef: en.def as unknown as Record<string, unknown>,
+      hostKey: "enemy:" + en.index,
+      attachments: enemyAttachments(en.def),
+      data,
+      api: { rt: this, en, player: null, dt: 0, stunMs, events: [] },
+    });
+    const r = data.reaction;
+    return r === "kill" || r === "stun" || r === "knockback" ? r : "none";
   }
 
   isEnergized(tx: number, ty: number): boolean {
@@ -1387,8 +1423,9 @@ export class RoomRuntime {
     return hit;
   }
 
-  /** Can this enemy safely take a step in `want` direction? */
-  private canStepAhead(en: EnemyInstance, want: number): boolean {
+  /** Can this enemy safely take a step in `want` direction? (Public for the
+   *  behavior verbs below — steering primitives live outside the class.) */
+  canStepAhead(en: EnemyInstance, want: number): boolean {
     if (want === 0) return true;
     const d = en.def;
     const aheadX = want > 0 ? en.x + d.width + 3 : en.x - 3;
@@ -1426,9 +1463,31 @@ export class RoomRuntime {
       en.x = en.homeX - en.def.width / 2;
       en.vx = 0;
       en.vy = 0;
-      en.state = en.def.behavior === "patrol" ? "patrol" : "return";
+      en.state = enemyResetState(this.bhv, en.def);
       en.lastSawPlayerAt = 0;
     }
+  }
+
+  /** Does this enemy hunt by sight? (Smoke hides the player from it, and it
+   *  draws a vision cone.) True when any attached behavior is tagged "sight". */
+  isSightHunter(d: EnemyDef): boolean {
+    return this.bhv.hasTag(enemyAttachments(d), "sight");
+  }
+
+  /** Vision-cone drawing parameters from the enemy's sight-tagged behavior,
+   *  or null for blind enemies. */
+  sightParamsFor(d: EnemyDef): { range: number; halfSlope: number; conePad: number } | null {
+    const atts = enemyAttachments(d);
+    const tagged = this.bhv.taggedAttachment(atts, "sight");
+    if (!tagged) return null;
+    const p = this.bhv.resolvedParams(atts, tagged.id, d as unknown as Record<string, unknown>) ?? {};
+    const num = (v: unknown, fb: number) =>
+      typeof v === "number" && Number.isFinite(v) ? v : fb;
+    return {
+      range: num(p.range, d.sightRange ?? 120),
+      halfSlope: num(p.halfSlope, SIGHT_HALF_SLOPE),
+      conePad: num(p.conePad, 12),
+    };
   }
 
   // ================= UPDATE =================
@@ -1456,37 +1515,38 @@ export class RoomRuntime {
       }
     }
     this.spreadClock += dt;
-    if (this.spreadClock >= SPREAD_INTERVAL) {
+    if (this.spreadClock >= this.spreadIntervalSec) {
       this.spreadClock = 0;
       // element -> heat sources of that element. Fire tiles/burning tiles/lit
       // braziers radiate "fire"; lava tiles radiate "lava" (their own,
-      // hotter ruleset — it can melt metal where a torch can't).
-      const igniters: [number, number, string][] = [];
+      // hotter ruleset — it can melt metal where a torch can't). The 4th
+      // tuple slot is the chain-melt depth (0 = a real heat source).
+      const igniters: [number, number, string, number][] = [];
       for (let ty = 0; ty < this.map.height; ty++) {
         for (let tx = 0; tx < this.map.width; tx++) {
           const def = this.map.at(tx, ty);
           if ((def?.spreads && def.element === "fire") || this.isBurning(tx, ty)) {
-            igniters.push([tx, ty, "fire"]);
+            igniters.push([tx, ty, "fire", 0]);
           } else if (def?.spreads && def.element === "lava") {
-            igniters.push([tx, ty, "lava"]);
+            igniters.push([tx, ty, "lava", 0]);
           }
         }
       }
       for (const e of this.entities) {
         if (e.kind === "brazier" && e.lit !== false) {
-          igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE), "fire"]);
+          igniters.push([Math.floor((e.x + e.w / 2) / TILE), Math.floor((e.y + e.h / 2) / TILE), "fire", 0]);
         }
       }
       // Cells a lava melt vacated last tick radiate lava's heat once more —
-      // see meltedHot above. Single-shot: swap to a fresh set each tick so
+      // see meltedHot above. Single-shot: swap to a fresh map each tick so
       // it's exactly one more ring, not a permanent hot spot.
-      for (const idx of this.meltedHot) {
-        igniters.push([idx % this.map.width, Math.floor(idx / this.map.width), "lava"]);
+      for (const [idx, depth] of this.meltedHot) {
+        igniters.push([idx % this.map.width, Math.floor(idx / this.map.width), "lava", depth]);
       }
-      this.meltedHot = new Set();
+      this.meltedHot = new Map();
       // Neighbors get the source's full ruleset — flammables ignite, ice
       // melts. (A lit goo line can melt a distant ice wall.)
-      for (const [tx, ty, elem] of igniters) {
+      for (const [tx, ty, elem, depth] of igniters) {
         for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
           const ndef = this.map.at(nx, ny);
           if (!ndef) continue;
@@ -1498,14 +1558,18 @@ export class RoomRuntime {
           if (rule?.effect === "melt" && ndef.meltsTo !== undefined) {
             this.transformTile(nx, ny, ndef.meltsTo);
             events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: elem });
-            if (elem === "lava") this.meltedHot.add(this.map.index(nx, ny));
+            // heat_spread.chainMeltRange caps how far the chain reaches
+            // beyond direct contact (-1 = unlimited, the shipped default).
+            if (elem === "lava" && (this.chainMeltRange < 0 || depth + 1 <= this.chainMeltRange)) {
+              this.meltedHot.set(this.map.index(nx, ny), depth + 1);
+            }
           }
         }
       }
     }
 
     this.waterFlowClock += dt;
-    if (this.waterFlowClock >= WATER_FLOW_INTERVAL) {
+    if (this.waterFlowClock >= this.flowIntervalSec) {
       this.waterFlowClock = 0;
       this.tickWaterFlow(events);
       this.tickToyblockFalls();
@@ -1519,124 +1583,18 @@ export class RoomRuntime {
       events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
     }
 
-    // ---- Enemies ----
+    // ---- Enemies (behavior-grammar driven — content/behaviors.json wires
+    // which rules each enemy runs; the verbs below this class implement the
+    // primitives. Legacy defs without a `behaviors` list get the mapping in
+    // enemyAttachments, which reproduces the old hardcoded loop exactly.) ----
     for (const en of [...this.enemies]) {
-      const d = en.def;
       if (en.state === "trapped") continue;
-
-      // Environmental hazards act on enemies too
-      if (now - en.lastHazardAt > HAZARD_COOLDOWN_MS) {
-        const tx0 = Math.floor(en.x / TILE);
-        const tx1 = Math.floor((en.x + d.width) / TILE);
-        const ty0 = Math.floor(en.y / TILE);
-        const ty1 = Math.floor((en.y + d.height + 2) / TILE);
-        let applied: string | null = null;
-        for (let ty = ty0; ty <= ty1 && !applied; ty++) {
-          for (let tx = tx0; tx <= tx1 && !applied; tx++) {
-            const tdef = this.map.at(tx, ty);
-            if (this.isBurning(tx, ty) || tdef?.element === "fire") applied = "fire";
-            else if (tdef?.element === "lava") applied = "lava";
-            else if (this.isEnergized(tx, ty)) applied = "spark";
-          }
-        }
-        if (applied) {
-          en.lastHazardAt = now;
-          const r = this.reactEnemy(en, applied, stunMs);
-          if (r !== "none") {
-            events.push({
-              effect: "enemy_" + r,
-              x: en.x + d.width / 2, y: en.y + d.height / 2, color: d.color,
-              enemyId: d.id, element: applied,
-            });
-          }
-          if (r === "kill") continue;
-        }
-      }
-
-      if (en.state === "stunned") {
-        if (now >= en.stunUntil) {
-          en.state = d.behavior === "patrol" ? "patrol" : "return";
-        }
-        continue;
-      }
-
-      const cx = en.x + d.width / 2;
-      const cy = en.y + d.height / 2;
-
-      // Smoke veil: a player standing in smoke can't be seen by anyone, and
-      // a spotter standing in smoke can't see anything outside it — so sight
-      // only ever connects when BOTH ends are in clear air.
-      const playerSmoked = !!player && this.smokeAtPoint(player.centerX, player.centerY);
-      const enemySmoked = this.smokeAtPoint(cx, cy);
-
-      // Chasers only see FORWARD, in a cone (drawn for the player to read).
-      if (d.behavior === "chase" && player && !player.hidden && !playerSmoked && !enemySmoked) {
-        const dx = player.centerX - cx;
-        const dy = player.centerY - cy;
-        const facingOk = dx * en.facing > 0;
-        const inCone = Math.abs(dy) <= Math.abs(dx) * SIGHT_HALF_SLOPE + 12;
-        const inRange = Math.abs(dx) <= (d.sightRange ?? 120);
-        if (
-          facingOk && inCone && inRange &&
-          this.map.lineOfSight(cx, cy, player.centerX, player.centerY)
-        ) {
-          en.state = "chase";
-          en.lastSawPlayerAt = now;
-        }
-      }
-      if (en.state === "chase") {
-        const lost =
-          !player || player.hidden || playerSmoked || enemySmoked ||
-          now - en.lastSawPlayerAt > (d.loseTargetMs ?? 2000);
-        if (lost) en.state = d.returnsHome ? "return" : "patrol";
-      }
-
-      let want = 0;
-      let speed = d.speed;
-      if (en.state === "patrol") {
-        want = en.facing;
-        if (cx <= en.patrolMin) want = 1;
-        else if (cx >= en.patrolMax) want = -1;
-        if (!this.canStepAhead(en, want)) {
-          // Blocked ahead (a wall, or water a metal enemy refuses) — try
-          // the other direction, but only commit if THAT one is actually
-          // walkable too. Water can flood in dynamically and block one end
-          // of a patrol range; blindly flipping into an equally-blocked
-          // opposite side every frame flips `facing` back and forth forever
-          // (hitWall flips it right back) without ever actually moving —
-          // reads as the enemy freezing in place. Stand still instead.
-          want = this.canStepAhead(en, -want) ? -want : 0;
-        }
-      } else if (en.state === "chase" && player) {
-        speed = d.chaseSpeed ?? d.speed * 2;
-        const dx = player.centerX - cx;
-        want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
-        // Too smart to strand itself: no drops it can't climb, no wading.
-        if (want !== 0 && !this.canStepAhead(en, want)) want = 0;
-      } else if (en.state === "return") {
-        const dx = en.homeX - cx;
-        want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
-        if (want !== 0 && !this.canStepAhead(en, want)) want = 0;
-      }
-      if (want !== 0) en.facing = want;
-      en.vx = want * speed;
-      en.vy = Math.min(en.vy + 1400 * dt, 460);
-
-      const res = this.map.move(en.x, en.y, d.width, d.height, en.vx, en.vy, dt);
-      if (res.hitWall && en.state === "patrol") en.facing = -en.facing;
-      en.x = res.x;
-      en.y = res.y;
-      en.vy = res.vy;
-
-      // Player-placed traps
-      const rect = { x: en.x, y: en.y, w: d.width, h: d.height };
-      for (const p of this.placed) {
-        if (p.data.type === "trap" && !p.data.used && d.trappable && rectsOverlap(rect, p)) {
-          p.data.used = true;
-          en.state = "trapped";
-          this.muts.disabledEnemies.add(en.index);
-        }
-      }
+      this.bhv.fire("tick", {
+        hostDef: en.def as unknown as Record<string, unknown>,
+        hostKey: "enemy:" + en.index,
+        attachments: enemyAttachments(en.def),
+        api: { rt: this, en, player, dt, stunMs, events },
+      });
     }
 
     // ---- Scattered drops: gravity + settle (Sonic-ring launch, then rest) ----
@@ -2076,13 +2034,15 @@ export class RoomRuntime {
       return;
     }
     const chasing = en.state === "chase";
-    // Visible sight cone for forward-looking chasers
-    if (d.behavior === "chase") {
-      const range = d.sightRange ?? 120;
+    // Visible sight cone for forward-looking chasers (any enemy carrying a
+    // "sight"-tagged behavior; range/slope come from that behavior's params).
+    const sightParams = this.sightParamsFor(d);
+    if (sightParams) {
+      const range = sightParams.range;
       const eyeX = en.facing > 0 ? en.x + d.width - 2 : en.x + 2;
       const eyeY = en.y + d.height * 0.35;
       const endX = eyeX + en.facing * range;
-      const spread = range * SIGHT_HALF_SLOPE + 12;
+      const spread = range * sightParams.halfSlope + sightParams.conePad;
       const pulse = chasing ? 0.22 + Math.sin(animT * 12) * 0.06 : 0.10;
       ctx.fillStyle = chasing
         ? `rgba(255,84,112,${pulse})`
@@ -2148,3 +2108,253 @@ export class RoomRuntime {
     }
   }
 }
+
+// ===========================================================================
+// Behavior-verb registry — the engine primitives content/behaviors.json
+// composes. Each verb is small and single-purpose; adding one here (plus a
+// mention in the editor's dropdowns) is how the vocabulary grows. Registered
+// at module load, shared by every RoomRuntime.
+// ===========================================================================
+
+interface EnemyApi {
+  rt: RoomRuntime;
+  en: EnemyInstance;
+  player: { centerX: number; centerY: number; hidden: boolean } | null;
+  dt: number;
+  stunMs: number;
+  events: ElementEvent[];
+}
+const enemyApi = (ctx: BehaviorCtx) => ctx.api as unknown as EnemyApi;
+
+interface EntityApi {
+  rt: RoomRuntime;
+  e: EntityInstance;
+  events: ElementEvent[];
+}
+const entityApi = (ctx: BehaviorCtx) => ctx.api as unknown as EntityApi;
+
+function applyReaction(ctx: BehaviorCtx, reaction: EnemyReaction, msOverride?: number): void {
+  const { rt, en, stunMs } = enemyApi(ctx);
+  switch (reaction) {
+    case "kill":
+      en.state = "trapped"; // reuse: removed from play
+      rt.muts.disabledEnemies.add(en.index);
+      rt.enemies = rt.enemies.filter((e) => e !== en);
+      break;
+    case "stun":
+      en.state = "stunned";
+      en.stunUntil = simNow() + (msOverride ?? stunMs);
+      break;
+    case "knockback":
+      en.vx = en.facing * -120;
+      break;
+    case "none":
+      break;
+  }
+  ctx.data.reaction = reaction;
+}
+
+// ---- generic conditions ----
+registerCondition("stateIs", (ctx, args) => {
+  const { en } = enemyApi(ctx);
+  return ctx.str(args[0], "").split("|").includes(en.state);
+});
+registerCondition("elementIs", (ctx, args) => ctx.data.element === ctx.arg(args[0]));
+registerCondition("sinceVar", (ctx, args) => {
+  const name = typeof args[0] === "string" ? args[0] : "";
+  const t = ctx.vars[name];
+  return simNow() - (typeof t === "number" ? t : 0) > ctx.num(args[1], 0);
+});
+
+// ---- generic actions ----
+registerAction("setVar", (ctx, args) => {
+  const name = typeof args[0] === "string" ? args[0] : "";
+  if (name) ctx.vars[name] = ctx.arg(args[1]);
+});
+
+// ---- enemy conditions ----
+registerCondition("stunElapsed", (ctx) => {
+  const { en } = enemyApi(ctx);
+  return simNow() >= en.stunUntil;
+});
+registerCondition("seesPlayer", (ctx, args) => {
+  const { rt, en, player } = enemyApi(ctx);
+  if (!player || player.hidden) return false;
+  const d = en.def;
+  const cx = en.x + d.width / 2;
+  const cy = en.y + d.height / 2;
+  // Smoke veil: sight only connects when BOTH ends are in clear air.
+  if (rt.smokeAtPoint(player.centerX, player.centerY) || rt.smokeAtPoint(cx, cy)) return false;
+  const dx = player.centerX - cx;
+  const dy = player.centerY - cy;
+  if (dx * en.facing <= 0) return false; // forward only
+  const halfSlope = ctx.num(ctx.opt(args, "halfSlope"), SIGHT_HALF_SLOPE);
+  const conePad = ctx.num(ctx.opt(args, "conePad"), 12);
+  if (Math.abs(dy) > Math.abs(dx) * halfSlope + conePad) return false;
+  if (Math.abs(dx) > ctx.num(ctx.opt(args, "range"), 120)) return false;
+  return rt.map.lineOfSight(cx, cy, player.centerX, player.centerY);
+});
+registerCondition("sightLost", (ctx, args) => {
+  const { rt, en, player } = enemyApi(ctx);
+  if (!player || player.hidden) return true;
+  const cx = en.x + en.def.width / 2;
+  const cy = en.y + en.def.height / 2;
+  if (rt.smokeAtPoint(player.centerX, player.centerY) || rt.smokeAtPoint(cx, cy)) return true;
+  return simNow() - en.lastSawPlayerAt > ctx.num(ctx.opt(args, "loseTargetMs"), 2000);
+});
+
+// ---- enemy actions ----
+registerAction("setState", (ctx, args) => {
+  const { en } = enemyApi(ctx);
+  en.state = ctx.str(args[0], en.state) as EnemyInstance["state"];
+});
+registerAction("noteSeen", (ctx) => {
+  const { en } = enemyApi(ctx);
+  en.lastSawPlayerAt = simNow();
+});
+registerAction("reactToTileHazards", (ctx, args) => {
+  const { rt, en, stunMs, events } = enemyApi(ctx);
+  const d = en.def;
+  const now = simNow();
+  if (now - en.lastHazardAt <= ctx.num(ctx.opt(args, "cooldownMs"), HAZARD_COOLDOWN_MS)) return;
+  const tx0 = Math.floor(en.x / TILE);
+  const tx1 = Math.floor((en.x + d.width) / TILE);
+  const ty0 = Math.floor(en.y / TILE);
+  const ty1 = Math.floor((en.y + d.height + 2) / TILE);
+  let applied: string | null = null;
+  for (let ty = ty0; ty <= ty1 && !applied; ty++) {
+    for (let tx = tx0; tx <= tx1 && !applied; tx++) {
+      const tdef = rt.map.at(tx, ty);
+      if (rt.isBurning(tx, ty) || tdef?.element === "fire") applied = "fire";
+      else if (tdef?.element === "lava") applied = "lava";
+      else if (rt.isEnergized(tx, ty)) applied = "spark";
+    }
+  }
+  if (!applied) return;
+  en.lastHazardAt = now;
+  const r = rt.reactEnemy(en, applied, stunMs);
+  if (r !== "none") {
+    events.push({
+      effect: "enemy_" + r,
+      x: en.x + d.width / 2, y: en.y + d.height / 2, color: d.color,
+      enemyId: d.id, element: applied,
+    });
+  }
+  if (r === "kill") ctx.halt = true;
+});
+registerAction("reactFromTable", (ctx) => {
+  const { en } = enemyApi(ctx);
+  const element = typeof ctx.data.element === "string" ? ctx.data.element : "";
+  applyReaction(ctx, en.def.reactions?.[element] ?? "none");
+});
+registerAction("kill", (ctx) => applyReaction(ctx, "kill"));
+registerAction("stun", (ctx, args) => {
+  const ms = ctx.opt(args, "ms");
+  applyReaction(ctx, "stun", typeof ms === "number" ? ms : undefined);
+});
+registerAction("knockback", (ctx, args) => {
+  const { en } = enemyApi(ctx);
+  en.vx = en.facing * -ctx.num(ctx.opt(args, "vx"), 120);
+  ctx.data.reaction = "knockback";
+});
+registerAction("steerPatrol", (ctx, args) => {
+  const { rt, en } = enemyApi(ctx);
+  const d = en.def;
+  const cx = en.x + d.width / 2;
+  let want = en.facing;
+  if (cx <= en.patrolMin) want = 1;
+  else if (cx >= en.patrolMax) want = -1;
+  if (!rt.canStepAhead(en, want)) {
+    // Blocked ahead (a wall, or water a metal enemy refuses) — try the other
+    // direction, but only commit if THAT one is actually walkable too, else
+    // stand still instead of flip-flopping forever (reads as frozen).
+    want = rt.canStepAhead(en, -want) ? -want : 0;
+  }
+  if (want !== 0) en.facing = want;
+  en.vx = want * ctx.num(ctx.opt(args, "speed"), d.speed);
+});
+registerAction("steerChase", (ctx, args) => {
+  const { rt, en, player } = enemyApi(ctx);
+  const d = en.def;
+  if (!player) {
+    en.vx = 0;
+    return;
+  }
+  const cx = en.x + d.width / 2;
+  const dx = player.centerX - cx;
+  let want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
+  // Too smart to strand itself: no drops it can't climb, no wading.
+  if (want !== 0 && !rt.canStepAhead(en, want)) want = 0;
+  if (want !== 0) en.facing = want;
+  en.vx = want * ctx.num(ctx.opt(args, "speed"), d.chaseSpeed ?? d.speed * 2);
+});
+registerAction("steerHome", (ctx, args) => {
+  const { rt, en } = enemyApi(ctx);
+  const d = en.def;
+  const cx = en.x + d.width / 2;
+  const dx = en.homeX - cx;
+  let want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
+  if (want !== 0 && !rt.canStepAhead(en, want)) want = 0;
+  if (want !== 0) en.facing = want;
+  en.vx = want * ctx.num(ctx.opt(args, "speed"), d.speed);
+});
+registerAction("applyGravityAndMove", (ctx, args) => {
+  const { rt, en, dt } = enemyApi(ctx);
+  const d = en.def;
+  const gravity = ctx.num(ctx.opt(args, "gravity"), 1400);
+  const maxFall = ctx.num(ctx.opt(args, "maxFall"), 460);
+  en.vy = Math.min(en.vy + gravity * dt, maxFall);
+  const res = rt.map.move(en.x, en.y, d.width, d.height, en.vx, en.vy, dt);
+  if (res.hitWall && en.state === ctx.str(ctx.opt(args, "flipOnWallIn"), "patrol")) {
+    en.facing = -en.facing;
+  }
+  en.x = res.x;
+  en.y = res.y;
+  en.vy = res.vy;
+});
+registerAction("checkTraps", (ctx) => {
+  const { rt, en } = enemyApi(ctx);
+  const d = en.def;
+  const rect = { x: en.x, y: en.y, w: d.width, h: d.height };
+  for (const p of rt.placed) {
+    if (p.data.type === "trap" && !p.data.used && rectsOverlap(rect, p)) {
+      p.data.used = true;
+      en.state = "trapped";
+      rt.muts.disabledEnemies.add(en.index);
+    }
+  }
+});
+
+// ---- entity (brazier & friends) conditions/actions ----
+registerCondition("isLit", (ctx, args) => {
+  const { e } = entityApi(ctx);
+  return (e.lit !== false) === ctx.bool(args[0], true);
+});
+registerCondition("touchesTileElement", (ctx, args) => {
+  const { rt, e } = entityApi(ctx);
+  const el = ctx.str(args[0], "");
+  if (!el) return false;
+  const tx0 = Math.floor(e.x / TILE);
+  const tx1 = Math.floor((e.x + e.w - 1) / TILE);
+  const ty0 = Math.floor(e.y / TILE);
+  const ty1 = Math.floor((e.y + e.h - 1) / TILE);
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) {
+      if (rt.map.at(tx, ty)?.element === el) return true;
+    }
+  }
+  return false;
+});
+registerAction("setLit", (ctx, args) => {
+  const { rt, e } = entityApi(ctx);
+  rt.setBrazierLit(e, ctx.bool(args[0], true));
+});
+registerAction("emitEvent", (ctx, args) => {
+  const { e, events } = entityApi(ctx);
+  events.push({
+    effect: ctx.str(ctx.opt(args, "effect"), "fizzle"),
+    x: e.x + e.w / 2,
+    y: ctx.str(ctx.opt(args, "at"), "top") === "center" ? e.y + e.h / 2 : e.y,
+    color: ctx.str(ctx.opt(args, "color"), "#ffffff"),
+  });
+});

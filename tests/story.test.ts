@@ -6,6 +6,7 @@ import { RoomRuntime } from "../src/game/room";
 import type { Content, RoomDef } from "../src/data/types";
 import type { RoomMutations } from "../src/game/state";
 import gameJson from "../content/game.json";
+import behaviorsJson from "../content/behaviors.json";
 import tilesJson from "../content/tiles.json";
 import exitWing from "../content/rooms/exit_wing.json";
 import greenhouse from "../content/rooms/greenhouse.json";
@@ -13,7 +14,7 @@ import greenhouse from "../content/rooms/greenhouse.json";
 function makeContent(): Content {
   return {
     game: gameJson as unknown as Content["game"],
-    elements: [], rules: [], achievements: [],
+    elements: [], behaviors: behaviorsJson as never, rules: [], achievements: [],
     tiles: tilesJson as Content["tiles"],
     items: [], recipes: [], enemies: [], taunts: [],
     campaign: { rooms: [] }, rooms: {},

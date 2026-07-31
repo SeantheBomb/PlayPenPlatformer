@@ -110,6 +110,7 @@ function assemble(files: Record<string, unknown>): Content {
     game: deepDefaults(BUNDLED["game.json"], files["game.json"]) as Content["game"],
     elements: mergeArrayById((BUNDLED["elements.json"] ?? []) as Content["elements"], files["elements.json"]),
     rules: mergeArrayById((BUNDLED["rules.json"] ?? []) as Content["rules"], files["rules.json"]),
+    behaviors: mergeArrayById((BUNDLED["behaviors.json"] ?? []) as Content["behaviors"], files["behaviors.json"]),
     achievements: mergeArrayById(
       (BUNDLED["achievements.json"] ?? []) as Content["achievements"], files["achievements.json"]
     ),
@@ -139,6 +140,7 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   out["game.json"] = c.game;
   out["elements.json"] = c.elements;
   out["rules.json"] = c.rules;
+  out["behaviors.json"] = c.behaviors;
   out["achievements.json"] = c.achievements;
   out["tiles.json"] = c.tiles;
   out["items.json"] = c.items;

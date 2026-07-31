@@ -71,6 +71,12 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
       "energize", "ignite_self", "fizzle"],
     targetProperty: ["flammable", "brittle", "conductive"],
     behavior: ["patrol", "chase"],
+    // Behavior grammar (behaviors.json)
+    on: ["tick", "flowTick", "elementContact", "use", "heldTick", "carriedTick"],
+    host: ["enemy", "item", "entity", "global"],
+    wakeTo: ["patrol", "return", "chase"],
+    giveUpTo: ["patrol", "return"],
+    sideBias: ["alternate", "left", "right"],
     style: ["block", "platform", "spikes", "cracked", "spring", "goo",
       "wood", "ice", "water", "fire", "metal", "waterfall", "drain",
       "lava", "lavafall", "balloon", "stringlight", "crayon", "toyblock"],

@@ -8,10 +8,11 @@ import { RunState } from "../src/game/state";
 import type { Content, ItemDef } from "../src/data/types";
 import itemsJson from "../content/items.json";
 import gameJson from "../content/game.json";
+import behaviorsJson from "../content/behaviors.json";
 
 function makeContent(): Content {
   return {
-    game: gameJson as Content["game"], elements: [], rules: [], achievements: [],
+    game: gameJson as Content["game"], elements: [], behaviors: behaviorsJson as never, rules: [], achievements: [],
     tiles: [], items: itemsJson as ItemDef[], recipes: [], enemies: [], taunts: [],
     campaign: { rooms: [] }, rooms: {},
   } as unknown as Content;

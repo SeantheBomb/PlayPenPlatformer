@@ -2,8 +2,11 @@
 // has a tab here: rooms, tiles, items, recipes, enemies, taunts, game, campaign.
 import type { ContentStore } from "../data/content";
 import { isElectron, mergedFiles } from "../data/content";
-import type { EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
+import type { BehaviorRuleDef, EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
+import {
+  enemyAttachments, itemAttachments, knownActionNames, knownConditionNames,
+} from "../game/behavior";
 import {
   currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait,
 } from "../engine/renderer";
@@ -107,7 +110,7 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 `;
 
 type TabId =
-  | "rooms" | "elements" | "rules" | "tiles" | "items" | "recipes"
+  | "rooms" | "elements" | "rules" | "behaviors" | "tiles" | "items" | "recipes"
   | "enemies" | "taunts" | "achievements" | "game" | "campaign" | "publish"
   | "sessions" | "reports";
 
@@ -129,6 +132,8 @@ interface ListSpec {
   spriteSize?: number;
   /** Draw the procedural art at `size` — used to seed the pixel editor. */
   procedural?: (item: Record<string, unknown>, ctx: CanvasRenderingContext2D, size: number) => void;
+  /** Extra panel content below the auto-form (behavior attachments etc). */
+  extras?: (item: Record<string, unknown>) => HTMLElement | null;
 }
 
 let styleEl: HTMLStyleElement | null = null;
@@ -184,7 +189,7 @@ class EditorShell {
   render(): void {
     const c = this.store.content;
     const tabs: TabId[] = [
-      "rooms", "elements", "rules", "tiles", "items", "recipes",
+      "rooms", "elements", "rules", "behaviors", "tiles", "items", "recipes",
       "enemies", "taunts", "achievements", "game", "campaign", "publish",
       "sessions", "reports",
     ];
@@ -249,6 +254,9 @@ class EditorShell {
           label: (t) => `${t.actor} → ${t.target || t.targetProperty}: ${t.effect}`,
         });
         break;
+      case "behaviors":
+        this.renderBehaviorsTab();
+        break;
       case "tiles":
         this.renderListTab({
           file: "tiles.json",
@@ -281,6 +289,7 @@ class EditorShell {
             color: "#888888", description: "",
           }),
           label: (t) => `${t.id} (${t.kind})`,
+          extras: (item) => this.attachmentsWidget(item, "item"),
           thumb: (t, ctx) => drawItemIcon(ctx, t as unknown as ItemDef, 12, 12, 1.3),
           sprites: true,
           spriteSize: 16,
@@ -312,8 +321,15 @@ class EditorShell {
             id: "new_enemy", name: "New Enemy", behavior: "patrol",
             width: 16, height: 14, color: "#c84b6a", eyeColor: "#2a1020",
             speed: 50, damage: 1, turnAtEdges: true, stunnable: true, trappable: true,
+            reactions: { fire: "none", water: "none", ice: "stun", spark: "none", metal: "knockback", lava: "kill" },
+            behaviors: [
+              "hazard_reactions", "element_reactions",
+              { id: "stun_cycle", params: { wakeTo: "patrol" } },
+              "patrol_route", "grounded_move", "trappable",
+            ],
           }),
           label: (t) => `${t.id} (${t.behavior})`,
+          extras: (item) => this.attachmentsWidget(item, "enemy"),
           thumb: (t, ctx) => {
             const d = t as unknown as EnemyDef;
             const s = 18 / Math.max(d.width || 16, d.height || 16);
@@ -603,7 +619,8 @@ class EditorShell {
     const item = list[this.selectedIndex];
     if (item) {
       panel.append(
-        autoForm(item, () => {}, SPRITE_KEYS, undefined, fieldOptionsFor(this.store.content)),
+        autoForm(item, () => {}, [...SPRITE_KEYS, "behaviors"], undefined, fieldOptionsFor(this.store.content)),
+        spec.extras?.(item) ?? el("span", {}),
         spec.sprites
           ? this.spritePanel(
               item, "Custom sprite", spec.spriteSize ?? 16, () => this.renderTab(),
@@ -644,6 +661,291 @@ class EditorShell {
       panel.append(el("p", { className: "pp-hint" }, "Nothing here yet — add one."));
     }
     this.bodyEl.append(el("div", { className: "pp-cols" }, listEl, panel));
+  }
+
+  /**
+   * The behavior library: named trigger→condition→action rule bundles
+   * (content/behaviors.json) that tiles/items/enemies/entities attach.
+   * Scalar fields + params get the auto-form; rules get a structured
+   * per-rule builder (trigger dropdown + validated JSON for if/do); the
+   * verb legend below is generated live from the engine registries.
+   */
+  private renderBehaviorsTab(): void {
+    const c = this.store.content;
+    const list = c.behaviors as unknown as Record<string, unknown>[];
+    if (this.selectedIndex >= list.length) this.selectedIndex = 0;
+    const listEl = el("div", { className: "pp-list" });
+    list.forEach((item, i) => {
+      listEl.append(
+        el("div", {
+          className: "pp-listitem" + (i === this.selectedIndex ? " pp-active" : ""),
+          onclick: () => {
+            this.selectedIndex = i;
+            this.renderTab();
+          },
+        }, el("span", {}, `${item.id}${item.host ? ` (${item.host})` : ""}`))
+      );
+    });
+    listEl.append(
+      el("div", { className: "pp-btnrow" },
+        el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            list.push({
+              id: "new_behavior", name: "New Behavior", host: "enemy",
+              description: "", params: {},
+              rules: [{ on: "tick", if: [], do: [] }],
+            });
+            this.selectedIndex = list.length - 1;
+            this.renderTab();
+          },
+        }, "+ add")
+      )
+    );
+
+    const panel = el("div", { className: "pp-panel" });
+    const item = list[this.selectedIndex];
+    if (item) {
+      panel.append(
+        el("p", { className: "pp-hint" },
+          "A behavior is a named bundle of trigger → conditions → actions rules. " +
+          "Attach it to enemies/items (their inspector), entities (attachTo), or leave it " +
+          "host \"global\" as a tunables doc the sims read. \"$name\" in an arg reads params; " +
+          "\"$host.field\" reads the attached def; \"$data.field\" reads the trigger payload."),
+        autoForm(item, () => {}, ["rules"], undefined, fieldOptionsFor(c)),
+        this.behaviorRulesBuilder(item),
+        el("hr"),
+        el("p", { className: "pp-hint" },
+          "triggers: tick · flowTick · elementContact · use · heldTick · carriedTick"),
+        el("p", { className: "pp-hint" }, "conditions: " +
+          [...knownConditionNames(), "not", "anyOf"].sort().join(" · ")),
+        el("p", { className: "pp-hint" }, "actions: " +
+          [...knownActionNames(), "halt"].sort().join(" · ")),
+        el("div", { className: "pp-btnrow" },
+          el("button", {
+            className: "pp-btn pp-primary",
+            onclick: async () => {
+              await this.store.saveFile("behaviors.json", list);
+              this.game.setContent(this.store.content);
+              toast("Saved behaviors.json");
+            },
+          }, "Save behaviors.json"),
+          el("button", {
+            className: "pp-btn",
+            onclick: () => {
+              const copy = JSON.parse(JSON.stringify(item)) as Record<string, unknown>;
+              copy.id = String(copy.id ?? "behavior") + "_copy";
+              list.push(copy);
+              this.selectedIndex = list.length - 1;
+              this.renderTab();
+            },
+          }, "Duplicate"),
+          el("button", {
+            className: "pp-btn pp-danger",
+            onclick: () => {
+              if (!confirm("Delete this behavior? Anything attached to it stops doing it. (Remember to save)")) return;
+              list.splice(this.selectedIndex, 1);
+              this.selectedIndex = 0;
+              this.renderTab();
+            },
+          }, "Delete")
+        )
+      );
+    } else {
+      panel.append(el("p", { className: "pp-hint" }, "Nothing here yet — add one."));
+    }
+    this.bodyEl.append(el("div", { className: "pp-cols" }, listEl, panel));
+  }
+
+  /** Structured per-rule editor: trigger dropdown + validated-JSON if/do. */
+  private behaviorRulesBuilder(doc: Record<string, unknown>): HTMLElement {
+    if (!Array.isArray(doc.rules)) doc.rules = [];
+    const rules = doc.rules as BehaviorRuleDef[];
+    const wrap = el("fieldset", {}, el("legend", {}, "rules"));
+    const triggers = ["tick", "flowTick", "elementContact", "use", "heldTick", "carriedTick"];
+    const jsonArea = (label: string, get: () => unknown, set: (v: unknown) => void, hint: string) => {
+      const area = el("textarea", {
+        rows: 2, className: "pp-json", title: hint,
+        value: JSON.stringify(get() ?? []),
+        oninput: (e) => {
+          const t = e.target as HTMLTextAreaElement;
+          try {
+            const v = JSON.parse(t.value);
+            if (!Array.isArray(v)) throw new Error("must be an array");
+            set(v);
+            t.classList.remove("pp-bad");
+          } catch {
+            t.classList.add("pp-bad");
+          }
+        },
+      });
+      return el("div", { className: "pp-row" }, el("label", {}, label), area);
+    };
+    rules.forEach((rule, i) => {
+      const sel = el("select", {
+        onchange: (e) => {
+          rule.on = (e.target as HTMLSelectElement).value as BehaviorRuleDef["on"];
+        },
+      }, ...triggers.map((t) => {
+        const o = el("option", { value: t }, t);
+        if (t === rule.on) o.setAttribute("selected", "");
+        return o;
+      }));
+      wrap.append(
+        el("div", { style: "border:1px solid #2c2740;border-radius:5px;padding:6px;margin:6px 0" },
+          el("div", { className: "pp-row" },
+            el("label", {}, `rule ${i + 1} — on`), sel,
+            el("button", {
+              className: "pp-tool", title: "move up",
+              onclick: () => {
+                if (i > 0) {
+                  [rules[i - 1], rules[i]] = [rules[i], rules[i - 1]];
+                  this.renderTab();
+                }
+              },
+            }, "▲"),
+            el("button", {
+              className: "pp-tool", title: "move down",
+              onclick: () => {
+                if (i < rules.length - 1) {
+                  [rules[i + 1], rules[i]] = [rules[i], rules[i + 1]];
+                  this.renderTab();
+                }
+              },
+            }, "▼"),
+            el("button", {
+              className: "pp-tool", title: "delete rule",
+              onclick: () => {
+                rules.splice(i, 1);
+                this.renderTab();
+              },
+            }, "✕")
+          ),
+          jsonArea("if (all must hold)", () => rule.if, (v) => (rule.if = v as never),
+            'conditions, e.g. [["stateIs","patrol"],["seesPlayer",{"range":"$range"}]]'),
+          jsonArea("do (in order)", () => rule.do, (v) => (rule.do = v as never),
+            'actions, e.g. [["setState","chase"],["halt"]]')
+        )
+      );
+    });
+    wrap.append(
+      el("button", {
+        className: "pp-btn",
+        onclick: () => {
+          rules.push({ on: "tick", if: [], do: [] });
+          this.renderTab();
+        },
+      }, "+ add rule")
+    );
+    return wrap;
+  }
+
+  /**
+   * Behavior attachments on an enemy/item def. Defs without an explicit
+   * `behaviors` list run the legacy-derived set — shown read-only until
+   * "customize" materializes it for editing. Each attachment is a one-line
+   * validated JSON row ("hazard_reactions" or {"id":...,"params":{...}}),
+   * reorderable — order is execution order.
+   */
+  private attachmentsWidget(def: Record<string, unknown>, host: "enemy" | "item"): HTMLElement {
+    const c = this.store.content;
+    const wrap = el("div", { className: "pp-spritepanel", style: "display:block" });
+    wrap.append(el("div", { className: "pp-sidehead" }, "behaviors (execution order)"));
+    const derived = host === "enemy"
+      ? enemyAttachments(def as unknown as EnemyDef)
+      : itemAttachments(def as unknown as ItemDef);
+    if (!Array.isArray(def.behaviors)) {
+      wrap.append(
+        el("p", { className: "pp-hint" },
+          "derived from legacy fields: " +
+          (derived.length
+            ? derived.map((a) => (typeof a === "string" ? a : a.id)).join(" → ")
+            : "(none)")),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            def.behaviors = JSON.parse(JSON.stringify(derived));
+            this.renderTab();
+          },
+        }, "✎ customize")
+      );
+      return wrap;
+    }
+    const atts = def.behaviors as unknown[];
+    atts.forEach((att, i) => {
+      const area = el("textarea", {
+        rows: 1, className: "pp-json", style: "flex:1",
+        value: JSON.stringify(att),
+        oninput: (e) => {
+          const t = e.target as HTMLTextAreaElement;
+          try {
+            atts[i] = JSON.parse(t.value);
+            t.classList.remove("pp-bad");
+          } catch {
+            t.classList.add("pp-bad");
+          }
+        },
+      });
+      wrap.append(
+        el("div", { className: "pp-row", style: "display:flex;gap:6px;align-items:center;margin:3px 0" },
+          area,
+          el("button", {
+            className: "pp-tool",
+            onclick: () => {
+              if (i > 0) {
+                [atts[i - 1], atts[i]] = [atts[i], atts[i - 1]];
+                this.renderTab();
+              }
+            },
+          }, "▲"),
+          el("button", {
+            className: "pp-tool",
+            onclick: () => {
+              if (i < atts.length - 1) {
+                [atts[i + 1], atts[i]] = [atts[i], atts[i + 1]];
+                this.renderTab();
+              }
+            },
+          }, "▼"),
+          el("button", {
+            className: "pp-tool",
+            onclick: () => {
+              atts.splice(i, 1);
+              this.renderTab();
+            },
+          }, "✕")
+        )
+      );
+    });
+    const dlId = `pp-bhv-add-${host}`;
+    const addInput = el("input", { type: "text", list: dlId, placeholder: "add behavior…" });
+    const options = c.behaviors
+      .filter((b) => !b.host || b.host === host)
+      .map((b) => b.id);
+    wrap.append(
+      el("div", { className: "pp-row", style: "display:flex;gap:6px;margin-top:6px" },
+        addInput,
+        el("datalist", { id: dlId }, ...options.map((o) => el("option", { value: o }))),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            const v = addInput.value.trim();
+            if (!v) return;
+            atts.push(v);
+            addInput.value = "";
+            this.renderTab();
+          },
+        }, "+ attach"),
+        el("button", {
+          className: "pp-btn", title: "remove the explicit list; fall back to legacy-derived",
+          onclick: () => {
+            delete def.behaviors;
+            this.renderTab();
+          },
+        }, "↺ revert to derived")
+      )
+    );
+    return wrap;
   }
 
   /** Upload / pixel-edit / clear custom art on any SpriteFields carrier. */

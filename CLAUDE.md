@@ -172,6 +172,39 @@ republishing/re-saving from the editor is still the fix for those.
   face) and `sprite`/`spriteFrames` (animated in-room body, `RoomEntity extends
   SpriteFields`) — don't conflate them, they're edited in different inspector rows.
 
+## Behavior grammar (content/behaviors.json — the scripting layer)
+
+- **Behaviors are named trigger→condition→action rule docs** in
+  `content/behaviors.json`, attached to enemies/items (def-level `behaviors`
+  arrays), entities (`attachTo.entities`, e.g. brazier_flame), or standing
+  alone as `host: "global"` tunables docs. Interpreter: `src/game/behavior.ts`;
+  verb registries live at the bottom of `room.ts` (enemy + entity verbs) and
+  `game.ts` (item verbs). Args support `$param`, `$host.field`, `$data.field`,
+  `$var.name`, `$now` references.
+- **Enemy AI, item use (swing/splash/place/burst + passive douse/ignite), and
+  brazier flame logic run THROUGH the grammar** — don't add new hardcoded
+  branches to the old code paths; write/extend a behavior doc, and only add a
+  new verb when the grammar genuinely can't express it (register it + it shows
+  up in the editor's legend automatically). Verbs must stay replay-deterministic:
+  `simNow()` + the room's seeded RNG only.
+- Defs WITHOUT a `behaviors` array get the legacy-derived set
+  (`enemyAttachments` / `itemAttachments` in behavior.ts) that reproduces the
+  pre-grammar behavior exactly — keep those mappings in sync if legacy fields
+  change. `EnemyDef.behavior` ("patrol"/"chase") is now only that fallback's
+  input; sight-cone drawing and smoke immunity key on the `"sight"` behavior
+  tag instead.
+- **Global tunables** (content wins, code consts are only fallbacks):
+  `fluid_flow.sideBias` (alternate/left/right — water direction-commitment),
+  `fluid_flow.intervalSec/recedeMs/toyblockPushSec`, `heat_spread.intervalSec`,
+  `heat_spread.chainMeltRange` (-1 = unlimited chain-melt, the shipped default
+  matching melt-chain.test.ts; 0 = direct lava contact only; N = cap),
+  `element_effects.energizeMs` + flood caps.
+- Tests: `tests/enemy-behaviors.test.ts` pins the ported enemy behavior;
+  `tests/behaviors.test.ts` pins the customization contract (custom docs,
+  param overrides, the global knobs). Any test harness that builds a `Content`
+  and touches enemies/items/braziers MUST include behaviors.json, or hosts
+  silently do nothing.
+
 ## Story engine (run-reactive NPCs — see DESIGN.md "Story" for the iceberg doc)
 
 - NPCs carry `npcId` (stable cross-room identity: marla/toby/priya/marcus/deb)
