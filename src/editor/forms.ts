@@ -2,6 +2,13 @@
 // current shape of the data, so new JSON fields show up without editor changes.
 import type { Content } from "../data/types";
 
+// Attributes that LOOK boolean but are actually enumerated "true"/"false"
+// strings (unset ≠ false — several default to true) — presence-only
+// semantics (setAttribute(k,"") / omit) would silently no-op a `false`.
+const STRING_VALUED_BOOL_ATTRS = new Set([
+  "spellcheck", "autocomplete", "autocorrect", "autocapitalize", "draggable",
+]);
+
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string | number | boolean | ((ev: Event) => void)> = {},
@@ -15,6 +22,8 @@ export function el<K extends keyof HTMLElementTagNameMap>(
       node.className = String(v);
     } else if (k === "value" && "value" in node) {
       (node as HTMLInputElement).value = String(v);
+    } else if (typeof v === "boolean" && STRING_VALUED_BOOL_ATTRS.has(k)) {
+      node.setAttribute(k, v ? "true" : "false");
     } else if (typeof v === "boolean") {
       if (v) node.setAttribute(k, "");
     } else {
