@@ -2250,7 +2250,7 @@ function applyReaction(ctx: ScriptCtx, reaction: EnemyReaction, msOverride?: num
 registerFn("stunElapsed", (ctx) => {
   const { en } = enemyApi(ctx);
   return simNow() >= en.stunUntil;
-});
+}, "stunElapsed() -> bool — has the current stun timer run out?");
 registerFn("seesPlayer", (ctx, args) => {
   const { rt, en, player } = enemyApi(ctx);
   if (!player || player.hidden) return false;
@@ -2267,7 +2267,7 @@ registerFn("seesPlayer", (ctx, args) => {
   if (Math.abs(dy) > Math.abs(dx) * halfSlope + conePad) return false;
   if (Math.abs(dx) > argNum(args[0], 120)) return false;
   return rt.map.lineOfSight(cx, cy, player.centerX, player.centerY);
-});
+}, "seesPlayer(range?, halfSlope?, conePad?) -> bool — forward vision cone + line of sight; hidden players and smoke on either end block it");
 registerFn("playerHidden", (ctx) => {
   // No player, hiding in a locker, or smoke on either end of the sightline.
   const { rt, en, player } = enemyApi(ctx);
@@ -2275,7 +2275,7 @@ registerFn("playerHidden", (ctx) => {
   const cx = en.x + en.def.width / 2;
   const cy = en.y + en.def.height / 2;
   return rt.smokeAtPoint(player.centerX, player.centerY) || rt.smokeAtPoint(cx, cy);
-});
+}, "playerHidden() -> bool — no player, hiding in a locker, or smoke on either end of the sightline");
 
 // ---- enemy reactions ----
 registerFn("reactToTileHazards", (ctx, args) => {
@@ -2308,27 +2308,27 @@ registerFn("reactToTileHazards", (ctx, args) => {
   }
   if (r === "kill") ctx.halt = true;
   return r;
-});
+}, "reactToTileHazards(cooldownMs?) — fire/lava/spark tiles under the enemy apply their element through its reactions; halts the dispatch on a kill");
 registerFn("reactFromTable", (ctx) => {
   const { en } = enemyApi(ctx);
   const element = typeof ctx.data.element === "string" ? ctx.data.element : "";
   applyReaction(ctx, en.def.reactions?.[element] ?? "none");
   return ctx.data.reaction;
-});
+}, "reactFromTable() — look the contacting element up in the enemy's reactions map and apply kill / stun / knockback / none");
 registerFn("kill", (ctx) => {
   applyReaction(ctx, "kill");
   return undefined;
-});
+}, "kill() — remove this enemy from play (persisted)");
 registerFn("stun", (ctx, args) => {
   applyReaction(ctx, "stun", typeof args[0] === "number" ? args[0] : undefined);
   return undefined;
-});
+}, "stun(ms?) — put this enemy to sleep (defaults to the game stun duration)");
 registerFn("knockback", (ctx, args) => {
   const { en } = enemyApi(ctx);
   en.vx = en.facing * -argNum(args[0], 120);
   ctx.data.reaction = "knockback";
   return undefined;
-});
+}, "knockback(vx?) — shove this enemy backward against its facing (default 120)");
 
 // ---- enemy steering + physics ----
 registerFn("patrol", (ctx, args) => {
@@ -2347,7 +2347,7 @@ registerFn("patrol", (ctx, args) => {
   if (want !== 0) en.facing = want;
   en.vx = want * argNum(args[0], d.speed);
   return undefined;
-});
+}, "patrol(speed?) — drift between the patrol bounds, refusing unsafe steps; blocked both ways = stand still");
 registerFn("moveToward", (ctx, args) => {
   const { rt, en, player } = enemyApi(ctx);
   const d = en.def;
@@ -2370,7 +2370,7 @@ registerFn("moveToward", (ctx, args) => {
   if (want !== 0) en.facing = want;
   en.vx = want * argNum(args[1], d.speed);
   return undefined;
-});
+}, "moveToward(player | home, speed?) — walk toward the player or the spawn post, refusing unsafe steps");
 registerFn("applyGravityAndMove", (ctx, args) => {
   const { rt, en, dt } = enemyApi(ctx);
   const d = en.def;
@@ -2383,7 +2383,7 @@ registerFn("applyGravityAndMove", (ctx, args) => {
   en.y = res.y;
   en.vy = res.vy;
   return undefined;
-});
+}, "applyGravityAndMove(gravity?, maxFall?, flipOnWallIn?) — apply gravity and resolve movement; hitting a wall in the given state flips the facing");
 registerFn("checkTraps", (ctx) => {
   const { rt, en } = enemyApi(ctx);
   const d = en.def;
@@ -2396,7 +2396,7 @@ registerFn("checkTraps", (ctx) => {
     }
   }
   return undefined;
-});
+}, "checkTraps() — a player-placed trap under this enemy captures it (trap consumed)");
 
 // ---- entity (brazier & friends) ----
 registerFn("touchesTileElement", (ctx, args) => {
@@ -2413,7 +2413,7 @@ registerFn("touchesTileElement", (ctx, args) => {
     }
   }
   return false;
-});
+}, "touchesTileElement(element) -> bool — is a tile of this element inside the entity footprint?");
 registerFn("emitEvent", (ctx, args) => {
   const { e, events } = entityApi(ctx);
   events.push({
@@ -2423,5 +2423,5 @@ registerFn("emitEvent", (ctx, args) => {
     color: argStr(args[1], "#ffffff"),
   });
   return undefined;
-});
+}, "emitEvent(effect, color?, at?) — push a feedback event (particles/sfx) at this entity (\"top\" or \"center\")");
 

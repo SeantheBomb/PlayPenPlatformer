@@ -303,6 +303,19 @@ of the JSON grammar shipped:
   infinite recovery loop froze the page once in testing (regression-tested).
 - 111 tests green; sideBias/chainMeltRange knobs verified at multiple values.
 
+**2026-08-01 — script editor polish** (Sean's ask after first hands-on): the
+behaviors tab pane is now a real code editor (`src/editor/scripteditor.ts`,
+zero deps): VS Code-ish syntax colors via a token-highlight layer rendered
+behind a transparent-text textarea (both layers must share the exact font/
+padding — see the .pp-code* CSS), a large resizable pane in a wider panel,
+and hover tooltips computed from monospace math (mouse -> row/col -> token):
+keywords/events/builtins have doc tables, engine functions show the doc
+string they were registered with (registerFn's 3rd arg — annotate new
+functions or their tooltip is generic) plus which other behaviors use them,
+and a behavior's own fields report where they're defined, which lines use
+them, and which attachments override them. The panel header also shows
+"attached by: ..." per doc (derived attachments included).
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

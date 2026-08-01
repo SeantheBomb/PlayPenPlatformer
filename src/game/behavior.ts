@@ -45,12 +45,13 @@ export interface ScriptCtx {
 
 type ScriptFn = (ctx: ScriptCtx, args: unknown[]) => unknown;
 
-const fns = new Map<string, ScriptFn>();
+const fns = new Map<string, { fn: ScriptFn; doc: string }>();
 const warned = new Set<string>();
 
-/** Register an engine function callable from scripts. Positional args. */
-export function registerFn(name: string, fn: ScriptFn): void {
-  fns.set(name, fn);
+/** Register an engine function callable from scripts. Positional args.
+ *  `doc` feeds the editor's tooltips/legend — lead with the signature. */
+export function registerFn(name: string, fn: ScriptFn, doc = ""): void {
+  fns.set(name, { fn, doc });
 }
 
 /** Function names for the editor legend / linting. */
@@ -59,6 +60,10 @@ export function knownFnNames(): string[] {
 }
 export function isKnownFn(name: string): boolean {
   return fns.has(name);
+}
+/** The doc string a function was registered with (editor tooltips). */
+export function fnDoc(name: string): string {
+  return fns.get(name)?.doc ?? "";
 }
 
 export const TRIGGERS: BehaviorTrigger[] = [
@@ -124,13 +129,13 @@ function evalExpr(e: Expr, env: Env): unknown {
       return (obj as Record<string, unknown>)[e.prop];
     }
     case "call": {
-      const fn = fns.get(e.name);
-      if (!fn) {
+      const entry = fns.get(e.name);
+      if (!entry) {
         warnOnce(`fn:${e.name}`, `unknown function "${e.name}" (in ${env.docId}, line ${e.line})`);
         return undefined;
       }
       const args = e.args.map((a) => evalExpr(a, env));
-      return fn(env.ctx, args);
+      return entry.fn(env.ctx, args);
     }
     case "un": {
       const v = evalExpr(e.e, env);

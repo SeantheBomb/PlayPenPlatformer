@@ -5,9 +5,10 @@ import { isElectron, mergedFiles } from "../data/content";
 import type { EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
 import {
-  enemyAttachments, isKnownFn, itemAttachments, knownFnNames, scriptSource, TRIGGERS,
+  enemyAttachments, itemAttachments, knownFnNames, normalizeAttachment,
+  scriptSource, TRIGGERS,
 } from "../game/behavior";
-import { compileScript, lintScript, type ScriptError } from "../game/penscript";
+import { createScriptEditor } from "./scripteditor";
 import {
   currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait,
 } from "../engine/renderer";
@@ -188,6 +189,32 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 .pp-portraitgrid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:8px; }
 .pp-portraitcell { background:#161226; border:1px solid #2c2740; border-radius:6px; padding:8px;
   display:flex; flex-direction:column; align-items:center; gap:5px; }
+/* penscript editor (scripteditor.ts): highlight layer behind a transparent-
+   text textarea. Both layers MUST share the exact same font/padding. */
+.pp-codewrap { position:relative; overflow:hidden; resize:vertical; height:460px; min-height:160px;
+  border:1px solid #3a3550; border-radius:4px; background:#0d0b14; }
+.pp-codewrap.pp-bad { border-color:#c84b6a; }
+.pp-codehl, .pp-codeta { font:13px/19px Consolas, "Cascadia Mono", "Courier New", monospace;
+  padding:10px 12px; margin:0; white-space:pre; tab-size:2; }
+.pp-codehl { position:absolute; top:0; left:0; color:#d4d4d4; pointer-events:none; min-width:100%; }
+.pp-codeta { position:absolute; inset:0; width:100%; height:100%; background:transparent;
+  color:transparent; caret-color:#e8e2f4; border:none; outline:none; resize:none; overflow:auto; }
+.pp-codeta::selection { background:rgba(90,120,220,0.35); color:transparent; }
+.pp-tk-comment { color:#6a9955; font-style:italic; }
+.pp-tk-string { color:#ce9178; }
+.pp-tk-number { color:#b5cea8; }
+.pp-tk-keyword { color:#c586c0; }
+.pp-tk-event { color:#4ec9b0; }
+.pp-tk-builtin { color:#4fc1ff; }
+.pp-tk-fn { color:#dcdcaa; }
+.pp-tk-badfn { color:#dcdcaa; text-decoration:underline wavy #c84b6a; }
+.pp-tk-field { color:#9cdcfe; }
+.pp-tk-ident { color:#e8e2f4; }
+.pp-tk-punct { color:#d4d4d4; }
+.pp-tooltip { position:fixed; z-index:99; max-width:330px; background:#241f36;
+  border:1px solid #5a5080; border-radius:6px; padding:8px 10px; color:#e8e2f4;
+  font:11px/1.5 Consolas, monospace; white-space:pre-wrap; pointer-events:none;
+  box-shadow:0 4px 16px rgba(0,0,0,0.5); }
 `;
 
 type TabId =
@@ -822,42 +849,31 @@ class EditorShell {
       )
     );
 
-    const panel = el("div", { className: "pp-panel" });
+    const panel = el("div", { className: "pp-panel", style: "max-width:1050px" });
     const item = list[this.selectedIndex];
     if (item) {
-      const errorsEl = el("div", { className: "pp-hint", style: "margin-top:4px" });
-      const refreshErrors = (source: string) => {
-        const { script, errors } = compileScript(source);
-        const all: ScriptError[] = [...errors];
-        if (script && errors.length === 0) {
-          all.push(...lintScript(script, TRIGGERS, isKnownFn));
-        }
-        errorsEl.replaceChildren(
-          ...(all.length === 0
-            ? [el("span", { style: "color:#9be8b0" }, "✓ compiles clean")]
-            : all.map((e) =>
-                el("div", { style: "color:#ff9db0" }, `line ${e.line}: ${e.message}`)))
-        );
-        return all.length === 0;
-      };
-      const source = scriptSource(item as never);
-      const scriptEl = el("textarea", {
-        rows: Math.min(28, Math.max(10, source.split("\n").length + 2)),
-        className: "pp-json",
-        spellcheck: false,
-        value: source,
-        oninput: (e) => {
-          const t = e.target as HTMLTextAreaElement;
-          item.script = t.value.split("\n");
-          t.classList.toggle("pp-bad", !refreshErrors(t.value));
+      const docId = String(item.id);
+      const attachedBy = this.attachersOf(docId);
+      const editorEl = createScriptEditor({
+        source: scriptSource(item as never),
+        onChange: (src) => {
+          item.script = src.split("\n");
+        },
+        ctx: {
+          allScripts: () => c.behaviors.map((b) => [b.id, scriptSource(b)] as [string, string]),
+          fieldOverrides: (field) => this.overridesOf(docId, field),
         },
       });
-      refreshErrors(source);
       panel.append(
         autoForm(item, () => {}, ["script"], undefined, fieldOptionsFor(c)),
+        el("p", { className: "pp-hint" },
+          item.host === "global"
+            ? "global tunables doc — nothing attaches it; the sims read its vars on room load"
+            : attachedBy.length
+              ? "attached by: " + attachedBy.join(" · ")
+              : "attached by: nothing yet — add it on a tile/item/enemy/entity page"),
         el("div", { className: "pp-sidehead", style: "margin-top:10px" }, "script"),
-        scriptEl,
-        errorsEl,
+        editorEl,
         el("hr"),
         el("p", { className: "pp-hint" },
           "events: " + TRIGGERS.map((t) => `on ${t}`).join(" · ")),
@@ -899,6 +915,43 @@ class EditorShell {
       panel.append(el("p", { className: "pp-hint" }, "Nothing here yet — add one."));
     }
     this.bodyEl.append(el("div", { className: "pp-cols" }, listEl, panel));
+  }
+
+  /** Every def (enemy/item/tile/entity type) whose attachments — explicit or
+   *  legacy-derived — include this behavior. Powers "attached by". */
+  private attachersOf(docId: string): string[] {
+    const c = this.store.content;
+    const out: string[] = [];
+    const has = (atts: unknown, label: string) => {
+      if (!Array.isArray(atts)) return;
+      if (atts.some((a) => normalizeAttachment(a as never).id === docId)) out.push(label);
+    };
+    for (const e of c.enemies) has(enemyAttachments(e), e.id);
+    for (const i of c.items) has(itemAttachments(i), i.id);
+    for (const t of c.tiles) has(t.behaviors, t.id);
+    for (const et of c.entityTypes) has(et.behaviors, et.id);
+    return out;
+  }
+
+  /** Attachment param overrides of one field of this doc, as display lines
+   *  ('spotter: "return"'). Powers the field tooltips. */
+  private overridesOf(docId: string, field: string): string[] {
+    const c = this.store.content;
+    const out: string[] = [];
+    const scan = (atts: unknown, label: string) => {
+      if (!Array.isArray(atts)) return;
+      for (const a of atts) {
+        const ref = normalizeAttachment(a as never);
+        if (ref.id === docId && ref.params && field in ref.params) {
+          out.push(`${label}: ${JSON.stringify(ref.params[field])}`);
+        }
+      }
+    };
+    for (const e of c.enemies) scan(enemyAttachments(e), e.id);
+    for (const i of c.items) scan(itemAttachments(i), i.id);
+    for (const t of c.tiles) scan(t.behaviors, t.id);
+    for (const et of c.entityTypes) scan(et.behaviors, et.id);
+    return out;
   }
 
   private attachmentsWidget(

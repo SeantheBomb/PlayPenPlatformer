@@ -2082,15 +2082,15 @@ export class Game {
     registerFn("swingBlocked", (ctx, args) => {
       const { g } = api(ctx);
       return simNow() - g.lastSwingAt < argNum(args[0], 320);
-    });
+    }, "swingBlocked(cooldownMs?) -> bool — still inside the shared swing cooldown?");
     registerFn("boxTouchesFire", (ctx, args) => {
       const { g } = api(ctx);
       return g.roomRt.boxTouchesFire(argBox(ctx, args, 22));
-    });
+    }, "boxTouchesFire(box?, reach?) -> bool — open flame (fire/lava tiles, burning tiles, lit braziers) inside the box (\"swing\" | \"splash\" | \"body\")");
     registerFn("playerTouchesFire", (ctx) => {
       const { g } = api(ctx);
       return g.roomRt.boxTouchesFire(boxFor(g, "body", 0));
-    });
+    }, "playerTouchesFire() -> bool — open flame inside the player's own body box");
     registerFn("playerInElement", (ctx, args) => {
       const { g } = api(ctx);
       const el = argStr(args[0], "");
@@ -2109,34 +2109,34 @@ export class Game {
         }
       }
       return false;
-    });
+    }, "playerInElement(element) -> bool — a tile of this element inside the player body box (exclusive edges, no underfoot probe)");
 
     registerFn("armSwing", (ctx) => {
       const { g } = api(ctx);
       g.lastSwingAt = simNow(); // swing cooldown is gameplay state — sim clock
       g.player.swing();
       return undefined;
-    });
+    }, "armSwing() — start the swing cooldown and play the swing animation");
     registerFn("sfx", (ctx, args) => {
       sfx.play(argStr(args[0], "swing") as never);
       return undefined;
-    });
+    }, "sfx(name) — play a sound effect (swing, splash, ignite, craftFail...)");
     registerFn("floaty", (ctx, args) => {
       const { g } = api(ctx);
       g.floaty(argStr(args[0], ""), g.player.centerX, g.player.y - 8, argStr(args[1], "#ffd166"));
       return undefined;
-    });
+    }, "floaty(text, color?) — floating text above the player");
     registerFn("popBalloons", (ctx, args) => {
       const { g } = api(ctx);
       g.popBalloons(argBox(ctx, args, 22));
       return undefined;
-    });
+    }, "popBalloons(box?, reach?) — pop balloon tiles in the box (pure whimsy, element-free)");
     registerFn("transformSelf", (ctx, args) => {
       const { g, item } = api(ctx);
       const to = args[0];
       if (typeof to === "string" && to) g.state.transform(item.id, to);
       return undefined;
-    });
+    }, "transformSelf(itemId) — this item becomes another item (no-op when itemId is null)");
     registerFn("selectItem", (ctx, args) => {
       const { g } = api(ctx);
       const id = args[0];
@@ -2145,7 +2145,7 @@ export class Game {
       const idx = after.findIndex((i) => i.id === id);
       if (idx >= 0) g.state.selectedConsumable = idx;
       return undefined;
-    });
+    }, "selectItem(itemId) — select this item in the hotbar if the player has it");
     registerFn("scoopFromBox", (ctx, args) => {
       const { g, item } = api(ctx);
       if (!item.scoopsInto) return false;
@@ -2159,7 +2159,7 @@ export class Game {
         return true;
       }
       return false;
-    });
+    }, "scoopFromBox(box?, reach?) -> bool — try the item's scoopsInto table against tiles in the box; true = scooped (item transformed)");
     registerFn("applyElements", (ctx, args) => {
       // Apply the item's element to tiles, enemies, and braziers in the box;
       // feedback (particles/sfx/achievement counters) rides the event stream.
@@ -2174,7 +2174,7 @@ export class Game {
       ];
       g.handleElementEvents(events);
       return events.length;
-    });
+    }, "applyElements(box?, reach?) -> count — apply the item's element to tiles, enemies, and braziers in the box; returns how many reacted");
     registerFn("splashParticles", (ctx) => {
       const { g, item } = api(ctx);
       const p = g.player;
@@ -2183,13 +2183,13 @@ export class Game {
         count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
       });
       return undefined;
-    });
+    }, "splashParticles() — the splash spray visual ahead of the player");
     registerFn("removeSelf", (ctx, args) => {
       const { g, item } = api(ctx);
       const n = argNum(args[0], 1);
       for (let i = 0; i < n; i++) g.state.remove(item.id);
       return undefined;
-    });
+    }, "removeSelf(count?) — spend this item from the inventory");
     registerFn("placeSelf", (ctx) => {
       const { g, item } = api(ctx);
       if (!item.placeType) return undefined;
@@ -2202,12 +2202,12 @@ export class Game {
         tx, g.player.y
       );
       return undefined;
-    });
+    }, "placeSelf() — place the item's placeType (spring/trap) in front of the player and spend it");
     registerFn("throwSelf", (ctx, args) => {
       const { g, item } = api(ctx);
       g.throwBomb(item, Math.max(0, Math.min(1, argNum(args[0], 0))));
       return undefined;
-    });
+    }, "throwSelf(charge) — lob this item on an arc (charge 0..1); it bursts into a smoke veil on impact");
     registerFn("applyToBraziers", (ctx, args) => {
       const { g } = api(ctx);
       const element = args[0];
@@ -2215,7 +2215,7 @@ export class Game {
       const events = g.roomRt.applyElementToBraziers(element, boxFor(g, "body", 0));
       g.handleElementEvents(events);
       return events.length;
-    });
+    }, "applyToBraziers(element) -> count — apply an element to braziers under the player's body box");
   }
 }
 Game.registerItemFns();
