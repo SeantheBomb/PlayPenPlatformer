@@ -32,7 +32,11 @@ export type SessionEvent =
   // even if the replay's own simulation doesn't (yet, or ever) agree a death
   // occurred, since whatever caused the mismatch already broke its own
   // ability to self-report correctly. See replay.ts's applyAnchors.
-  | { f: number; t: "anchor"; kind: "checkpoint" | "death"; x: number; y: number }
+  // room: which room this position is IN — a room-transition that fails to
+  // fire in replay (the player never left the previous room) is a real
+  // failure mode, not just position drift; without this, applying x/y
+  // straight into the wrong room's coordinate space is actively harmful.
+  | { f: number; t: "anchor"; kind: "checkpoint" | "death"; room: string; x: number; y: number }
   // A walk-over item gain (static room pickup or a scattered drop) — same
   // ground-truth spirit as anchors, but for inventory instead of position.
   // "pickup" carries the room entity's stable index; "drop" (scattered,
@@ -202,10 +206,10 @@ class Recorder {
     this.push({ f: this.tag(), t: "confirm", v });
   }
 
-  recordAnchor(kind: "checkpoint" | "death", x: number, y: number): void {
+  recordAnchor(kind: "checkpoint" | "death", room: string, x: number, y: number): void {
     if (!this.meta) return;
     this.push({
-      f: this.tag(), t: "anchor", kind,
+      f: this.tag(), t: "anchor", kind, room,
       x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
     });
   }

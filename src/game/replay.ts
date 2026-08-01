@@ -144,20 +144,34 @@ export class ReplayDriver {
     if (!list) return;
     for (const ev of list) {
       if (ev.t !== "anchor") continue;
+      // Sessions recorded before anchors carried a room (older data) have
+      // ev.room === undefined — never force a switch to "undefined".
+      if (ev.kind === "death") {
+        // A death definitely happened here live — force the full respawn
+        // unconditionally (room included), regardless of whether this
+        // replay's own simulation agrees a death occurred (it may not, if
+        // whatever caused an earlier mismatch already broke its own
+        // health/hazard tracking too).
+        const p = this.game.player;
+        this.resyncs.push({ step, kind: "death", dx: ev.x - p.centerX, dy: ev.y - p.feetY });
+        this.game.forceRespawn(ev.room ?? this.game.currentRoomId, ev.x, ev.y);
+        continue;
+      }
+      if (ev.room && ev.room !== this.game.currentRoomId) {
+        // The room transition itself failed to fire in replay — a real
+        // failure mode, not mere position drift. Force the room too, not
+        // just x/y, or we'd be placing the player at these coordinates
+        // inside the WRONG room's map.
+        const p = this.game.player;
+        this.resyncs.push({ step, kind: "checkpoint", dx: ev.x - p.centerX, dy: ev.y - p.feetY });
+        this.game.forceRoom(ev.room);
+        this.game.player.placeFeetAt(ev.x, ev.y);
+        continue;
+      }
       const p = this.game.player;
       // Anchors are recorded as (centerX, feetY) — see game.ts's two
       // recordAnchor call sites — matching placeFeetAt's own inputs.
       const dx = ev.x - p.centerX, dy = ev.y - p.feetY;
-      if (ev.kind === "death") {
-        // A death definitely happened here live — force the full respawn
-        // unconditionally, regardless of whether this replay's own
-        // simulation agrees a death occurred (it may not, if whatever
-        // caused an earlier mismatch already broke its own health/hazard
-        // tracking too).
-        this.resyncs.push({ step, kind: "death", dx, dy });
-        this.game.forceRespawn(ev.x, ev.y);
-        continue;
-      }
       if (Math.hypot(dx, dy) > ANCHOR_TOLERANCE) {
         this.resyncs.push({ step, kind: "checkpoint", dx, dy });
         p.placeFeetAt(ev.x, ev.y);

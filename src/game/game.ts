@@ -977,7 +977,9 @@ export class Game {
         if (this.content.game.rules.healAtCheckpoints) {
           this.state.health = this.state.maxHealth;
         }
-        if (!this.replay) recorder.recordAnchor("checkpoint", this.player.centerX, this.player.feetY);
+        if (!this.replay) {
+          recorder.recordAnchor("checkpoint", this.currentRoomId, this.player.centerX, this.player.feetY);
+        }
         sfx.play("checkpoint");
         this.floaty("Checkpoint!", e.x + e.w / 2, e.y, "#5ad1a5");
       }
@@ -1616,7 +1618,7 @@ export class Game {
     if (cp.roomId !== this.currentRoomId) {
       this.loadRoom(cp.roomId);
     }
-    if (!this.replay) recorder.recordAnchor("death", cp.x, cp.y);
+    if (!this.replay) recorder.recordAnchor("death", cp.roomId, cp.x, cp.y);
     this.respawnAt(cp.x, cp.y, cp.loadout);
   }
 
@@ -1646,12 +1648,22 @@ export class Game {
     this.roomRt.resetEnemies();
   }
 
+  /** Replay driver: force the current room to match a recorded anchor's
+   *  room, if it doesn't already — a room transition that failed to fire in
+   *  replay is a real failure mode (the player never left the previous
+   *  room), not just position drift, and applying an anchor's x/y straight
+   *  into the wrong room's coordinate space is actively harmful. */
+  forceRoom(room: string): void {
+    if (room !== this.currentRoomId) this.loadRoom(room);
+  }
+
   /** Replay driver: a recorded "death" anchor says a death definitely
    *  happened here live — force the full respawn unconditionally, even if
    *  this replay's own simulation hasn't independently reached zero health
    *  (whatever caused that disagreement already broke its own ability to
    *  self-report correctly, so don't trust it to catch up on its own). */
-  forceRespawn(x: number, y: number): void {
+  forceRespawn(room: string, x: number, y: number): void {
+    this.forceRoom(room);
     this.respawnAt(x, y, this.state.checkpoint.loadout);
   }
 
