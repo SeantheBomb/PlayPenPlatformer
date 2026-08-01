@@ -240,7 +240,9 @@ describe("chase behavior", () => {
     const x0 = en.x;
     sim.step(player, 30); // half a second
     const moved = en.x - x0;
-    const expected = (en.def.chaseSpeed ?? 0) * 0.5;
+    // chaseSpeed lives in content/enemies.json's spotter.chaseOnSight params
+    // now (not a flat EnemyDef field) — 128, matching that content value.
+    const expected = 128 * 0.5;
     expect(moved).toBeGreaterThan(expected * 0.8);
     expect(moved).toBeLessThan(expected * 1.2);
   });

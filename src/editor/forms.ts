@@ -243,13 +243,33 @@ export interface FieldSpec {
    *  emptied/unchecked, keeping the serialized JSON lean. */
   req?: boolean;
   hint?: string;
+  /** Field keys (elsewhere in the SAME schema) that only make sense once
+   *  this one is "on" — bool: checked; string/color: non-empty; number:
+   *  defined. Revealed fields render nested under this one instead of at
+   *  the top level, and are dropped from `obj` the instant the gate turns
+   *  off (same "empty optional field deletes its key" rule, applied to the
+   *  whole dependent group at once) — so a tile's `flammable` checkbox is
+   *  the only thing you see until you turn it on, at which point burnTime/
+   *  burnsTo appear right underneath it (Sean, 2026-08-01: conditional
+   *  parameter grouping, not a behavior-attachment — tile/item properties
+   *  are plain data with no shared defaults worth the heavier mechanism). */
+  reveals?: string[];
 }
+
+const isGateOn = (spec: FieldSpec, obj: Record<string, unknown>): boolean => {
+  const v = obj[spec.key];
+  if (spec.kind === "bool") return v === true;
+  if (spec.kind === "number") return typeof v === "number";
+  return typeof v === "string" && v !== "";
+};
 
 /**
  * Build a form over `schema` (every field, present on the object or not),
  * writing changes into `obj` in place: empty optional fields delete their
  * key. Fields the object carries beyond the schema still show (via a plain
  * autoForm appended by the caller with these keys skipped) so nothing hides.
+ * A field with `reveals` renders its dependents nested underneath itself,
+ * shown only while its own gate is on — see FieldSpec.reveals.
  */
 export function schemaForm(
   obj: Record<string, unknown>,
@@ -258,7 +278,15 @@ export function schemaForm(
   fieldOptions?: (key: string) => string[] | undefined
 ): HTMLElement {
   const wrap = el("div", { className: "pp-form" });
-  for (const spec of schema) {
+  const byKey = new Map(schema.map((s) => [s.key, s]));
+  const revealedKeys = new Set(schema.flatMap((s) => s.reveals ?? []));
+
+  const afterEdit = (spec: FieldSpec) => {
+    onChange();
+    if (spec.reveals) renderRows(); // gate flipped — show/hide + prune dependents
+  };
+
+  const renderField = (spec: FieldSpec): HTMLElement => {
     const val = obj[spec.key];
     const row = el("div", { className: "pp-row" });
     row.append(el("label", { title: spec.hint ?? "" }, spec.key));
@@ -269,8 +297,11 @@ export function schemaForm(
             type: "checkbox", ...(val ? { checked: true } : {}),
             onchange: (e) => {
               if ((e.target as HTMLInputElement).checked) obj[spec.key] = true;
-              else delete obj[spec.key];
-              onChange();
+              else {
+                delete obj[spec.key];
+                for (const dep of spec.reveals ?? []) delete obj[dep];
+              }
+              afterEdit(spec);
             },
           })
         );
@@ -282,12 +313,14 @@ export function schemaForm(
             value: typeof val === "number" ? val : "",
             oninput: (e) => {
               const raw = (e.target as HTMLInputElement).value.trim();
-              if (raw === "" && !spec.req) delete obj[spec.key];
-              else {
+              if (raw === "" && !spec.req) {
+                delete obj[spec.key];
+                for (const dep of spec.reveals ?? []) delete obj[dep];
+              } else {
                 const n = parseFloat(raw);
                 if (!Number.isNaN(n)) obj[spec.key] = n;
               }
-              onChange();
+              afterEdit(spec);
             },
           })
         );
@@ -299,19 +332,21 @@ export function schemaForm(
           oninput: (e) => {
             obj[spec.key] = (e.target as HTMLInputElement).value;
             text.value = obj[spec.key] as string;
-            onChange();
+            afterEdit(spec);
           },
         });
         const text = el("input", {
           type: "text", value: typeof val === "string" ? val : "", className: "pp-colortext",
           oninput: (e) => {
             const v = (e.target as HTMLInputElement).value;
-            if (v === "" && !spec.req) delete obj[spec.key];
-            else if (isColor(v)) {
+            if (v === "" && !spec.req) {
+              delete obj[spec.key];
+              for (const dep of spec.reveals ?? []) delete obj[dep];
+            } else if (isColor(v)) {
               obj[spec.key] = v;
               picker.value = v;
             }
-            onChange();
+            afterEdit(spec);
           },
         });
         row.append(picker, text);
@@ -327,15 +362,18 @@ export function schemaForm(
               const t = e.target as HTMLTextAreaElement;
               const raw = t.value.trim();
               if (raw === "") {
-                if (!spec.req) delete obj[spec.key];
+                if (!spec.req) {
+                  delete obj[spec.key];
+                  for (const dep of spec.reveals ?? []) delete obj[dep];
+                }
                 t.classList.remove("pp-bad");
-                onChange();
+                afterEdit(spec);
                 return;
               }
               try {
                 obj[spec.key] = JSON.parse(raw);
                 t.classList.remove("pp-bad");
-                onChange();
+                afterEdit(spec);
               } catch {
                 t.classList.add("pp-bad");
               }
@@ -353,9 +391,11 @@ export function schemaForm(
             ...(listId ? { list: listId } : {}),
             oninput: (e) => {
               const v = (e.target as HTMLInputElement).value;
-              if (v === "" && !spec.req) delete obj[spec.key];
-              else obj[spec.key] = v;
-              onChange();
+              if (v === "" && !spec.req) {
+                delete obj[spec.key];
+                for (const dep of spec.reveals ?? []) delete obj[dep];
+              } else obj[spec.key] = v;
+              afterEdit(spec);
             },
           })
         );
@@ -366,8 +406,26 @@ export function schemaForm(
         }
       }
     }
-    wrap.append(row);
-  }
+    return row;
+  };
+
+  const renderRows = () => {
+    wrap.replaceChildren();
+    for (const spec of schema) {
+      if (revealedKeys.has(spec.key)) continue; // only ever rendered nested, below
+      wrap.append(renderField(spec));
+      if (spec.reveals && isGateOn(spec, obj)) {
+        const group = el("div", { className: "pp-schema-group" });
+        for (const depKey of spec.reveals) {
+          const depSpec = byKey.get(depKey);
+          if (depSpec) group.append(renderField(depSpec));
+        }
+        wrap.append(group);
+      }
+    }
+  };
+
+  renderRows();
   return wrap;
 }
 

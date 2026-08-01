@@ -2,10 +2,21 @@
   {
     "id": "crawler",
     "name": "Crawler",
-    "behavior": "patrol",
     "behaviors": [
       "hazardReactions",
-      "elementReactions",
+      {
+        "id": "elementReactions",
+        "params": {
+          "reactions": {
+            "fire": "kill",
+            "water": "none",
+            "ice": "stun",
+            "spark": "none",
+            "metal": "knockback",
+            "lava": "kill"
+          }
+        }
+      },
       {
         "id": "stunCycle",
         "params": {
@@ -22,27 +33,28 @@
     "eyeColor": "#a77695",
     "speed": 55,
     "damage": 1,
-    "turnAtEdges": true,
     "stunnable": true,
-    "trappable": true,
     "element": "goo",
-    "reactions": {
-      "fire": "kill",
-      "water": "none",
-      "ice": "stun",
-      "spark": "none",
-      "metal": "knockback",
-      "lava": "kill"
-    },
     "description": "A goo creature. Burns like a candle, laughs at electricity (goo insulates), freezes solid."
   },
   {
     "id": "spotter",
     "name": "Spotter",
-    "behavior": "chase",
     "behaviors": [
       "hazardReactions",
-      "elementReactions",
+      {
+        "id": "elementReactions",
+        "params": {
+          "reactions": {
+            "fire": "none",
+            "water": "stun",
+            "ice": "stun",
+            "spark": "stun",
+            "metal": "knockback",
+            "lava": "none"
+          }
+        }
+      },
       {
         "id": "stunCycle",
         "params": {
@@ -52,7 +64,10 @@
       {
         "id": "chaseOnSight",
         "params": {
-          "giveUpTo": "return"
+          "giveUpTo": "return",
+          "range": 130,
+          "loseMs": 2600,
+          "chaseSpeed": 128
         }
       },
       "patrolRoute",
@@ -65,22 +80,9 @@
     "color": "#69577f",
     "eyeColor": "#f3d020",
     "speed": 38,
-    "chaseSpeed": 128,
-    "sightRange": 130,
     "damage": 1,
-    "loseTargetMs": 2600,
-    "returnsHome": true,
     "stunnable": true,
-    "trappable": true,
     "element": "metal",
-    "reactions": {
-      "fire": "none",
-      "water": "stun",
-      "ice": "stun",
-      "spark": "stun",
-      "metal": "knockback",
-      "lava": "none"
-    },
     "description": "A metal drone. Fireproof, but water and charge short it out. If it sees you, it becomes extremely awake."
   }
 ]

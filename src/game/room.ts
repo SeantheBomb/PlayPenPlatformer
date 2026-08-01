@@ -1566,7 +1566,7 @@ export class RoomRuntime {
     const num = (v: unknown, fb: number) =>
       typeof v === "number" && Number.isFinite(v) ? v : fb;
     return {
-      range: num(p.range, d.sightRange ?? 120),
+      range: num(p.range, 120), // matches chaseOnSight's own default
       halfSlope: num(p.halfSlope, SIGHT_HALF_SLOPE),
       conePad: num(p.conePad, 12),
     };
@@ -2372,12 +2372,15 @@ registerFn("reactToTileHazards", (ctx, args) => {
   if (r === "kill") ctx.halt = true;
   return r;
 }, "reactToTileHazards(cooldownMs?) — fire/lava/spark tiles under the enemy apply their element through its reactions; halts the dispatch on a kill");
-registerFn("reactFromTable", (ctx) => {
-  const { en } = enemyApi(ctx);
+registerFn("reactFromTable", (ctx, args) => {
   const element = typeof ctx.data.element === "string" ? ctx.data.element : "";
-  applyReaction(ctx, en.def.reactions?.[element] ?? "none");
+  const table = args[0];
+  const reaction = table && typeof table === "object"
+    ? ((table as Record<string, unknown>)[element] as EnemyReaction | undefined) ?? "none"
+    : "none";
+  applyReaction(ctx, reaction);
   return ctx.data.reaction;
-}, "reactFromTable() — look the contacting element up in the enemy's reactions map and apply kill / stun / knockback / none");
+}, "reactFromTable(reactions) — look the contacting element up in the given {element: kill|stun|knockback|none} map and apply the result");
 registerFn("kill", (ctx) => {
   applyReaction(ctx, "kill");
   return undefined;

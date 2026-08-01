@@ -407,6 +407,15 @@ export class BehaviorSystem {
 
 export function enemyAttachments(def: EnemyDef): BehaviorAttachment[] {
   if (def.behaviors) return def.behaviors;
+  // Fallback for content that predates the behaviors[] list entirely —
+  // every current enemy (and the editor's new-enemy template) always sets
+  // an explicit list, so this path is untested-in-practice safety net only.
+  // returnsHome/trappable/reactions no longer exist on EnemyDef; read them
+  // loosely in case ancient stale JSON still carries them. Note this can't
+  // recover a stale enemy's old flat `reactions` table (elementReactions
+  // now owns that data itself) — a truly pre-behaviors save falls back to
+  // an empty reactions map, same as any fresh enemy with no params set.
+  const raw = def as unknown as Record<string, unknown>;
   const wake = def.behavior === "patrol" ? "patrol" : "return";
   const list: BehaviorAttachment[] = [
     "hazardReactions",
@@ -416,11 +425,11 @@ export function enemyAttachments(def: EnemyDef): BehaviorAttachment[] {
   if (def.behavior === "chase") {
     list.push({
       id: "chaseOnSight",
-      params: { giveUpTo: def.returnsHome ? "return" : "patrol" },
+      params: { giveUpTo: raw.returnsHome ? "return" : "patrol" },
     });
   }
   list.push("patrolRoute", "returnHome", "groundedMove");
-  if (def.trappable) list.push("trappable");
+  if (raw.trappable) list.push("trappable");
   return list;
 }
 

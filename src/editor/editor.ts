@@ -39,15 +39,17 @@ const TILE_SCHEMA: FieldSpec[] = [
   { key: "wade", kind: "number", hint: "movement multiplier while overlapping (liquid)" },
   { key: "slippery", kind: "bool" },
   { key: "element", kind: "string" },
-  { key: "flammable", kind: "bool" },
-  { key: "brittle", kind: "bool" },
-  { key: "conductive", kind: "bool" },
-  { key: "spreads", kind: "bool", hint: "radiates its element to neighbors" },
+  { key: "flammable", kind: "bool", reveals: ["burnTime", "burnsTo"],
+    hint: "also a fire/lava rule target — burnTime/burnsTo appear once checked" },
   { key: "burnTime", kind: "number", hint: "seconds a burning tile lasts" },
   { key: "burnsTo", kind: "string" },
+  { key: "brittle", kind: "bool", reveals: ["shattersTo"],
+    hint: "also a force-rule target — shattersTo appears once checked" },
+  { key: "shattersTo", kind: "string" },
+  { key: "conductive", kind: "bool" },
+  { key: "spreads", kind: "bool", hint: "radiates its element to neighbors" },
   { key: "meltsTo", kind: "string" },
   { key: "freezesTo", kind: "string" },
-  { key: "shattersTo", kind: "string" },
   { key: "dissolvesTo", kind: "string" },
   { key: "extinguishesTo", kind: "string" },
   { key: "fluid", kind: "bool", hint: "joins the flow sim (falls, spreads)" },
@@ -63,7 +65,8 @@ const ITEM_SCHEMA: FieldSpec[] = [
   { key: "description", kind: "string", req: true },
   { key: "element", kind: "string", hint: "the element this item applies when used" },
   { key: "useMode", kind: "string", hint: "present = appears in the hotbar" },
-  { key: "dousedBy", kind: "string", hint: "element that reverts this while overlapped" },
+  { key: "dousedBy", kind: "string", reveals: ["dousesTo", "douseOnDeselect"],
+    hint: "element that reverts this while overlapped — set to reveal dousesTo" },
   { key: "dousesTo", kind: "string" },
   { key: "douseOnDeselect", kind: "bool", hint: "also revert when no longer held" },
   { key: "igniteTo", kind: "string", hint: "becomes this near fire while held" },
@@ -73,25 +76,23 @@ const ITEM_SCHEMA: FieldSpec[] = [
   { key: "capabilities", kind: "json" },
   { key: "params", kind: "json" },
 ];
+// chaseSpeed/sightRange/loseTargetMs/returnsHome/reactions/trappable all
+// moved into their owning behavior's own script defaults + attachment params
+// (see the attachmentsWidget below) — an enemy without chaseOnSight attached
+// no longer shows an inert sightRange field. stunnable stays flat: its only
+// reader (stunEnemiesNear, an external stun radius) sits outside the
+// behavior-dispatch system entirely, unlike everything above.
 const ENEMY_SCHEMA: FieldSpec[] = [
   { key: "id", kind: "string", req: true },
   { key: "name", kind: "string", req: true },
-  { key: "behavior", kind: "string", req: true, hint: "legacy preset; the behaviors list below wins" },
   { key: "width", kind: "number", req: true },
   { key: "height", kind: "number", req: true },
   { key: "color", kind: "color", req: true },
   { key: "eyeColor", kind: "color", req: true },
   { key: "speed", kind: "number", req: true },
   { key: "damage", kind: "number", req: true },
-  { key: "chaseSpeed", kind: "number" },
-  { key: "sightRange", kind: "number" },
-  { key: "loseTargetMs", kind: "number" },
-  { key: "returnsHome", kind: "bool" },
-  { key: "turnAtEdges", kind: "bool" },
-  { key: "stunnable", kind: "bool" },
-  { key: "trappable", kind: "bool" },
+  { key: "stunnable", kind: "bool", hint: "can an external stun (e.g. a smoke bomb radius) affect it" },
   { key: "element", kind: "string" },
-  { key: "reactions", kind: "json", hint: '{"fire": "kill", "ice": "stun", ...} — kill | stun | knockback | none' },
   { key: "description", kind: "string" },
 ];
 const ENTITY_TYPE_SCHEMA: FieldSpec[] = [
@@ -134,6 +135,8 @@ const CSS = `
 .pp-colortext { max-width:80px; }
 .pp-form fieldset { border:1px solid #2c2740; border-radius:5px; margin:8px 0; padding:4px 10px; }
 .pp-form legend { color:#ffd166; padding:0 4px; }
+/* schemaForm's conditional field-group reveal (FieldSpec.reveals) */
+.pp-schema-group { margin:2px 0 6px 18px; padding-left:10px; border-left:2px solid #3a3550; }
 .pp-bad { border-color:#c84b6a !important; }
 .pp-btnrow { display:flex; gap:8px; margin-top:12px; }
 .pp-hint { color:#8f87ad; font-size:11px; }
@@ -261,6 +264,9 @@ interface ListSpec {
 
 let styleEl: HTMLStyleElement | null = null;
 let activeShell: EditorShell | null = null;
+/** Unique <datalist> ids for attachmentsWidget instances (one widget can
+ *  render per tab-switch; ids must stay unique document-wide). */
+let datalistCounter = 0;
 
 export function openEditor(root: HTMLElement, store: ContentStore, game: Game): void {
   if (!styleEl) {
@@ -446,17 +452,20 @@ class EditorShell {
           list: () => c.enemies as unknown as Record<string, unknown>[],
           setList: (l) => (c.enemies = l as never),
           template: () => ({
-            id: "new_enemy", name: "New Enemy", behavior: "patrol",
+            id: "new_enemy", name: "New Enemy",
             width: 16, height: 14, color: "#c84b6a", eyeColor: "#2a1020",
-            speed: 50, damage: 1, turnAtEdges: true, stunnable: true, trappable: true,
-            reactions: { fire: "none", water: "none", ice: "stun", spark: "none", metal: "knockback", lava: "kill" },
+            speed: 50, damage: 1, stunnable: true,
             behaviors: [
-              "hazard_reactions", "element_reactions",
-              { id: "stun_cycle", params: { wakeTo: "patrol" } },
-              "patrol_route", "grounded_move", "trappable",
+              "hazardReactions",
+              { id: "elementReactions", params: { reactions: {
+                fire: "none", water: "none", ice: "stun",
+                spark: "none", metal: "knockback", lava: "kill",
+              } } },
+              { id: "stunCycle", params: { wakeTo: "patrol" } },
+              "patrolRoute", "groundedMove", "trappable",
             ],
           }),
-          label: (t) => `${t.id} (${t.behavior})`,
+          label: (t) => String(t.id),
           schema: ENEMY_SCHEMA,
           extras: (item) => this.attachmentsWidget(item, "enemy"),
           thumb: (t, ctx) => {
@@ -968,11 +977,19 @@ class EditorShell {
     return out;
   }
 
+  /**
+   * Behavior attachments on a def: an id-dropdown (same reference-field
+   * datalist styling as schemaForm's dropsItem/burnsTo/etc — this widget is
+   * wrapped in .pp-form specifically so it inherits that input styling
+   * rather than looking like a bespoke control) picks WHICH behavior, kept
+   * separate from a small params-only JSON row, instead of one combined
+   * raw-JSON blob per attachment.
+   */
   private attachmentsWidget(
     def: Record<string, unknown>, host: "enemy" | "item" | "tile" | "entity"
   ): HTMLElement {
     const c = this.store.content;
-    const wrap = el("div", { className: "pp-spritepanel", style: "display:block" });
+    const wrap = el("div", { className: "pp-spritepanel pp-form", style: "display:block" });
     wrap.append(el("div", { className: "pp-sidehead" }, "behaviors (execution order)"));
     const derived =
       host === "enemy" ? enemyAttachments(def as unknown as EnemyDef)
@@ -995,15 +1012,37 @@ class EditorShell {
       );
       return wrap;
     }
-    const atts = def.behaviors as unknown[];
+    const atts = def.behaviors as (string | { id: string; params?: unknown })[];
+    const dlId = `pp-bhv-add-${host}-${++datalistCounter}`;
+    const options = c.behaviors
+      .filter((b) => !b.host || b.host === host)
+      .map((b) => b.id);
+    const datalist = el("datalist", { id: dlId }, ...options.map((o) => el("option", { value: o })));
+
     atts.forEach((att, i) => {
-      const area = el("textarea", {
-        rows: 1, className: "pp-json", style: "flex:1",
-        value: JSON.stringify(att),
+      const ref = typeof att === "string" ? { id: att, params: undefined } : att;
+      const idInput = el("input", {
+        type: "text", list: dlId, value: ref.id, style: "flex:1;min-width:120px",
+        oninput: (e) => {
+          const newId = (e.target as HTMLInputElement).value;
+          const cur = typeof atts[i] === "string" ? undefined : (atts[i] as { params?: unknown }).params;
+          atts[i] = cur !== undefined ? { id: newId, params: cur } : newId;
+        },
+      });
+      const paramsInput = el("textarea", {
+        rows: 1, className: "pp-json", style: "flex:1.4", placeholder: "{ }",
+        value: ref.params !== undefined ? JSON.stringify(ref.params) : "",
         oninput: (e) => {
           const t = e.target as HTMLTextAreaElement;
+          const raw = t.value.trim();
+          const curId = typeof atts[i] === "string" ? (atts[i] as string) : (atts[i] as { id: string }).id;
+          if (raw === "") {
+            atts[i] = curId;
+            t.classList.remove("pp-bad");
+            return;
+          }
           try {
-            atts[i] = JSON.parse(t.value);
+            atts[i] = { id: curId, params: JSON.parse(raw) };
             t.classList.remove("pp-bad");
           } catch {
             t.classList.add("pp-bad");
@@ -1011,8 +1050,8 @@ class EditorShell {
         },
       });
       wrap.append(
-        el("div", { className: "pp-row", style: "display:flex;gap:6px;align-items:center;margin:3px 0" },
-          area,
+        el("div", { className: "pp-row", style: "display:flex;gap:6px;align-items:flex-start;margin:3px 0" },
+          idInput, paramsInput,
           el("button", {
             className: "pp-tool",
             onclick: () => {
@@ -1041,15 +1080,12 @@ class EditorShell {
         )
       );
     });
-    const dlId = `pp-bhv-add-${host}`;
-    const addInput = el("input", { type: "text", list: dlId, placeholder: "add behavior…" });
-    const options = c.behaviors
-      .filter((b) => !b.host || b.host === host)
-      .map((b) => b.id);
+    wrap.append(datalist);
+
+    const addInput = el("input", { type: "text", list: dlId, placeholder: "add behavior…", style: "flex:1" });
     wrap.append(
       el("div", { className: "pp-row", style: "display:flex;gap:6px;margin-top:6px" },
         addInput,
-        el("datalist", { id: dlId }, ...options.map((o) => el("option", { value: o }))),
         el("button", {
           className: "pp-btn",
           onclick: () => {

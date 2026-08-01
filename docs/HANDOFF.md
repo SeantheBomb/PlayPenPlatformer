@@ -316,6 +316,70 @@ and a behavior's own fields report where they're defined, which lines use
 them, and which attachments override them. The panel header also shows
 "attached by: ..." per doc (derived attachments included).
 
+**2026-08-01 (same day, round 3) — conditional field-group reveal, enemy
+schema pruning.** Sean's next ask, after seeing the tiles-schema screenshot
+again: group related toggle-gated fields so an unused parameter never sits
+visible-but-inert. First instinct was to reuse the behaviors[] attachment
+mechanism for tiles/items too — Sean pushed back: tile/item properties are
+plain data with no shared defaults another entry overrides (every tile's
+`burnTime` is already bespoke), so the "shared default + per-attachment
+override" machinery the behavior system exists for doesn't fit. Landed on a
+lighter mechanism instead:
+
+- **`FieldSpec.reveals?: string[]`** (`src/editor/forms.ts`): a gate field
+  (bool: checked; string/color: non-empty; number: defined) shows its
+  dependents nested underneath itself, and DELETES them the instant the gate
+  turns off — same "empty optional field deletes its key" rule schemaForm
+  already applied per-field, now applied to a whole dependent group at once.
+  `schemaForm` internally rebuilds its row list (`renderRows()`) whenever a
+  `reveals`-bearing field changes; every other field is unaffected (cheap
+  no-op check). Two tile groups (`flammable`→burnTime/burnsTo, `brittle`→
+  shattersTo — both audited against every real `content/tiles.json` entry;
+  everything else in TileDef turned out to be already self-gating by value
+  presence, like `meltsTo`, or genuinely independent, like `damage`/`repels`
+  — lava has damage without repel, fire has both, confirmed NOT a group).
+  One item group (`dousedBy`→dousesTo/douseOnDeselect).
+- **EnemyDef pruned**, since enemies DO run real logic through behaviors[]
+  and several flat fields were pure duplicates of what an attached behavior
+  already read: `reactions` moved into `elementReactions`'s own `params`
+  (`reactFromTable` now takes the table as an argument instead of reading
+  `en.def.reactions`); `chaseSpeed`/`sightRange`/`loseTargetMs`/`returnsHome`
+  moved into `chaseOnSight`'s own script defaults + params (it no longer
+  does `host.sightRange ?? 120`, just `120`, overridable via the attachment
+  same as `giveUpTo` already was). `trappable` (flat bool) and `turnAtEdges`
+  deleted outright — confirmed dead via grep (turnAtEdges was never read
+  anywhere; trappable's only reader was the pre-behaviors[] legacy fallback).
+  `behavior` (legacy patrol/chase enum) is now optional and hidden from the
+  form — every real enemy has an explicit `behaviors` list, so it's dead for
+  anything authored going forward; `enemyAttachments()`'s fallback derivation
+  in `behavior.ts` still reads it (via an `as unknown as Record<string,
+  unknown>` cast, same pattern `enemyResetState` already used) purely as a
+  safety net for hypothetical pre-behaviors[] stale saves. `stunnable`
+  stayed a flat field — Sean's explicit call — since its only reader
+  (`stunEnemiesNear`, the smoke-bomb stun radius) sits outside the
+  behavior-dispatch system entirely, unlike everything else on this list.
+- **attachmentsWidget rewrite**: each attached behavior is now an id-dropdown
+  (reference-field style — wrapped in `.pp-form` so it inherits the exact
+  same input styling as every other reference dropdown, which is what "add
+  behavior" was missing before) plus a SEPARATE small params-only JSON row,
+  instead of one combined raw-JSON blob you had to hand-edit to change which
+  behavior a row even referenced.
+- **Caught mid-migration**: `var reactions = {};` in `elementReactions`
+  doesn't compile — **penscript has no object-literal syntax at all**
+  (`parsePrimary` has no `{` case). A field meant to be set only via
+  attachment `params` still needs a syntactically valid literal default;
+  used `null` instead (`reactFromTable`'s null/undefined guard already
+  handled it). This silently disabled the ENTIRE `elementReactions` behavior
+  for every enemy (a script that fails to compile sets `doc.script = null`,
+  and `fire()` just skips docs with no script) — no crash, just every
+  element reaction going quietly to "none". Caught by the characterization
+  suite (6 failures, all reaction-shaped), not by static analysis. **If you
+  need an object-shaped default in a behavior script, `null` is currently
+  the only valid literal — object/array literals aren't implemented.**
+- 114 tests green — `enemy-behaviors.test.ts`'s chaseSpeed assertion updated
+  to read the value from content (128, spotter's `chaseOnSight` param)
+  instead of the now-deleted `en.def.chaseSpeed`.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

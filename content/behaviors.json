@@ -16,10 +16,12 @@
     "id": "elementReactions",
     "name": "Element reactions table",
     "host": "enemy",
-    "description": "When an element hits this enemy, look it up in the enemy's reactions map (kill / stun / knockback / none).",
+    "description": "When an element hits this enemy, look it up in this behavior's own reactions map (kill / stun / knockback / none) — set per-enemy via this attachment's params.",
     "script": [
+      "var reactions = null; // no object literals in penscript — set via params",
+      "",
       "on elementContact {",
-      "  reactFromTable();",
+      "  reactFromTable(reactions);",
       "}"
     ]
   },
@@ -46,11 +48,11 @@
     "tags": ["sight"],
     "description": "Forward vision cone: seeing the player escalates to chase; losing them (hidden, smoke, or loseMs without sight) gives up into giveUpTo.",
     "script": [
-      "var range = host.sightRange ?? 120;",
+      "var range = 120;",
       "var halfSlope = 0.55;   // vertical spread of the cone",
       "var conePad = 12;",
-      "var loseMs = host.loseTargetMs ?? 2000;",
-      "var chaseSpeed = host.chaseSpeed ?? host.speed * 2;",
+      "var loseMs = 2000;",
+      "var chaseSpeed = host.speed * 2;",
       "var giveUpTo = \"patrol\";",
       "var seenAt = 0;",
       "",

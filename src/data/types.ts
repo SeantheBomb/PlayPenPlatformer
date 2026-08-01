@@ -270,9 +270,11 @@ export type EnemyBehavior = "patrol" | "chase";
 export interface EnemyDef extends SpriteFields {
   id: string;
   name: string;
-  /** Legacy preset. When `behaviors` is present it wins; this remains as the
-   *  fallback mapping for stale content (see enemyAttachments in behavior.ts). */
-  behavior: EnemyBehavior;
+  /** Legacy preset, superseded by `behaviors`. Vestigial for any current
+   *  enemy (all of them carry an explicit `behaviors` list); kept optional
+   *  purely so `enemyAttachments()`'s fallback derivation still has
+   *  something to read for hypothetical stale saves predating that list. */
+  behavior?: EnemyBehavior;
   /** Composable behavior attachments (behaviors.json ids), run in order. */
   behaviors?: BehaviorAttachment[];
   width: number;
@@ -281,15 +283,12 @@ export interface EnemyDef extends SpriteFields {
   eyeColor: string;
   speed: number;
   damage: number;
-  chaseSpeed?: number;
-  sightRange?: number;
-  loseTargetMs?: number;
-  returnsHome?: boolean;
-  turnAtEdges?: boolean;
+  /** Gates external stuns (e.g. a smoke bomb's radius) — read directly by
+   *  stunEnemiesNear in room.ts, outside the behavior-dispatch system, so
+   *  unlike chaseSpeed/sightRange/reactions/etc. this stays a flat field
+   *  rather than moving into a behavior's params. */
   stunnable?: boolean;
-  trappable?: boolean;
   element?: string;
-  reactions?: Record<string, EnemyReaction>; // element id -> what happens
   description?: string;
 }
 

@@ -186,7 +186,12 @@ republishing/re-saving from the editor is still the fix for those.
   Handlers: `on tick / flowTick / elementContact(element) / use(charge) /
   heldTick / carriedTick`. Built-ins: `now`, `host.*`, `state` (enemies),
   `lit` (entities), `player`/`home` targets, `halt` (consume dispatch),
-  `return` (end handler).
+  `return` (end handler). **No object/array literal syntax** — `var x = {};`
+  fails to parse (silently disables the WHOLE behavior: a script that
+  doesn't compile gets `doc.script = null`, and dispatch just skips it — no
+  crash, everything routing through it quietly goes to "none"/no-op). A
+  field that's only ever set via attachment `params` (JSON, bypasses the
+  parser) still needs a valid literal default — use `null`, not `{}`/`[]`.
 - **Enemy AI, item use (swing/splash/place/burst + passive douse/ignite), and
   brazier flame logic run THROUGH scripts** — don't add hardcoded branches to
   the old code paths; edit/write a behavior script, and only register a new
@@ -218,6 +223,31 @@ republishing/re-saving from the editor is still the fix for those.
   editor.ts; add new schema fields there too or they're invisible); behavior
   attachment is edited on each def's own page; scripts are plain text with
   live compile errors — no form-wrapped-JSON half-UIs.
+- **Conditional field-group reveal (Sean-locked, 2026-08-01)**: for TILES
+  and ITEMS specifically — pure data, no shared defaults another entry
+  overrides — a `FieldSpec.reveals?: string[]` in `forms.ts`'s `schemaForm`
+  hides a field's dependents until the field itself is "on" (bool checked;
+  string/color non-empty; number defined), and DELETES the dependents the
+  instant it turns off. This is deliberately NOT the behaviors[] attachment
+  mechanism — that's for ENEMIES (real per-attachment logic + genuinely
+  shared defaults, e.g. every chaser sharing chaseOnSight's range default).
+  Don't blur the two: a new tile/item toggle-with-params gets `reveals`, a
+  new enemy capability gets a behavior doc. Current groups: tiles'
+  `flammable`→burnTime/burnsTo, `brittle`→shattersTo (audited against every
+  real tiles.json entry — nothing else in TileDef has a real dependent,
+  they're each independently self-gating or standalone); items' `dousedBy`
+  →dousesTo/douseOnDeselect.
+- **EnemyDef field ownership**: a flat field stays on EnemyDef only if
+  EVERY enemy needs it (id/name/width/height/color/eyeColor/speed/damage/
+  element/description) or its reader sits outside the behavior-dispatch
+  system (`stunnable` — read by `stunEnemiesNear`'s external stun-radius
+  check, not from within any script). Everything else that's owned by ONE
+  attached behavior lives in that behavior's own `var` default + that
+  attachment's `params` — `reactions` is `elementReactions`'s param now
+  (`reactFromTable(reactions)` takes it as an arg, doesn't read
+  `en.def.reactions`); `chaseSpeed`/`sightRange`/`loseTargetMs`/`returnsHome`
+  are `chaseOnSight`'s own params. Don't add a new flat EnemyDef field for
+  something only one behavior reads — give that behavior a `var` instead.
 - Tests: `tests/enemy-behaviors.test.ts` pins the ported enemy behavior;
   `tests/behaviors.test.ts` pins the compiler + customization contract
   (custom scripts, field overrides, the global knobs, parser-hang safety).

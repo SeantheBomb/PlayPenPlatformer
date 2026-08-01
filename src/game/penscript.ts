@@ -14,7 +14,7 @@
 // and double as per-instance state when handlers assign to them. `var` inside
 // a handler is an ordinary local.
 //
-//   var range  = host.sightRange ?? 120;   // field (per-attachment tunable)
+//   var range  = 120;                      // field (per-attachment tunable)
 //   var seenAt = 0;                        // field (per-instance state)
 //
 //   on tick {
