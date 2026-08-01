@@ -192,8 +192,16 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 /* penscript editor (scripteditor.ts): highlight layer behind a transparent-
    text textarea. Both layers MUST share the exact same font/padding. */
 .pp-codewrap { position:relative; overflow:hidden; resize:vertical; height:460px; min-height:160px;
-  border:1px solid #3a3550; border-radius:4px; background:#0d0b14; }
+  border:1px solid #3a3550; border-radius:4px; background:#0d0b14; display:flex; }
 .pp-codewrap.pp-bad { border-color:#c84b6a; }
+/* Line-number gutter: a plain <pre> of "1\n2\n3...", vertical-scroll-synced
+   with the textarea via translateY. Its font/line-height/top-padding MUST
+   match .pp-codehl/.pp-codeta exactly or numbers drift off their rows. */
+.pp-codegutter { position:relative; flex:none; width:40px; overflow:hidden;
+  background:#100e1a; border-right:1px solid #2c2740; }
+.pp-codegutter-pre { margin:0; padding:10px 8px 10px 0; text-align:right; color:#4a4562;
+  font:13px/19px Consolas, "Cascadia Mono", "Courier New", monospace; white-space:pre; user-select:none; }
+.pp-codearea { position:relative; flex:1; min-width:0; overflow:hidden; }
 .pp-codehl, .pp-codeta { font:13px/19px Consolas, "Cascadia Mono", "Courier New", monospace;
   padding:10px 12px; margin:0; white-space:pre; tab-size:2; }
 .pp-codehl { position:absolute; top:0; left:0; color:#d4d4d4; pointer-events:none; min-width:100%; }
@@ -211,6 +219,10 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 .pp-tk-field { color:#9cdcfe; }
 .pp-tk-ident { color:#e8e2f4; }
 .pp-tk-punct { color:#d4d4d4; }
+/* Live compile/lint errors, anchored at their actual span (not just line-
+   level) — layered on top of whatever color the token's kind already has. */
+.pp-tk-err { text-decoration:underline wavy #ff5c72; text-decoration-thickness:1.4px;
+  text-underline-offset:3px; }
 .pp-tooltip { position:fixed; z-index:99; max-width:330px; background:#241f36;
   border:1px solid #5a5080; border-radius:6px; padding:8px 10px; color:#e8e2f4;
   font:11px/1.5 Consolas, monospace; white-space:pre-wrap; pointer-events:none;
@@ -881,6 +893,8 @@ class EditorShell {
           "built-ins: now · host.<field> · state (enemies) · lit (entities) · " +
           "player / home (moveToward targets) · halt (consume event) · return (end handler)"),
         el("p", { className: "pp-hint" }, "functions: " + knownFnNames().join(" · ")),
+        el("p", { className: "pp-hint" },
+          "Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) — undo/redo, up to 200 steps, independent of the browser's own undo"),
         el("div", { className: "pp-btnrow" },
           el("button", {
             className: "pp-btn pp-primary",

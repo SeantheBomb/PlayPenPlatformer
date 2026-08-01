@@ -6,7 +6,9 @@
 // bias). Plus the compiler itself.
 import { describe, expect, it } from "vitest";
 import { RoomRuntime } from "../src/game/room";
-import { compileScript } from "../src/game/penscript";
+import { compileScript, lintScript } from "../src/game/penscript";
+
+const TRIGGERS_FOR_TEST = ["tick", "flowTick", "elementContact", "use", "heldTick", "carriedTick"];
 import type {
   BehaviorDef, Content, EnemyDef, RoomDef, RoomEntity, RuleDef, TileDef,
 } from "../src/data/types";
@@ -100,6 +102,35 @@ describe("penscript compiler", () => {
     const { errors } = compileScript("on tick {\n  if state == 3 { }\n}");
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].line).toBe(2); // missing parens around the condition
+  });
+
+  it("anchors errors at a real column/length, not just the line (editor squiggle placement)", () => {
+    // "state" is found where "(" was expected — the squiggle belongs on
+    // "state" itself (col 5, length 5 in "  if state == 3 { }"), not col 0.
+    const src = "on tick {\n  if state == 3 { }\n}";
+    const { errors } = compileScript(src);
+    const line2 = errors.find((e) => e.line === 2)!;
+    expect(line2.col).toBe(5);
+    expect(line2.len).toBe(5);
+    expect(src.split("\n")[1].slice(line2.col, line2.col + line2.len)).toBe("state");
+  });
+
+  it("anchors an EOF error ('before end of script') at the actual end position", () => {
+    const src = "on tick {\n  halt;\n"; // missing closing "}"
+    const { errors } = compileScript(src);
+    expect(errors.length).toBeGreaterThan(0);
+    const last = errors[errors.length - 1];
+    expect(last.line).toBe(3); // one line past the trailing newline
+    expect(last.col).toBe(0);
+  });
+
+  it("anchors unknown-function lint errors at the call site", () => {
+    const src = "on tick {\n  totallyMadeUp(1, 2);\n}";
+    const { script } = compileScript(src);
+    const errs = lintScript(script!, TRIGGERS_FOR_TEST, () => false);
+    const e = errs.find((x) => x.message.includes("totallyMadeUp"))!;
+    expect(e.line).toBe(2);
+    expect(src.split("\n")[1].slice(e.col, e.col! + e.len!)).toBe("totallyMadeUp");
   });
 
   it("always terminates on malformed input (editor live-typing safety)", () => {

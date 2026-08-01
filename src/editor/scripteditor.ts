@@ -86,16 +86,47 @@ function tokenizeLine(line: string, fieldNames: Set<string>): HlTok[] {
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function highlightHtml(source: string, fieldNames: Set<string>): string {
-  return source.split("\n").map((line) =>
-    tokenizeLine(line, fieldNames)
-      .map((t) =>
-        t.kind === "punct" && /^\s+$/.test(t.text)
-          ? esc(t.text)
-          : `<span class="pp-tk-${t.kind}">${esc(t.text)}</span>`
-      )
-      .join("")
-  ).join("\n") + "\n";
+/** A compile/lint error anchored to a real span (see ScriptError.col/len). */
+interface ErrSpan { col: number; len: number }
+
+/**
+ * Render one line's tokens, wrapping any that overlap an error span with an
+ * extra "pp-tk-err" class (wavy red underline, layered onto the token's own
+ * color via CSS — see .pp-tk-err). An error whose span lands entirely on
+ * whitespace/EOF past the last real token (the common "expected X before end
+ * of script" case) falls back to marking the LAST real token on the line, so
+ * every reported error is visible somewhere on its line even when its exact
+ * column has nothing to underline. A line with no tokens at all (blank, but
+ * still implicated) gets a small synthetic marker instead of nothing.
+ */
+function highlightHtml(
+  source: string, fieldNames: Set<string>, errorsByLine: Map<number, ErrSpan[]>
+): string {
+  const lines = source.split("\n");
+  return lines.map((line, idx) => {
+    const ranges = errorsByLine.get(idx + 1) ?? [];
+    const toks = tokenizeLine(line, fieldNames);
+    let markedAny = false;
+    let lastRealIdx = -1;
+    const parts = toks.map((t, i) => {
+      const isWs = t.kind === "punct" && /^\s+$/.test(t.text);
+      if (!isWs) lastRealIdx = i;
+      const tokEnd = t.col + t.text.length;
+      const hit = ranges.some((r) => r.col < tokEnd && r.col + r.len > t.col);
+      if (hit) markedAny = true;
+      if (isWs && !hit) return esc(t.text);
+      return `<span class="pp-tk-${t.kind}${hit ? " pp-tk-err" : ""}">${esc(t.text)}</span>`;
+    });
+    if (ranges.length > 0 && !markedAny) {
+      if (lastRealIdx >= 0) {
+        const t = toks[lastRealIdx];
+        parts[lastRealIdx] = `<span class="pp-tk-${t.kind} pp-tk-err">${esc(t.text)}</span>`;
+      } else {
+        parts.push('<span class="pp-tk-ident pp-tk-err">&nbsp;</span>');
+      }
+    }
+    return parts.join("");
+  }).join("\n") + "\n";
 }
 
 export interface ScriptEditorCtx {
@@ -105,6 +136,17 @@ export interface ScriptEditorCtx {
   fieldOverrides(field: string): string[];
 }
 
+// Undo/redo: a plain textarea's NATIVE undo is unreliable here — a burst of
+// rapid typing gets coalesced inconsistently across browsers, blur can drop
+// history, and any programmatic `.value =` write (external content reload,
+// future "revert" buttons) silently WIPES it, since only real typed input is
+// undo-tracked. So this editor owns its own stack instead of trusting the
+// browser's. Rapid typing coalesces into one undo step after a short pause
+// (DEBOUNCE_MS) — same feel as VS Code/most editors — rather than one entry
+// per keystroke, which would make Ctrl+Z tediously granular.
+const UNDO_DEBOUNCE_MS = 600;
+const UNDO_MAX = 200;
+
 export function createScriptEditor(opts: {
   source: string;
   onChange: (source: string, clean: boolean) => void;
@@ -112,14 +154,22 @@ export function createScriptEditor(opts: {
 }): HTMLElement {
   let source = opts.source;
   let fieldDefs = new Map<string, number>(); // field -> defining line (1-based)
+  let lastErrors: ScriptError[] = [];
+  const undoStack: string[] = [];
+  const redoStack: string[] = [];
+  let lastCommitted = source;
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
+  const gutterPre = el("pre", { className: "pp-codegutter-pre" });
+  const gutterWrap = el("div", { className: "pp-codegutter" }, gutterPre);
   const hl = el("pre", { className: "pp-codehl" });
   const ta = el("textarea", {
     className: "pp-codeta", spellcheck: false, wrap: "off", value: source,
   });
+  const codeArea = el("div", { className: "pp-codearea" }, hl, ta);
   const errorsEl = el("div", { className: "pp-hint", style: "margin-top:4px" });
   const tooltip = el("div", { className: "pp-tooltip", style: "display:none" });
-  const wrap = el("div", { className: "pp-codewrap" }, hl, ta);
+  const wrap = el("div", { className: "pp-codewrap" }, gutterWrap, codeArea);
 
   const recompile = (): boolean => {
     const { script, errors } = compileScript(source);
@@ -129,6 +179,7 @@ export function createScriptEditor(opts: {
     if (script && errors.length === 0) {
       all.push(...lintScript(script, TRIGGERS, isKnownFn));
     }
+    lastErrors = all;
     errorsEl.replaceChildren(
       ...(all.length === 0
         ? [el("span", { style: "color:#9be8b0" }, "✓ compiles clean")]
@@ -143,7 +194,55 @@ export function createScriptEditor(opts: {
   };
 
   const render = () => {
-    hl.innerHTML = highlightHtml(source, new Set(fieldDefs.keys()));
+    const lines = source.split("\n");
+    gutterPre.textContent = lines.map((_, i) => String(i + 1)).join("\n");
+    const errorsByLine = new Map<number, ErrSpan[]>();
+    for (const e of lastErrors) {
+      if (e.col === undefined) continue;
+      const arr = errorsByLine.get(e.line) ?? [];
+      arr.push({ col: e.col, len: Math.max(1, e.len ?? 1) });
+      errorsByLine.set(e.line, arr);
+    }
+    hl.innerHTML = highlightHtml(source, new Set(fieldDefs.keys()), errorsByLine);
+  };
+
+  /** Commit whatever's pending as one undo step right now (used before an
+   *  undo/redo, and on blur, so a just-typed burst is never silently lost). */
+  const flushPending = (): void => {
+    if (pendingTimer !== null) {
+      clearTimeout(pendingTimer);
+      pendingTimer = null;
+    }
+    if (source === lastCommitted) return;
+    undoStack.push(lastCommitted);
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+    lastCommitted = source;
+    redoStack.length = 0;
+  };
+
+  /** Push new content into the editor from OUTSIDE user typing (undo/redo
+   *  results) — the one path allowed to write ta.value directly. */
+  const applyExternal = (text: string): void => {
+    source = text;
+    ta.value = text;
+    lastCommitted = text;
+    const clean = recompile();
+    render();
+    opts.onChange(source, clean);
+  };
+
+  const performUndo = (): void => {
+    flushPending();
+    const prev = undoStack.pop();
+    if (prev === undefined) return;
+    redoStack.push(source);
+    applyExternal(prev);
+  };
+  const performRedo = (): void => {
+    const next = redoStack.pop();
+    if (next === undefined) return;
+    undoStack.push(source);
+    applyExternal(next);
   };
 
   ta.addEventListener("input", () => {
@@ -151,9 +250,24 @@ export function createScriptEditor(opts: {
     const clean = recompile();
     render();
     opts.onChange(source, clean);
+    if (pendingTimer !== null) clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(flushPending, UNDO_DEBOUNCE_MS);
+  });
+  ta.addEventListener("blur", flushPending);
+  ta.addEventListener("keydown", (ev) => {
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    const key = ev.key.toLowerCase();
+    if (key === "z" && !ev.shiftKey) {
+      ev.preventDefault();
+      performUndo();
+    } else if (key === "y" || (key === "z" && ev.shiftKey)) {
+      ev.preventDefault();
+      performRedo();
+    }
   });
   ta.addEventListener("scroll", () => {
     hl.style.transform = `translate(${-ta.scrollLeft}px, ${-ta.scrollTop}px)`;
+    gutterPre.style.transform = `translateY(${-ta.scrollTop}px)`;
   });
 
   // ---- hover tooltips (monospace math: mouse -> row/col -> token) ----
@@ -211,6 +325,12 @@ export function createScriptEditor(opts: {
     const lines = source.split("\n");
     const line = lines[row];
     let text: string | null = null;
+    // A squiggled span's own message takes priority — hovering the red
+    // underline should tell you what's wrong, same as any code editor.
+    const errHere = lastErrors
+      .filter((e) => e.line === row + 1 && e.col !== undefined &&
+        col >= e.col && col < e.col + Math.max(1, e.len ?? 1))
+      .map((e) => "⚠ " + e.message);
     if (line !== undefined && col >= 0) {
       const toks = tokenizeLine(line, new Set(fieldDefs.keys()));
       const tok = toks.find((t) => col >= t.col && col < t.col + t.text.length);
@@ -218,8 +338,11 @@ export function createScriptEditor(opts: {
         text = tooltipFor(tok.text, tok.kind, row + 1);
       }
     }
-    if (text) {
-      tooltip.textContent = text;
+    const combined = errHere.length > 0
+      ? errHere.join("\n") + (text ? "\n\n" + text : "")
+      : text;
+    if (combined) {
+      tooltip.textContent = combined;
       tooltip.style.display = "block";
       const pad = 14;
       tooltip.style.left = Math.min(ev.clientX + pad, window.innerWidth - 340) + "px";

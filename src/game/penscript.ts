@@ -38,7 +38,7 @@ export type Expr =
   | { k: "null" }
   | { k: "ident"; name: string; line: number }
   | { k: "member"; obj: Expr; prop: string; line: number }
-  | { k: "call"; name: string; args: Expr[]; line: number }
+  | { k: "call"; name: string; args: Expr[]; line: number; col: number }
   | { k: "un"; op: "!" | "-"; e: Expr }
   | { k: "bin"; op: BinOp; l: Expr; r: Expr; line: number }
   | { k: "cond"; c: Expr; t: Expr; f: Expr };
@@ -63,6 +63,9 @@ export interface Handler {
   params: string[];
   body: Stmt[];
   line: number;
+  /** Column of the event name (line 20: `on tick`'s "tick" starts here) —
+   *  editor squiggle placement for "unknown event" lints. */
+  col: number;
 }
 
 export interface CompiledScript {
@@ -74,6 +77,11 @@ export interface CompiledScript {
 export interface ScriptError {
   line: number;
   message: string;
+  /** 0-based column and character length of the offending span, when known
+   *  — lets the editor draw a squiggle at the actual location instead of
+   *  just listing the line. Absent for a few generic fallback errors. */
+  col?: number;
+  len?: number;
 }
 
 export interface CompileResult {
@@ -90,6 +98,8 @@ interface Tok {
   text: string;
   num?: number;
   line: number;
+  /** 0-based column of the token's first character on its line. */
+  col: number;
 }
 
 const PUNCTS = [
@@ -103,15 +113,19 @@ function lex(src: string): { toks: Tok[]; errors: ScriptError[] } {
   const errors: ScriptError[] = [];
   let i = 0;
   let line = 1;
+  let lineStart = 0; // index of the current line's first character in src
   const n = src.length;
+  const col = (at: number) => at - lineStart;
   while (i < n) {
     const c = src[i];
-    if (c === "\n") { line++; i++; continue; }
+    if (c === "\n") { line++; i++; lineStart = i; continue; }
     if (c === " " || c === "\t" || c === "\r") { i++; continue; }
     if (c === "/" && src[i + 1] === "/") {
       while (i < n && src[i] !== "\n") i++;
       continue;
     }
+    const tokStart = i;
+    const tokCol = col(tokStart);
     if (c === '"' || c === "'") {
       const quote = c;
       let s = "";
@@ -130,35 +144,39 @@ function lex(src: string): { toks: Tok[]; errors: ScriptError[] } {
         s += ch;
         i++;
       }
-      if (!closed) errors.push({ line, message: "unterminated string" });
-      toks.push({ kind: "str", text: s, line });
+      if (!closed) {
+        errors.push({ line, col: tokCol, len: Math.max(1, i - tokStart), message: "unterminated string" });
+      }
+      toks.push({ kind: "str", text: s, line, col: tokCol });
       continue;
     }
     if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(src[i + 1] ?? ""))) {
       let s = "";
       while (i < n && /[0-9._]/.test(src[i])) { s += src[i]; i++; }
       const v = parseFloat(s.replace(/_/g, ""));
-      if (Number.isNaN(v)) errors.push({ line, message: `bad number "${s}"` });
-      toks.push({ kind: "num", text: s, num: v, line });
+      if (Number.isNaN(v)) {
+        errors.push({ line, col: tokCol, len: s.length, message: `bad number "${s}"` });
+      }
+      toks.push({ kind: "num", text: s, num: v, line, col: tokCol });
       continue;
     }
     if (/[A-Za-z_]/.test(c)) {
       let s = "";
       while (i < n && /[A-Za-z0-9_]/.test(src[i])) { s += src[i]; i++; }
-      toks.push({ kind: "ident", text: s, line });
+      toks.push({ kind: "ident", text: s, line, col: tokCol });
       continue;
     }
     const two = src.slice(i, i + 2);
     const p = PUNCTS.includes(two) ? two : PUNCTS.includes(c) ? c : null;
     if (p === null) {
-      errors.push({ line, message: `unexpected character "${c}"` });
+      errors.push({ line, col: tokCol, len: 1, message: `unexpected character "${c}"` });
       i++;
       continue;
     }
-    toks.push({ kind: "punct", text: p, line });
+    toks.push({ kind: "punct", text: p, line, col: tokCol });
     i += p.length;
   }
-  toks.push({ kind: "eof", text: "", line });
+  toks.push({ kind: "eof", text: "", line, col: col(i) });
   return { toks, errors };
 }
 
@@ -182,16 +200,21 @@ class Parser {
     const t = this.peek();
     return t.kind === "ident" && (name === undefined || t.text === name);
   }
+  /** Push an error anchored at token `t`'s actual position — the squiggle
+   *  the editor draws lands on the real offending span, not just "the line". */
+  private errAt(t: Tok, message: string): void {
+    this.errors.push({ line: t.line, col: t.col, len: Math.max(1, t.text.length), message });
+  }
   private expectPunct(p: string): boolean {
     if (this.atPunct(p)) { this.next(); return true; }
     const t = this.peek();
-    this.errors.push({ line: t.line, message: `expected "${p}"${t.kind === "eof" ? " before end of script" : ` but found "${t.text}"`}` });
+    this.errAt(t, `expected "${p}"${t.kind === "eof" ? " before end of script" : ` but found "${t.text}"`}`);
     return false;
   }
   private expectIdent(what: string): Tok | null {
     if (this.peek().kind === "ident") return this.next();
     const t = this.peek();
-    this.errors.push({ line: t.line, message: `expected ${what} but found "${t.text || "end of script"}"` });
+    this.errAt(t, `expected ${what} but found "${t.text || "end of script"}"`);
     return null;
   }
   /** Optional semicolon — statements are brace/line structured; a ";" is
@@ -225,10 +248,7 @@ class Parser {
         if (h) handlers.push(h);
       } else {
         const t = this.peek();
-        this.errors.push({
-          line: t.line,
-          message: `expected "var" or "on" at top level, found "${t.text}"`,
-        });
+        this.errAt(t, `expected "var" or "on" at top level, found "${t.text}"`);
         this.synchronize();
       }
       // Recovery must always advance — synchronize can legally stop at a
@@ -266,7 +286,7 @@ class Parser {
     }
     if (!this.expectPunct("{")) { this.synchronize(); return null; }
     const body = this.parseBlockBody();
-    return { event: ev.text, params, body, line: onTok.line };
+    return { event: ev.text, params, body, line: onTok.line, col: ev.col };
   }
 
   /** Statements until the matching "}" (which is consumed). */
@@ -303,10 +323,7 @@ class Parser {
     const e = this.parseExpr();
     this.eatSemi();
     if (e.k === "ident" || e.k === "member" || e.k === "num" || e.k === "str") {
-      this.errors.push({
-        line: t.line,
-        message: `this line has no effect — did you mean a call (add "()") or an assignment (add "= value")?`,
-      });
+      this.errAt(t, `this line has no effect — did you mean a call (add "()") or an assignment (add "= value")?`);
     }
     return { k: "expr", e, line: t.line };
   }
@@ -416,7 +433,7 @@ class Parser {
           if (this.atPunct(",")) this.next();
         }
         this.expectPunct(")");
-        return { k: "call", name: t.text, args, line: t.line };
+        return { k: "call", name: t.text, args, line: t.line, col: t.col };
       }
       return { k: "ident", name: t.text, line: t.line };
     }
@@ -425,10 +442,7 @@ class Parser {
       this.expectPunct(")");
       return e;
     }
-    this.errors.push({
-      line: t.line,
-      message: `expected a value but found "${t.text || "end of script"}"`,
-    });
+    this.errAt(t, `expected a value but found "${t.text || "end of script"}"`);
     return { k: "null" };
   }
 }
@@ -455,13 +469,21 @@ export function lintScript(
   const out: ScriptError[] = [];
   for (const h of compiled.handlers) {
     if (!knownEvents.includes(h.event)) {
-      out.push({ line: h.line, message: `unknown event "${h.event}" (known: ${knownEvents.join(", ")})` });
+      out.push({
+        line: h.line, col: h.col, len: Math.max(1, h.event.length),
+        message: `unknown event "${h.event}" (known: ${knownEvents.join(", ")})`,
+      });
     }
   }
   const walkExpr = (e: Expr): void => {
     switch (e.k) {
       case "call":
-        if (!knownFns(e.name)) out.push({ line: e.line, message: `unknown function "${e.name}"` });
+        if (!knownFns(e.name)) {
+          out.push({
+            line: e.line, col: e.col, len: Math.max(1, e.name.length),
+            message: `unknown function "${e.name}"`,
+          });
+        }
         e.args.forEach(walkExpr);
         break;
       case "member": walkExpr(e.obj); break;
