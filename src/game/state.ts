@@ -44,6 +44,45 @@ export interface RunStats {
   startedAt: number;
 }
 
+/** Plain-JSON mirror of RoomMutations — Sets/Maps aren't directly
+ *  serializable, so heartbeats carry this shape instead. */
+export interface RoomMutationsSnapshot {
+  collected: number[];
+  tileOverrides: [number, string | null][];
+  openedDoors: number[];
+  gateTouched: number[];
+  helpedNpcs: number[];
+  disabledEnemies: number[];
+  drops: ScatterDrop[];
+  placedItems: PlacedItem[];
+  brazierLit: [number, boolean][];
+}
+
+/** Everything in RunState, as plain JSON — a periodic "heartbeat" ground
+ *  truth the replay driver can restore from directly instead of trusting
+ *  accumulated simulation. Deliberately raw/complete rather than a clever
+ *  derived diff: a smaller encoding that has to be re-expanded by game
+ *  logic is exactly the kind of "determine it" approach that breaks once
+ *  that logic changes across a content/code version — see game.ts's
+ *  captureHeartbeat/applyHeartbeat. */
+export interface StateSnapshot {
+  inventory: [string, number][];
+  knownRecipes: string[];
+  craftedRecipes: string[];
+  health: number;
+  maxHealth: number;
+  checkpoint: RunState["checkpoint"];
+  roomStates: [string, RoomMutationsSnapshot][];
+  selectedConsumable: number;
+  hasDiedOnce: boolean;
+  hasOpenedCraftUI: boolean;
+  counters: [string, number][];
+  earned: string[];
+  readNotes: string[];
+  helpedNpcIds: string[];
+  stats: RunStats;
+}
+
 export class RunState {
   inventory = new Map<string, number>();
   knownRecipes = new Set<string>();    // journal entries (from notes or crafting)
@@ -84,6 +123,66 @@ export class RunState {
     this.health = content.game.player.maxHealth;
     this.maxHealth = content.game.player.maxHealth;
     this.checkpoint = { roomId: startRoomId, x: 0, y: 0 };
+  }
+
+  snapshot(): StateSnapshot {
+    return {
+      inventory: [...this.inventory],
+      knownRecipes: [...this.knownRecipes],
+      craftedRecipes: [...this.craftedRecipes],
+      health: this.health,
+      maxHealth: this.maxHealth,
+      checkpoint: { ...this.checkpoint },
+      roomStates: [...this.roomStates].map(([roomId, m]) => [roomId, {
+        collected: [...m.collected],
+        tileOverrides: [...m.tileOverrides],
+        openedDoors: [...m.openedDoors],
+        gateTouched: [...m.gateTouched],
+        helpedNpcs: [...m.helpedNpcs],
+        disabledEnemies: [...m.disabledEnemies],
+        drops: m.drops.map((d) => ({ ...d })),
+        placedItems: m.placedItems.map((p) => ({ ...p })),
+        brazierLit: [...m.brazierLit],
+      }]),
+      selectedConsumable: this.selectedConsumable,
+      hasDiedOnce: this.hasDiedOnce,
+      hasOpenedCraftUI: this.hasOpenedCraftUI,
+      counters: [...this.counters],
+      earned: [...this.earned],
+      readNotes: [...this.readNotes],
+      helpedNpcIds: [...this.helpedNpcIds],
+      stats: { ...this.stats },
+    };
+  }
+
+  /** Overwrite every field from a captured snapshot — a replay driver
+   *  ground-truth resync, not a partial merge. */
+  restore(snap: StateSnapshot): void {
+    this.inventory = new Map(snap.inventory);
+    this.knownRecipes = new Set(snap.knownRecipes);
+    this.craftedRecipes = new Set(snap.craftedRecipes);
+    this.health = snap.health;
+    this.maxHealth = snap.maxHealth;
+    this.checkpoint = { ...snap.checkpoint };
+    this.roomStates = new Map(snap.roomStates.map(([roomId, m]) => [roomId, {
+      collected: new Set(m.collected),
+      tileOverrides: [...m.tileOverrides],
+      openedDoors: new Set(m.openedDoors),
+      gateTouched: new Set(m.gateTouched),
+      helpedNpcs: new Set(m.helpedNpcs),
+      disabledEnemies: new Set(m.disabledEnemies),
+      drops: m.drops.map((d) => ({ ...d })),
+      placedItems: m.placedItems.map((p) => ({ ...p })),
+      brazierLit: [...m.brazierLit],
+    }]));
+    this.selectedConsumable = snap.selectedConsumable;
+    this.hasDiedOnce = snap.hasDiedOnce;
+    this.hasOpenedCraftUI = snap.hasOpenedCraftUI;
+    this.counters = new Map(snap.counters);
+    this.earned = new Set(snap.earned);
+    this.readNotes = new Set(snap.readNotes);
+    this.helpedNpcIds = new Set(snap.helpedNpcIds);
+    this.stats = { ...snap.stats };
   }
 
   mutations(roomId: string): RoomMutations {

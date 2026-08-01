@@ -40,6 +40,24 @@ export interface PlacedInstance extends Rect {
   data: PlacedItem;
 }
 
+/** Heartbeat ground truth for one enemy — everything on EnemyInstance except
+ *  `def`/`homeX`/`patrolMin`/`patrolMax`, which are content-derived constants
+ *  the constructor always rebuilds identically from `index` alone. */
+export interface EnemySnapshot {
+  index: number;
+  x: number; y: number; vx: number; vy: number; facing: number;
+  state: "patrol" | "chase" | "return" | "stunned" | "trapped";
+  stunUntil: number; lastSawPlayerAt: number; lastHazardAt: number;
+}
+
+/** Runtime-only fluid bookkeeping not covered by RoomMutations.tileOverrides
+ *  (which only tracks a tile's identity, not these overlays) — see
+ *  RoomRuntime.snapshotFluidRuntime. */
+export interface FluidRuntimeSnapshot {
+  burning: [number, number][];       // tile index -> seconds of burn time left
+  grateFluid: [number, string][];    // tile index -> fluid tile id riding a grate
+}
+
 /** One thing that happened when an element was applied — for game feedback. */
 export interface ElementEvent {
   effect: string; // RuleEffect, plus "enemy_kill" | "enemy_stun" | "enemy_knockback" | "fuse"
@@ -1429,6 +1447,51 @@ export class RoomRuntime {
       en.state = en.def.behavior === "patrol" ? "patrol" : "return";
       en.lastSawPlayerAt = 0;
     }
+  }
+
+  /** Heartbeat ground truth — see EnemySnapshot. */
+  snapshotEnemies(): EnemySnapshot[] {
+    return this.enemies.map((en) => ({
+      index: en.index, x: en.x, y: en.y, vx: en.vx, vy: en.vy, facing: en.facing,
+      state: en.state, stunUntil: en.stunUntil,
+      lastSawPlayerAt: en.lastSawPlayerAt, lastHazardAt: en.lastHazardAt,
+    }));
+  }
+
+  /** Overwrite each currently-live enemy's runtime fields from a snapshot,
+   *  matched by index. An enemy the snapshot doesn't mention (disabled since,
+   *  or the room construction disagrees for some other reason) is left as
+   *  the constructor placed it — same fallback as any other partial data. */
+  restoreEnemies(snaps: EnemySnapshot[]): void {
+    const byIndex = new Map(snaps.map((s) => [s.index, s]));
+    for (const en of this.enemies) {
+      const s = byIndex.get(en.index);
+      if (!s) continue;
+      en.x = s.x; en.y = s.y; en.vx = s.vx; en.vy = s.vy; en.facing = s.facing;
+      en.state = s.state; en.stunUntil = s.stunUntil;
+      en.lastSawPlayerAt = s.lastSawPlayerAt; en.lastHazardAt = s.lastHazardAt;
+    }
+  }
+
+  /** Heartbeat ground truth for the two fluid-runtime overlays RoomMutations
+   *  doesn't track (tileOverrides only records a tile's identity) — see
+   *  FluidRuntimeSnapshot. meltedHot isn't included: it's a single-tick
+   *  ignition trigger, cleared every tick, so by the time anything reads a
+   *  heartbeat it's already stale either way. */
+  snapshotFluidRuntime(): FluidRuntimeSnapshot {
+    return {
+      burning: [...this.burning],
+      grateFluid: [...this.grateFluid].map(([idx, def]) => [idx, def.id]),
+    };
+  }
+
+  restoreFluidRuntime(snap: FluidRuntimeSnapshot): void {
+    this.burning = new Map(snap.burning);
+    this.grateFluid = new Map(
+      snap.grateFluid
+        .map(([idx, id]) => [idx, this.tilesById.get(id)] as const)
+        .filter((e): e is [number, TileDef] => !!e[1])
+    );
   }
 
   // ================= UPDATE =================

@@ -22,6 +22,8 @@ export interface Resync { step: number; kind: "checkpoint" | "death"; dx: number
 
 export interface ItemFixup { step: number; itemId: string; count: number; }
 
+export interface HeartbeatResync { step: number; dx: number; dy: number; }
+
 /** Beyond this many px of disagreement with a recorded checkpoint-touch
  *  anchor, snap to it rather than let whatever caused the gap keep
  *  compounding for the rest of the session. Death anchors don't use this —
@@ -68,6 +70,11 @@ export class ReplayDriver {
    *  replay's own walk-over detection — see Game.forceItemGain. Empty means
    *  every recorded pickup/drop was collected naturally, right on schedule. */
   itemFixups: ItemFixup[] = [];
+  /** Every recorded heartbeat this replay reached, with the position
+   *  disagreement it was applying (dx/dy are 0 if it was already exact) —
+   *  the periodic full-state ground truth, applied unconditionally
+   *  regardless of drift; see Game.applyHeartbeat. */
+  heartbeats: HeartbeatResync[] = [];
   private eventsByStep = new Map<number, SessionEvent[]>();
   private acc = 0;
   private lastFrame = 0;
@@ -127,8 +134,9 @@ export class ReplayDriver {
         }
         case "craft": this.game.applyCraftOp(ev.op); break;
         case "confirm": this.game.replayConfirms.push(ev.v); break;
-        case "anchor": break; // ground truth, not input — see applyAnchors
-        case "item": break;   // ground truth, not input — see applyItemGains
+        case "anchor": break;    // ground truth, not input — see applyAnchors
+        case "item": break;      // ground truth, not input — see applyItemGains
+        case "heartbeat": break; // ground truth, not input — see applyHeartbeats
       }
     }
   }
@@ -194,11 +202,28 @@ export class ReplayDriver {
     }
   }
 
+  /** Apply the just-simulated step's recorded heartbeat (if any) — a full
+   *  ground-truth resync, unconditional (see Game.applyHeartbeat for why).
+   *  Runs after stepOnce() like the other ground-truth checks: it records
+   *  state at the END of the tick it was captured on. */
+  private applyHeartbeats(step: number): void {
+    const list = this.eventsByStep.get(step);
+    if (!list) return;
+    for (const ev of list) {
+      if (ev.t !== "heartbeat") continue;
+      const p = this.game.player;
+      const dx = ev.player.x - p.x, dy = ev.player.y - p.y;
+      this.heartbeats.push({ step, dx, dy });
+      this.game.applyHeartbeat(ev);
+    }
+  }
+
   private stepOne(): void {
     this.applyEvents(this.step);
     this.game.stepOnce();
     this.applyAnchors(this.step);
     this.applyItemGains(this.step);
+    this.applyHeartbeats(this.step);
     this.step++;
   }
 
@@ -256,6 +281,7 @@ export class ReplayDriver {
       this.step = 0;
       this.resyncs = [];
       this.itemFixups = [];
+      this.heartbeats = [];
     }
     const wasMuted = sfx.muted;
     sfx.muted = true; // fast-forward without an sfx storm

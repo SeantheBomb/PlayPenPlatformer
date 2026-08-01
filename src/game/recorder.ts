@@ -16,8 +16,24 @@
 
 import type { Game } from "./game";
 import type { CraftPointerOp } from "./craftui";
+import type { StateSnapshot } from "./state";
+import type { PlayerSnapshot } from "./player";
+import type { EnemySnapshot, FluidRuntimeSnapshot } from "./room";
 
 export type CraftOp = CraftPointerOp;
+
+/** Full ground-truth game state, captured periodically — not derived from
+ *  input replay, so a replay driver can resync to it directly regardless of
+ *  what caused a divergence (including causes not yet discovered) or
+ *  whether the simulation code itself has changed since this was recorded.
+ *  See game.ts's captureHeartbeat/applyHeartbeat and HEARTBEAT_STEPS below. */
+export interface Heartbeat {
+  room: string;
+  player: PlayerSnapshot;
+  state: StateSnapshot;
+  enemies: EnemySnapshot[];
+  fluid: FluidRuntimeSnapshot;
+}
 
 export type SessionEvent =
   | { f: number; t: "k"; c: string; d: 0 | 1 }
@@ -48,7 +64,8 @@ export type SessionEvent =
   | {
       f: number; t: "item"; itemId: string; count: number;
       src: "pickup" | "drop"; idx?: number; x?: number; y?: number;
-    };
+    }
+  | ({ f: number; t: "heartbeat" } & Heartbeat);
 
 export interface RoomSegment {
   id: string;
@@ -225,6 +242,11 @@ class Recorder {
       f: this.tag(), t: "item", itemId, count, src: "drop",
       x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
     });
+  }
+
+  recordHeartbeat(hb: Heartbeat): void {
+    if (!this.meta) return;
+    this.push({ f: this.tag(), t: "heartbeat", ...hb });
   }
 
   markRoom(roomId: string, stepCount: number): void {
