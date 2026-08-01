@@ -7,6 +7,11 @@ import { drawBlob } from "../engine/renderer";
 import { simNow } from "../engine/simclock";
 import type { RunState } from "./state";
 
+export interface PlayerSnapshot {
+  x: number; y: number; vx: number; vy: number; facing: number;
+  invulnUntil: number; hiddenIn: number | null; swimState: "none" | "surface" | "under";
+}
+
 export interface PlayerFrameEvents {
   jumped: boolean;
   landed: boolean;
@@ -66,6 +71,25 @@ export class Player {
     this.y = feetY - this.h;
     this.vx = 0;
     this.vy = 0;
+  }
+
+  /** Heartbeat ground truth — physics state, not the sub-frame juice/input
+   *  timers (coyote/jump-buffer/blink/squash): those windows are at most a
+   *  few frames long and will have already resolved by the time a heartbeat
+   *  (seconds apart) is captured or applied. */
+  snapshot(): PlayerSnapshot {
+    return {
+      x: this.x, y: this.y, vx: this.vx, vy: this.vy, facing: this.facing,
+      invulnUntil: this.invulnUntil, hiddenIn: this.hiddenIn, swimState: this.swimState,
+    };
+  }
+
+  restore(snap: PlayerSnapshot): void {
+    this.x = snap.x; this.y = snap.y; this.vx = snap.vx; this.vy = snap.vy;
+    this.facing = snap.facing;
+    this.invulnUntil = snap.invulnUntil;
+    this.hiddenIn = snap.hiddenIn;
+    this.swimState = snap.swimState;
   }
 
   get invulnerable() {

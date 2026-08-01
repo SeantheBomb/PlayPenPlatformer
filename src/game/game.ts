@@ -9,9 +9,12 @@ import { sfx } from "../engine/audio";
 import { TILE } from "../engine/tilemap";
 import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
-import { RunState } from "./state";
-import { Player } from "./player";
-import { RoomRuntime, type ElementEvent, type EntityInstance } from "./room";
+import { RunState, type StateSnapshot } from "./state";
+import { Player, type PlayerSnapshot } from "./player";
+import {
+  RoomRuntime, type ElementEvent, type EntityInstance,
+  type EnemySnapshot, type FluidRuntimeSnapshot,
+} from "./room";
 import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
 import { TouchControls, type SmartContext } from "./touch";
@@ -20,7 +23,7 @@ import { telemetry } from "./telemetry";
 import { simNow, setSimTime } from "../engine/simclock";
 import { randomSeed } from "../engine/rng";
 import { itemAttachments, registerFn, type ScriptCtx } from "./behavior";
-import { recorder, type CraftOp } from "./recorder";
+import { recorder, type CraftOp, type Heartbeat } from "./recorder";
 import {
   drawAir, drawFloaties, drawHearts, drawHotbar, drawPrompt,
   drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
@@ -33,6 +36,12 @@ export const VIEW_H = 360;
 // Level-select list layout (shared by renderMenu and handleTap hit-testing).
 const LEVELS_TOP = 172;
 const LEVELS_ROW_H = 16;
+
+/** Full-state ground-truth capture cadence — 5s @ 60fps. Frequent enough to
+ *  catch a mid-room divergence (see game/replay.ts's applyHeartbeat) well
+ *  before it compounds into something like a missed jump or door, without
+ *  either a meaningful storage cost or per-frame overhead. */
+const HEARTBEAT_STEPS = 300;
 
 type Scene = "menu" | "play" | "win";
 type Overlay = "none" | "note" | "dialog" | "npcConfirm" | "craft" | "pause" | "report";
@@ -498,12 +507,28 @@ export class Game {
     this.taunts.fire("game_start");
   }
 
-  loadRoom(roomId: string): void {
+  /** Just the room-construction step: a fresh RoomRuntime rebuilt from
+   *  content + the current mutation record, no transition side effects
+   *  (taunts, warden reset, camera snap...). loadRoom (below) wraps this
+   *  for a genuine room change; applyHeartbeat (see below) uses it bare to
+   *  resync entities/tiles when correcting state WITHOUT actually having
+   *  changed rooms, where those side effects would be actively wrong
+   *  (e.g. resetting the warden's summon timer every heartbeat would mean
+   *  he can never actually catch up to an idle player in replay). */
+  private rebuildRoom(roomId: string): boolean {
     const room = this.content.rooms[roomId];
     if (!room) {
       console.error("Missing room:", roomId);
-      return;
+      return false;
     }
+    this.roomRt = new RoomRuntime(
+      room, this.content, this.state.mutations(roomId), this.state.helpedNpcIds, this.runSeed
+    );
+    return true;
+  }
+
+  loadRoom(roomId: string): void {
+    if (!this.rebuildRoom(roomId)) return;
     this.currentRoomId = roomId;
     this.roomEnteredAt = Date.now();
     if (!this.replay) {
@@ -512,16 +537,13 @@ export class Game {
       recorder.checkpoint();
     }
     this.bombs = [];
-    this.roomRt = new RoomRuntime(
-      room, this.content, this.state.mutations(roomId), this.state.helpedNpcIds, this.runSeed
-    );
     this.player.placeFeetAt(this.roomRt.spawnX, this.roomRt.spawnY);
     this.player.hiddenIn = null;
     // Warden scheduling: boss rooms summon him after a grace period.
     this.warden.dissipate();
     this.idleWardenSummoned = false;
-    this.wardenSpawnAt = room.wardenChase
-      ? simNow() + room.wardenChase.delayMs
+    this.wardenSpawnAt = this.roomRt.room.wardenChase
+      ? simNow() + this.roomRt.room.wardenChase.delayMs
       : Infinity;
     this.camera.snapTo(
       this.player.centerX, this.player.centerY,
@@ -567,6 +589,9 @@ export class Game {
       case "win": this.updateWin(); break;
     }
     this.input.endFrame();
+    if (!this.replay && this.scene === "play" && this.stepCount % HEARTBEAT_STEPS === 0) {
+      recorder.recordHeartbeat(this.captureHeartbeat());
+    }
   }
 
   /** Advance exactly one fixed sim step — the replay driver's clock tick. */
@@ -953,7 +978,9 @@ export class Game {
         if (this.content.game.rules.healAtCheckpoints) {
           this.state.health = this.state.maxHealth;
         }
-        if (!this.replay) recorder.recordAnchor("checkpoint", this.player.centerX, this.player.feetY);
+        if (!this.replay) {
+          recorder.recordAnchor("checkpoint", this.currentRoomId, this.player.centerX, this.player.feetY);
+        }
         sfx.play("checkpoint");
         this.floaty("Checkpoint!", e.x + e.w / 2, e.y, "#5ad1a5");
       }
@@ -1509,7 +1536,7 @@ export class Game {
     if (cp.roomId !== this.currentRoomId) {
       this.loadRoom(cp.roomId);
     }
-    if (!this.replay) recorder.recordAnchor("death", cp.x, cp.y);
+    if (!this.replay) recorder.recordAnchor("death", cp.roomId, cp.x, cp.y);
     this.respawnAt(cp.x, cp.y, cp.loadout);
   }
 
@@ -1539,12 +1566,22 @@ export class Game {
     this.roomRt.resetEnemies();
   }
 
+  /** Replay driver: force the current room to match a recorded anchor's
+   *  room, if it doesn't already — a room transition that failed to fire in
+   *  replay is a real failure mode (the player never left the previous
+   *  room), not just position drift, and applying an anchor's x/y straight
+   *  into the wrong room's coordinate space is actively harmful. */
+  forceRoom(room: string): void {
+    if (room !== this.currentRoomId) this.loadRoom(room);
+  }
+
   /** Replay driver: a recorded "death" anchor says a death definitely
    *  happened here live — force the full respawn unconditionally, even if
    *  this replay's own simulation hasn't independently reached zero health
    *  (whatever caused that disagreement already broke its own ability to
    *  self-report correctly, so don't trust it to catch up on its own). */
-  forceRespawn(x: number, y: number): void {
+  forceRespawn(room: string, x: number, y: number): void {
+    this.forceRoom(room);
     this.respawnAt(x, y, this.state.checkpoint.loadout);
   }
 
@@ -1580,6 +1617,34 @@ export class Game {
       return true;
     }
     return false;
+  }
+
+  /** Full ground-truth state capture — see recorder.ts's Heartbeat. */
+  captureHeartbeat(): Heartbeat {
+    return {
+      room: this.currentRoomId,
+      player: this.player.snapshot(),
+      state: this.state.snapshot(),
+      enemies: this.roomRt.snapshotEnemies(),
+      fluid: this.roomRt.snapshotFluidRuntime(),
+    };
+  }
+
+  /** Replay driver: periodic full resync to a recorded heartbeat, applied
+   *  unconditionally regardless of whether this replay's own simulation
+   *  still agrees — a cheap "is it already right" check would just be
+   *  re-deriving the same trust heartbeats exist to not rely on. Only a
+   *  genuine room change goes through loadRoom's full transition side
+   *  effects (taunts, warden reset, camera snap) — staying in the same
+   *  room just rebuilds entities/tiles from the (now-corrected) mutation
+   *  record bare, or those side effects would fire every heartbeat. */
+  applyHeartbeat(hb: Heartbeat): void {
+    this.state.restore(hb.state);
+    if (hb.room !== this.currentRoomId) this.loadRoom(hb.room);
+    else this.rebuildRoom(hb.room);
+    this.roomRt.restoreEnemies(hb.enemies);
+    this.roomRt.restoreFluidRuntime(hb.fluid);
+    this.player.restore(hb.player);
   }
 
   private winGame(): void {

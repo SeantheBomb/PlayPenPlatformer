@@ -16,8 +16,24 @@
 
 import type { Game } from "./game";
 import type { CraftPointerOp } from "./craftui";
+import type { StateSnapshot } from "./state";
+import type { PlayerSnapshot } from "./player";
+import type { EnemySnapshot, FluidRuntimeSnapshot } from "./room";
 
 export type CraftOp = CraftPointerOp;
+
+/** Full ground-truth game state, captured periodically — not derived from
+ *  input replay, so a replay driver can resync to it directly regardless of
+ *  what caused a divergence (including causes not yet discovered) or
+ *  whether the simulation code itself has changed since this was recorded.
+ *  See game.ts's captureHeartbeat/applyHeartbeat and HEARTBEAT_STEPS below. */
+export interface Heartbeat {
+  room: string;
+  player: PlayerSnapshot;
+  state: StateSnapshot;
+  enemies: EnemySnapshot[];
+  fluid: FluidRuntimeSnapshot;
+}
 
 export type SessionEvent =
   | { f: number; t: "k"; c: string; d: 0 | 1 }
@@ -32,7 +48,11 @@ export type SessionEvent =
   // even if the replay's own simulation doesn't (yet, or ever) agree a death
   // occurred, since whatever caused the mismatch already broke its own
   // ability to self-report correctly. See replay.ts's applyAnchors.
-  | { f: number; t: "anchor"; kind: "checkpoint" | "death"; x: number; y: number }
+  // room: which room this position is IN — a room-transition that fails to
+  // fire in replay (the player never left the previous room) is a real
+  // failure mode, not just position drift; without this, applying x/y
+  // straight into the wrong room's coordinate space is actively harmful.
+  | { f: number; t: "anchor"; kind: "checkpoint" | "death"; room: string; x: number; y: number }
   // A walk-over item gain (static room pickup or a scattered drop) — same
   // ground-truth spirit as anchors, but for inventory instead of position.
   // "pickup" carries the room entity's stable index; "drop" (scattered,
@@ -44,7 +64,8 @@ export type SessionEvent =
   | {
       f: number; t: "item"; itemId: string; count: number;
       src: "pickup" | "drop"; idx?: number; x?: number; y?: number;
-    };
+    }
+  | ({ f: number; t: "heartbeat" } & Heartbeat);
 
 export interface RoomSegment {
   id: string;
@@ -202,10 +223,10 @@ class Recorder {
     this.push({ f: this.tag(), t: "confirm", v });
   }
 
-  recordAnchor(kind: "checkpoint" | "death", x: number, y: number): void {
+  recordAnchor(kind: "checkpoint" | "death", room: string, x: number, y: number): void {
     if (!this.meta) return;
     this.push({
-      f: this.tag(), t: "anchor", kind,
+      f: this.tag(), t: "anchor", kind, room,
       x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
     });
   }
@@ -221,6 +242,11 @@ class Recorder {
       f: this.tag(), t: "item", itemId, count, src: "drop",
       x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100,
     });
+  }
+
+  recordHeartbeat(hb: Heartbeat): void {
+    if (!this.meta) return;
+    this.push({ f: this.tag(), t: "heartbeat", ...hb });
   }
 
   markRoom(roomId: string, stepCount: number): void {

@@ -507,9 +507,14 @@ export function renderSessionsTab(
         if (drift !== null) {
           const n = driver!.resyncs.length;
           const m = driver!.itemFixups.length;
+          // Heartbeats apply unconditionally every time (see Game.applyHeartbeat),
+          // so only count the ones that actually disagreed with more than a
+          // couple px of float noise as a meaningful correction.
+          const h = driver!.heartbeats.filter((hb) => Math.hypot(hb.dx, hb.dy) > 2).length;
           const notes = [
             n > 0 ? `${n} resync${n === 1 ? "" : "s"}` : null,
             m > 0 ? `${m} item fixup${m === 1 ? "" : "s"}` : null,
+            h > 0 ? `${h}/${driver!.heartbeats.length} heartbeats corrected` : null,
           ].filter(Boolean).join(", ");
           driftEl.textContent = (drift < 1
             ? "✔ deterministic (0px drift)"
