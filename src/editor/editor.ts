@@ -2,15 +2,16 @@
 // has a tab here: rooms, tiles, items, recipes, enemies, taunts, game, campaign.
 import type { ContentStore } from "../data/content";
 import { isElectron, mergedFiles } from "../data/content";
-import type { BehaviorRuleDef, EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
+import type { EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
 import {
-  enemyAttachments, itemAttachments, knownActionNames, knownConditionNames,
+  enemyAttachments, isKnownFn, itemAttachments, knownFnNames, scriptSource, TRIGGERS,
 } from "../game/behavior";
+import { compileScript, lintScript, type ScriptError } from "../game/penscript";
 import {
   currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait,
 } from "../engine/renderer";
-import { autoForm, el, fieldOptionsFor, toast } from "./forms";
+import { autoForm, el, fieldOptionsFor, schemaForm, toast, type FieldSpec } from "./forms";
 import { RoomEditor } from "./roomeditor";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 import { renderSessionsTab } from "./sessions";
@@ -18,6 +19,86 @@ import { renderReportsTab } from "./reports";
 
 const SPRITE_KEYS = ["sprite", "spriteFrames", "spriteFps", "portraits"];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
+
+// Full field schemas — every def shows every knob the engine supports, not
+// just the fields it happens to have (a fire tile gets the fluid toggle, a
+// water tile gets repels). Optional fields delete their key when emptied.
+const TILE_SCHEMA: FieldSpec[] = [
+  { key: "id", kind: "string", req: true },
+  { key: "char", kind: "string", req: true, hint: "one character, used in room maps" },
+  { key: "name", kind: "string", req: true },
+  { key: "style", kind: "string", req: true, hint: "how it draws" },
+  { key: "color", kind: "color", req: true },
+  { key: "solid", kind: "bool" },
+  { key: "oneWay", kind: "bool", hint: "platform you can jump up through" },
+  { key: "damage", kind: "number", hint: "hearts per touch" },
+  { key: "repels", kind: "bool", hint: "shoves the player out even on invuln frames" },
+  { key: "bounce", kind: "number", hint: "upward launch px/s" },
+  { key: "slow", kind: "number", hint: "movement multiplier while overlapping (sticky)" },
+  { key: "wade", kind: "number", hint: "movement multiplier while overlapping (liquid)" },
+  { key: "slippery", kind: "bool" },
+  { key: "element", kind: "string" },
+  { key: "flammable", kind: "bool" },
+  { key: "brittle", kind: "bool" },
+  { key: "conductive", kind: "bool" },
+  { key: "spreads", kind: "bool", hint: "radiates its element to neighbors" },
+  { key: "burnTime", kind: "number", hint: "seconds a burning tile lasts" },
+  { key: "burnsTo", kind: "string" },
+  { key: "meltsTo", kind: "string" },
+  { key: "freezesTo", kind: "string" },
+  { key: "shattersTo", kind: "string" },
+  { key: "dissolvesTo", kind: "string" },
+  { key: "extinguishesTo", kind: "string" },
+  { key: "fluid", kind: "bool", hint: "joins the flow sim (falls, spreads)" },
+  { key: "fallSpawns", kind: "string", hint: "fall tile: grows down, emits this tile id" },
+  { key: "dropsItem", kind: "string", hint: "destructive transforms pay out this item" },
+];
+const ITEM_SCHEMA: FieldSpec[] = [
+  { key: "id", kind: "string", req: true },
+  { key: "name", kind: "string", req: true },
+  { key: "kind", kind: "string", req: true },
+  { key: "shape", kind: "string", req: true },
+  { key: "color", kind: "color", req: true },
+  { key: "description", kind: "string", req: true },
+  { key: "element", kind: "string", hint: "the element this item applies when used" },
+  { key: "useMode", kind: "string", hint: "present = appears in the hotbar" },
+  { key: "dousedBy", kind: "string", hint: "element that reverts this while overlapped" },
+  { key: "dousesTo", kind: "string" },
+  { key: "douseOnDeselect", kind: "bool", hint: "also revert when no longer held" },
+  { key: "igniteTo", kind: "string", hint: "becomes this near fire while held" },
+  { key: "scoopsInto", kind: "json", hint: '{"water": "bucket_full"} — element -> item id' },
+  { key: "emptiesTo", kind: "string", hint: "reverts to this after a splash" },
+  { key: "placeType", kind: "string" },
+  { key: "capabilities", kind: "json" },
+  { key: "params", kind: "json" },
+];
+const ENEMY_SCHEMA: FieldSpec[] = [
+  { key: "id", kind: "string", req: true },
+  { key: "name", kind: "string", req: true },
+  { key: "behavior", kind: "string", req: true, hint: "legacy preset; the behaviors list below wins" },
+  { key: "width", kind: "number", req: true },
+  { key: "height", kind: "number", req: true },
+  { key: "color", kind: "color", req: true },
+  { key: "eyeColor", kind: "color", req: true },
+  { key: "speed", kind: "number", req: true },
+  { key: "damage", kind: "number", req: true },
+  { key: "chaseSpeed", kind: "number" },
+  { key: "sightRange", kind: "number" },
+  { key: "loseTargetMs", kind: "number" },
+  { key: "returnsHome", kind: "bool" },
+  { key: "turnAtEdges", kind: "bool" },
+  { key: "stunnable", kind: "bool" },
+  { key: "trappable", kind: "bool" },
+  { key: "element", kind: "string" },
+  { key: "reactions", kind: "json", hint: '{"fire": "kill", "ice": "stun", ...} — kill | stun | knockback | none' },
+  { key: "description", kind: "string" },
+];
+const ENTITY_TYPE_SCHEMA: FieldSpec[] = [
+  { key: "id", kind: "string", req: true, hint: "entity type name (brazier, door...)" },
+  { key: "width", kind: "number", req: true },
+  { key: "height", kind: "number", req: true },
+  { key: "note", kind: "string" },
+];
 
 const CSS = `
 .pp-editor { position:absolute; inset:0; background:#12101c; color:#d8d2ec;
@@ -111,7 +192,7 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 
 type TabId =
   | "rooms" | "elements" | "rules" | "behaviors" | "tiles" | "items" | "recipes"
-  | "enemies" | "taunts" | "achievements" | "game" | "campaign" | "publish"
+  | "enemies" | "entities" | "taunts" | "achievements" | "game" | "campaign" | "publish"
   | "sessions" | "reports";
 
 // Electron loads from file://, so API calls need the real origin.
@@ -134,6 +215,9 @@ interface ListSpec {
   procedural?: (item: Record<string, unknown>, ctx: CanvasRenderingContext2D, size: number) => void;
   /** Extra panel content below the auto-form (behavior attachments etc). */
   extras?: (item: Record<string, unknown>) => HTMLElement | null;
+  /** Full field schema: renders EVERY field the type supports (schemaForm),
+   *  with a plain autoForm appended for any extra keys the entry carries. */
+  schema?: FieldSpec[];
 }
 
 let styleEl: HTMLStyleElement | null = null;
@@ -190,7 +274,7 @@ class EditorShell {
     const c = this.store.content;
     const tabs: TabId[] = [
       "rooms", "elements", "rules", "behaviors", "tiles", "items", "recipes",
-      "enemies", "taunts", "achievements", "game", "campaign", "publish",
+      "enemies", "entities", "taunts", "achievements", "game", "campaign", "publish",
       "sessions", "reports",
     ];
     this.bodyEl = el("div", { className: "pp-body" });
@@ -248,10 +332,12 @@ class EditorShell {
           list: () => c.rules as unknown as Record<string, unknown>[],
           setList: (l) => (c.rules = l as never),
           template: () => ({
-            id: "new_rule", actor: "fire", target: "", targetProperty: "",
-            effect: "ignite", note: "effects: ignite melt extinguish dissolve freeze shatter energize ignite_self fizzle",
+            id: "new_rule",
+            rule: "fire + flammable -> ignite",
+            note: "actor + target -> effect. Target = element id or property (flammable/brittle/conductive). " +
+              "Effects: ignite melt extinguish dissolve freeze shatter energize ignite_self fizzle",
           }),
-          label: (t) => `${t.actor} → ${t.target || t.targetProperty}: ${t.effect}`,
+          label: (t) => String(t.rule ?? `${t.actor} + ${t.target || t.targetProperty} -> ${t.effect}`),
         });
         break;
       case "behaviors":
@@ -267,6 +353,8 @@ class EditorShell {
             solid: true, color: "#888888",
           }),
           label: (t) => `${t.char}  ${t.id}`,
+          schema: TILE_SCHEMA,
+          extras: (item) => this.attachmentsWidget(item, "tile"),
           thumb: (t, ctx) => {
             ctx.scale(1.5, 1.5);
             drawTile(ctx, t as unknown as TileDef, 0, 0, 0);
@@ -289,6 +377,7 @@ class EditorShell {
             color: "#888888", description: "",
           }),
           label: (t) => `${t.id} (${t.kind})`,
+          schema: ITEM_SCHEMA,
           extras: (item) => this.attachmentsWidget(item, "item"),
           thumb: (t, ctx) => drawItemIcon(ctx, t as unknown as ItemDef, 12, 12, 1.3),
           sprites: true,
@@ -329,6 +418,7 @@ class EditorShell {
             ],
           }),
           label: (t) => `${t.id} (${t.behavior})`,
+          schema: ENEMY_SCHEMA,
           extras: (item) => this.attachmentsWidget(item, "enemy"),
           thumb: (t, ctx) => {
             const d = t as unknown as EnemyDef;
@@ -349,6 +439,17 @@ class EditorShell {
             ctx.scale(s, s);
             drawBlob(ctx, 0, 0, w, h, d.color || "#888", d.eyeColor || "#000", 1);
           },
+        });
+        break;
+      case "entities":
+        this.renderListTab({
+          file: "entities.json",
+          list: () => c.entityTypes as unknown as Record<string, unknown>[],
+          setList: (l) => (c.entityTypes = l as never),
+          template: () => ({ id: "new_entity", width: 16, height: 16 }),
+          label: (t) => `${t.id} (${t.width}×${t.height})`,
+          schema: ENTITY_TYPE_SCHEMA,
+          extras: (item) => this.attachmentsWidget(item, "entity"),
         });
         break;
       case "taunts":
@@ -618,8 +719,11 @@ class EditorShell {
     const panel = el("div", { className: "pp-panel" });
     const item = list[this.selectedIndex];
     if (item) {
+      const opts = fieldOptionsFor(this.store.content);
+      const skip = [...SPRITE_KEYS, "behaviors", ...(spec.schema?.map((s) => s.key) ?? [])];
       panel.append(
-        autoForm(item, () => {}, [...SPRITE_KEYS, "behaviors"], undefined, fieldOptionsFor(this.store.content)),
+        spec.schema ? schemaForm(item, spec.schema, () => {}, opts) : el("span", {}),
+        autoForm(item, () => {}, skip, undefined, opts),
         spec.extras?.(item) ?? el("span", {}),
         spec.sprites
           ? this.spritePanel(
@@ -670,6 +774,13 @@ class EditorShell {
    * per-rule builder (trigger dropdown + validated JSON for if/do); the
    * verb legend below is generated live from the engine registries.
    */
+  /**
+   * The behavior library: penscript scripts (content/behaviors.json) that
+   * tiles/items/enemies/entities attach. Metadata gets a form; the script is
+   * plain text in a monospace pane with live compile errors — no half-UI in
+   * between. The reference legend below is generated live from the engine's
+   * function registry, so a newly registered function shows up automatically.
+   */
   private renderBehaviorsTab(): void {
     const c = this.store.content;
     const list = c.behaviors as unknown as Record<string, unknown>[];
@@ -692,9 +803,17 @@ class EditorShell {
           className: "pp-btn",
           onclick: () => {
             list.push({
-              id: "new_behavior", name: "New Behavior", host: "enemy",
-              description: "", params: {},
-              rules: [{ on: "tick", if: [], do: [] }],
+              id: "newBehavior", name: "New Behavior", host: "enemy",
+              description: "",
+              script: [
+                "// Top-level vars are this behavior's tweakable fields;",
+                "// attachments can override their values per def.",
+                "var speed = host.speed ?? 50;",
+                "",
+                "on tick {",
+                "",
+                "}",
+              ],
             });
             this.selectedIndex = list.length - 1;
             this.renderTab();
@@ -706,21 +825,46 @@ class EditorShell {
     const panel = el("div", { className: "pp-panel" });
     const item = list[this.selectedIndex];
     if (item) {
+      const errorsEl = el("div", { className: "pp-hint", style: "margin-top:4px" });
+      const refreshErrors = (source: string) => {
+        const { script, errors } = compileScript(source);
+        const all: ScriptError[] = [...errors];
+        if (script && errors.length === 0) {
+          all.push(...lintScript(script, TRIGGERS, isKnownFn));
+        }
+        errorsEl.replaceChildren(
+          ...(all.length === 0
+            ? [el("span", { style: "color:#9be8b0" }, "✓ compiles clean")]
+            : all.map((e) =>
+                el("div", { style: "color:#ff9db0" }, `line ${e.line}: ${e.message}`)))
+        );
+        return all.length === 0;
+      };
+      const source = scriptSource(item as never);
+      const scriptEl = el("textarea", {
+        rows: Math.min(28, Math.max(10, source.split("\n").length + 2)),
+        className: "pp-json",
+        spellcheck: false,
+        value: source,
+        oninput: (e) => {
+          const t = e.target as HTMLTextAreaElement;
+          item.script = t.value.split("\n");
+          t.classList.toggle("pp-bad", !refreshErrors(t.value));
+        },
+      });
+      refreshErrors(source);
       panel.append(
-        el("p", { className: "pp-hint" },
-          "A behavior is a named bundle of trigger → conditions → actions rules. " +
-          "Attach it to enemies/items (their inspector), entities (attachTo), or leave it " +
-          "host \"global\" as a tunables doc the sims read. \"$name\" in an arg reads params; " +
-          "\"$host.field\" reads the attached def; \"$data.field\" reads the trigger payload."),
-        autoForm(item, () => {}, ["rules"], undefined, fieldOptionsFor(c)),
-        this.behaviorRulesBuilder(item),
+        autoForm(item, () => {}, ["script"], undefined, fieldOptionsFor(c)),
+        el("div", { className: "pp-sidehead", style: "margin-top:10px" }, "script"),
+        scriptEl,
+        errorsEl,
         el("hr"),
         el("p", { className: "pp-hint" },
-          "triggers: tick · flowTick · elementContact · use · heldTick · carriedTick"),
-        el("p", { className: "pp-hint" }, "conditions: " +
-          [...knownConditionNames(), "not", "anyOf"].sort().join(" · ")),
-        el("p", { className: "pp-hint" }, "actions: " +
-          [...knownActionNames(), "halt"].sort().join(" · ")),
+          "events: " + TRIGGERS.map((t) => `on ${t}`).join(" · ")),
+        el("p", { className: "pp-hint" },
+          "built-ins: now · host.<field> · state (enemies) · lit (entities) · " +
+          "player / home (moveToward targets) · halt (consume event) · return (end handler)"),
+        el("p", { className: "pp-hint" }, "functions: " + knownFnNames().join(" · ")),
         el("div", { className: "pp-btnrow" },
           el("button", {
             className: "pp-btn pp-primary",
@@ -734,7 +878,7 @@ class EditorShell {
             className: "pp-btn",
             onclick: () => {
               const copy = JSON.parse(JSON.stringify(item)) as Record<string, unknown>;
-              copy.id = String(copy.id ?? "behavior") + "_copy";
+              copy.id = String(copy.id ?? "behavior") + "Copy";
               list.push(copy);
               this.selectedIndex = list.length - 1;
               this.renderTab();
@@ -757,110 +901,23 @@ class EditorShell {
     this.bodyEl.append(el("div", { className: "pp-cols" }, listEl, panel));
   }
 
-  /** Structured per-rule editor: trigger dropdown + validated-JSON if/do. */
-  private behaviorRulesBuilder(doc: Record<string, unknown>): HTMLElement {
-    if (!Array.isArray(doc.rules)) doc.rules = [];
-    const rules = doc.rules as BehaviorRuleDef[];
-    const wrap = el("fieldset", {}, el("legend", {}, "rules"));
-    const triggers = ["tick", "flowTick", "elementContact", "use", "heldTick", "carriedTick"];
-    const jsonArea = (label: string, get: () => unknown, set: (v: unknown) => void, hint: string) => {
-      const area = el("textarea", {
-        rows: 2, className: "pp-json", title: hint,
-        value: JSON.stringify(get() ?? []),
-        oninput: (e) => {
-          const t = e.target as HTMLTextAreaElement;
-          try {
-            const v = JSON.parse(t.value);
-            if (!Array.isArray(v)) throw new Error("must be an array");
-            set(v);
-            t.classList.remove("pp-bad");
-          } catch {
-            t.classList.add("pp-bad");
-          }
-        },
-      });
-      return el("div", { className: "pp-row" }, el("label", {}, label), area);
-    };
-    rules.forEach((rule, i) => {
-      const sel = el("select", {
-        onchange: (e) => {
-          rule.on = (e.target as HTMLSelectElement).value as BehaviorRuleDef["on"];
-        },
-      }, ...triggers.map((t) => {
-        const o = el("option", { value: t }, t);
-        if (t === rule.on) o.setAttribute("selected", "");
-        return o;
-      }));
-      wrap.append(
-        el("div", { style: "border:1px solid #2c2740;border-radius:5px;padding:6px;margin:6px 0" },
-          el("div", { className: "pp-row" },
-            el("label", {}, `rule ${i + 1} — on`), sel,
-            el("button", {
-              className: "pp-tool", title: "move up",
-              onclick: () => {
-                if (i > 0) {
-                  [rules[i - 1], rules[i]] = [rules[i], rules[i - 1]];
-                  this.renderTab();
-                }
-              },
-            }, "▲"),
-            el("button", {
-              className: "pp-tool", title: "move down",
-              onclick: () => {
-                if (i < rules.length - 1) {
-                  [rules[i + 1], rules[i]] = [rules[i], rules[i + 1]];
-                  this.renderTab();
-                }
-              },
-            }, "▼"),
-            el("button", {
-              className: "pp-tool", title: "delete rule",
-              onclick: () => {
-                rules.splice(i, 1);
-                this.renderTab();
-              },
-            }, "✕")
-          ),
-          jsonArea("if (all must hold)", () => rule.if, (v) => (rule.if = v as never),
-            'conditions, e.g. [["stateIs","patrol"],["seesPlayer",{"range":"$range"}]]'),
-          jsonArea("do (in order)", () => rule.do, (v) => (rule.do = v as never),
-            'actions, e.g. [["setState","chase"],["halt"]]')
-        )
-      );
-    });
-    wrap.append(
-      el("button", {
-        className: "pp-btn",
-        onclick: () => {
-          rules.push({ on: "tick", if: [], do: [] });
-          this.renderTab();
-        },
-      }, "+ add rule")
-    );
-    return wrap;
-  }
-
-  /**
-   * Behavior attachments on an enemy/item def. Defs without an explicit
-   * `behaviors` list run the legacy-derived set — shown read-only until
-   * "customize" materializes it for editing. Each attachment is a one-line
-   * validated JSON row ("hazard_reactions" or {"id":...,"params":{...}}),
-   * reorderable — order is execution order.
-   */
-  private attachmentsWidget(def: Record<string, unknown>, host: "enemy" | "item"): HTMLElement {
+  private attachmentsWidget(
+    def: Record<string, unknown>, host: "enemy" | "item" | "tile" | "entity"
+  ): HTMLElement {
     const c = this.store.content;
     const wrap = el("div", { className: "pp-spritepanel", style: "display:block" });
     wrap.append(el("div", { className: "pp-sidehead" }, "behaviors (execution order)"));
-    const derived = host === "enemy"
-      ? enemyAttachments(def as unknown as EnemyDef)
-      : itemAttachments(def as unknown as ItemDef);
+    const derived =
+      host === "enemy" ? enemyAttachments(def as unknown as EnemyDef)
+      : host === "item" ? itemAttachments(def as unknown as ItemDef)
+      : [];
     if (!Array.isArray(def.behaviors)) {
       wrap.append(
         el("p", { className: "pp-hint" },
-          "derived from legacy fields: " +
-          (derived.length
-            ? derived.map((a) => (typeof a === "string" ? a : a.id)).join(" → ")
-            : "(none)")),
+          derived.length
+            ? "derived from legacy fields: " +
+              derived.map((a) => (typeof a === "string" ? a : a.id)).join(" → ")
+            : "none attached"),
         el("button", {
           className: "pp-btn",
           onclick: () => {

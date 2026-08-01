@@ -4,11 +4,16 @@
     "name": "Crawler",
     "behavior": "patrol",
     "behaviors": [
-      "hazard_reactions",
-      "element_reactions",
-      { "id": "stun_cycle", "params": { "wakeTo": "patrol" } },
-      "patrol_route",
-      "grounded_move",
+      "hazardReactions",
+      "elementReactions",
+      {
+        "id": "stunCycle",
+        "params": {
+          "wakeTo": "patrol"
+        }
+      },
+      "patrolRoute",
+      "groundedMove",
       "trappable"
     ],
     "width": 18,
@@ -36,13 +41,23 @@
     "name": "Spotter",
     "behavior": "chase",
     "behaviors": [
-      "hazard_reactions",
-      "element_reactions",
-      { "id": "stun_cycle", "params": { "wakeTo": "return" } },
-      { "id": "chase_on_sight", "params": { "giveUpTo": "return" } },
-      "patrol_route",
-      "return_home",
-      "grounded_move",
+      "hazardReactions",
+      "elementReactions",
+      {
+        "id": "stunCycle",
+        "params": {
+          "wakeTo": "return"
+        }
+      },
+      {
+        "id": "chaseOnSight",
+        "params": {
+          "giveUpTo": "return"
+        }
+      },
+      "patrolRoute",
+      "returnHome",
+      "groundedMove",
       "trappable"
     ],
     "width": 16,

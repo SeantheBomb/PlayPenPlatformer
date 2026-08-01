@@ -19,7 +19,7 @@ import { Warden } from "./warden";
 import { telemetry } from "./telemetry";
 import { simNow, setSimTime } from "../engine/simclock";
 import { randomSeed } from "../engine/rng";
-import { itemAttachments, registerAction, registerCondition, type BehaviorCtx } from "./behavior";
+import { itemAttachments, registerFn, type ScriptCtx } from "./behavior";
 import { recorder, type CraftOp } from "./recorder";
 import {
   drawAir, drawFloaties, drawHearts, drawHotbar, drawPrompt,
@@ -2050,9 +2050,17 @@ export class Game {
   // ignites_near_fire ... in content/behaviors.json compose these). Static so
   // the closures can reach Game privates; runs once at module load, below.
   // =========================================================================
-  static registerItemVerbs(): void {
+  // =========================================================================
+  // Item-hosted penscript functions (useSwing / useSplash / dousedInLiquid /
+  // ignitesNearFire ... in content/behaviors.json call these). Static so the
+  // closures can reach Game privates; runs once at module load, below.
+  // =========================================================================
+  static registerItemFns(): void {
     type ItemApi = { g: Game; item: ItemDef };
-    const api = (ctx: BehaviorCtx) => ctx.api as unknown as ItemApi;
+    const api = (ctx: ScriptCtx) => ctx.api as unknown as ItemApi;
+    const argNum = (v: unknown, fb: number) =>
+      typeof v === "number" && Number.isFinite(v) ? v : fb;
+    const argStr = (v: unknown, fb: string) => (typeof v === "string" ? v : fb);
     const boxFor = (g: Game, kind: string, reach: number): Rect => {
       const p = g.player;
       if (kind === "splash") {
@@ -2068,31 +2076,24 @@ export class Game {
       const x1 = Math.max(front, front + r);
       return { x: x0, y: p.y - 16, w: x1 - x0, h: p.feetY + 10 - (p.y - 16) };
     };
-    const argBox = (ctx: BehaviorCtx, args: unknown[], defKind: string, defReach: number): Rect => {
-      const g = api(ctx).g;
-      const kind = ctx.str(ctx.opt(args, "box"), defKind);
-      return boxFor(g, kind, ctx.num(ctx.opt(args, "reach"), defReach));
-    };
+    const argBox = (ctx: ScriptCtx, args: unknown[], defReach: number): Rect =>
+      boxFor(api(ctx).g, argStr(args[0], "swing"), argNum(args[1], defReach));
 
-    registerCondition("swingBlocked", (ctx, args) => {
+    registerFn("swingBlocked", (ctx, args) => {
       const { g } = api(ctx);
-      return simNow() - g.lastSwingAt < ctx.num(ctx.opt(args, "cooldownMs"), 320);
+      return simNow() - g.lastSwingAt < argNum(args[0], 320);
     });
-    registerCondition("hostHas", (ctx, args) => {
-      const field = typeof args[0] === "string" ? args[0] : "";
-      return field !== "" && ctx.hostDef[field] !== undefined;
-    });
-    registerCondition("boxTouchesFire", (ctx, args) => {
+    registerFn("boxTouchesFire", (ctx, args) => {
       const { g } = api(ctx);
-      return g.roomRt.boxTouchesFire(argBox(ctx, args, "swing", 22));
+      return g.roomRt.boxTouchesFire(argBox(ctx, args, 22));
     });
-    registerCondition("playerTouchesFire", (ctx) => {
+    registerFn("playerTouchesFire", (ctx) => {
       const { g } = api(ctx);
       return g.roomRt.boxTouchesFire(boxFor(g, "body", 0));
     });
-    registerCondition("playerInElement", (ctx, args) => {
+    registerFn("playerInElement", (ctx, args) => {
       const { g } = api(ctx);
-      const el = ctx.str(args[0], "");
+      const el = argStr(args[0], "");
       if (!el) return false;
       // The player's actual body box — exclusive right/bottom edges, no
       // underfoot probe — so a tile diagonally adjacent (never visually
@@ -2110,81 +2111,88 @@ export class Game {
       return false;
     });
 
-    registerAction("armSwing", (ctx) => {
+    registerFn("armSwing", (ctx) => {
       const { g } = api(ctx);
       g.lastSwingAt = simNow(); // swing cooldown is gameplay state — sim clock
       g.player.swing();
+      return undefined;
     });
-    registerAction("sfx", (ctx, args) => {
-      sfx.play(ctx.str(args[0], "swing") as never);
+    registerFn("sfx", (ctx, args) => {
+      sfx.play(argStr(args[0], "swing") as never);
+      return undefined;
     });
-    registerAction("floaty", (ctx, args) => {
+    registerFn("floaty", (ctx, args) => {
       const { g } = api(ctx);
-      g.floaty(ctx.str(args[0], ""), g.player.centerX, g.player.y - 8, ctx.str(args[1], "#ffd166"));
+      g.floaty(argStr(args[0], ""), g.player.centerX, g.player.y - 8, argStr(args[1], "#ffd166"));
+      return undefined;
     });
-    registerAction("popBalloons", (ctx, args) => {
+    registerFn("popBalloons", (ctx, args) => {
       const { g } = api(ctx);
-      g.popBalloons(argBox(ctx, args, "swing", 22));
+      g.popBalloons(argBox(ctx, args, 22));
+      return undefined;
     });
-    registerAction("transformSelf", (ctx, args) => {
+    registerFn("transformSelf", (ctx, args) => {
       const { g, item } = api(ctx);
-      const to = ctx.arg(args[0]);
+      const to = args[0];
       if (typeof to === "string" && to) g.state.transform(item.id, to);
+      return undefined;
     });
-    registerAction("selectItem", (ctx, args) => {
+    registerFn("selectItem", (ctx, args) => {
       const { g } = api(ctx);
-      const id = ctx.arg(args[0]);
-      if (typeof id !== "string") return;
+      const id = args[0];
+      if (typeof id !== "string") return undefined;
       const after = g.state.usableItems();
       const idx = after.findIndex((i) => i.id === id);
       if (idx >= 0) g.state.selectedConsumable = idx;
+      return undefined;
     });
-    registerAction("scoopFromBox", (ctx, args) => {
+    registerFn("scoopFromBox", (ctx, args) => {
       const { g, item } = api(ctx);
-      if (!item.scoopsInto) return;
-      const box = argBox(ctx, args, "swing", 22);
+      if (!item.scoopsInto) return false;
+      const box = argBox(ctx, args, 22);
       for (const [element, destId] of Object.entries(item.scoopsInto)) {
         if (!g.roomRt.boxTouchesElement(element, box)) continue;
         g.state.transform(item.id, destId);
         sfx.play("splash");
         const destColor = g.state.item(destId)?.color ?? "#4fc3f7";
         g.floaty("Scooped.", g.player.centerX, g.player.y - 8, destColor);
-        ctx.halt = true; // the scoop consumed this use
-        return;
+        return true;
       }
+      return false;
     });
-    registerAction("applyElements", (ctx, args) => {
+    registerFn("applyElements", (ctx, args) => {
+      // Apply the item's element to tiles, enemies, and braziers in the box;
+      // feedback (particles/sfx/achievement counters) rides the event stream.
+      // Returns how many things reacted.
       const { g, item } = api(ctx);
-      const box = argBox(ctx, args, "swing", 22);
+      const box = argBox(ctx, args, 22);
       const rules = g.content.game.rules;
       const events = [
         ...g.roomRt.applyElementToTiles(item.element, box),
         ...g.roomRt.applyElementToEnemies(item.element, box, rules.stunDurationMs),
         ...g.roomRt.applyElementToBraziers(item.element, box),
       ];
-      const sfxName = ctx.str(ctx.opt(args, "sfx"), "");
-      if (sfxName) sfx.play(sfxName as never);
-      if (ctx.str(ctx.opt(args, "particles"), "") === "splash") {
-        const p = g.player;
-        g.particles.burst({
-          x: p.centerX + p.facing * 24, y: p.centerY,
-          count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
-        });
-      }
       g.handleElementEvents(events);
-      if (events.length === 0) sfx.play("craftFail"); // nothing in reach reacted
-      ctx.data.effects = events.length;
+      return events.length;
     });
-    registerAction("spendSelfOnEffect", (ctx) => {
+    registerFn("splashParticles", (ctx) => {
       const { g, item } = api(ctx);
-      const effects = ctx.data.effects;
-      if (item.kind === "consumable" && typeof effects === "number" && effects > 0) {
-        g.state.remove(item.id); // frost vial spends itself on a real effect
-      }
+      const p = g.player;
+      g.particles.burst({
+        x: p.centerX + p.facing * 24, y: p.centerY,
+        count: 18, color: item.color, speed: 110, upBias: 30, life: 0.5,
+      });
+      return undefined;
     });
-    registerAction("placeSelf", (ctx) => {
+    registerFn("removeSelf", (ctx, args) => {
       const { g, item } = api(ctx);
-      if (!item.placeType) return;
+      const n = argNum(args[0], 1);
+      for (let i = 0; i < n; i++) g.state.remove(item.id);
+      return undefined;
+    });
+    registerFn("placeSelf", (ctx) => {
+      const { g, item } = api(ctx);
+      if (!item.placeType) return undefined;
       const tx = g.player.centerX + g.player.facing * 14;
       g.state.remove(item.id);
       g.roomRt.placeItem(item.placeType, tx - 8, g.player.feetY - 8);
@@ -2193,25 +2201,21 @@ export class Game {
         item.placeType === "spring" ? "Sprung. (E to take back)" : "Trap set.",
         tx, g.player.y
       );
+      return undefined;
     });
-    registerAction("throwSelf", (ctx, args) => {
+    registerFn("throwSelf", (ctx, args) => {
       const { g, item } = api(ctx);
-      g.throwBomb(item, Math.max(0, Math.min(1, ctx.num(ctx.opt(args, "charge"), 0))));
+      g.throwBomb(item, Math.max(0, Math.min(1, argNum(args[0], 0))));
+      return undefined;
     });
-    registerAction("applyToBraziers", (ctx, args) => {
+    registerFn("applyToBraziers", (ctx, args) => {
       const { g } = api(ctx);
-      const element = ctx.arg(ctx.opt(args, "element"));
-      if (typeof element !== "string" || !element) return;
+      const element = args[0];
+      if (typeof element !== "string" || !element) return 0;
       const events = g.roomRt.applyElementToBraziers(element, boxFor(g, "body", 0));
-      if (events.length > 0) {
-        sfx.play("ignite");
-        g.floaty(
-          ctx.str(ctx.opt(args, "floaty"), "Brazier lit!"),
-          g.player.centerX, g.player.y - 8, "#ffc861"
-        );
-        g.handleElementEvents(events);
-      }
+      g.handleElementEvents(events);
+      return events.length;
     });
   }
 }
-Game.registerItemVerbs();
+Game.registerItemFns();

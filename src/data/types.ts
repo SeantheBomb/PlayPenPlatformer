@@ -107,22 +107,28 @@ export type RuleEffect =
 
 export interface RuleDef {
   id: string;
-  actor: string;           // element id applying the effect
+  /** Pattern-line form: "actor + target -> effect", where target is an
+   *  element id or a tile property (flammable | brittle | conductive) —
+   *  e.g. "fire + flammable -> ignite", "lava + metal -> melt". */
+  rule?: string;
+  // Legacy split form, still honored (stale saves predate `rule`):
+  actor?: string;          // element id applying the effect
   target?: string;         // element id of the target tile...
   targetProperty?: string; // ...or a tile property: flammable | brittle | conductive
-  effect: RuleEffect;
+  effect?: RuleEffect;
   note?: string;
 }
 
 export type EnemyReaction = "kill" | "stun" | "knockback" | "none";
 
-// ---- Behavior grammar (trigger -> conditions -> actions) ----
-// Serialized in content/behaviors.json; interpreted by src/game/behavior.ts.
-// Engine code provides the vocabulary (condition/action verbs); content wires
-// which hosts run which rules with which params. New gameplay should be a new
-// behavior doc first — new verbs only when the grammar genuinely can't say it.
+// ---- Behavior scripting (penscript) ----
+// Serialized in content/behaviors.json; compiled/run by src/game/penscript.ts
+// + src/game/behavior.ts. Engine code provides the function vocabulary
+// (registerFn); content provides the scripts. New gameplay should be a new or
+// edited behavior script first — new functions only when the language
+// genuinely can't say it.
 
-/** When a behavior rule fires. */
+/** Handler events a script can respond to (`on tick { ... }`). */
 export type BehaviorTrigger =
   | "tick"           // every fixed sim step (enemies, entities)
   | "flowTick"       // every fluid-flow tick (entities — braziers douse here)
@@ -131,43 +137,40 @@ export type BehaviorTrigger =
   | "heldTick"       // per-step while the host item is the selected hotbar item
   | "carriedTick";   // per-step for every item in the inventory
 
-/** ["conditionName", ...args] — all listed conditions must hold. */
-export type BehaviorCondition = [string, ...unknown[]];
-/** ["actionName", ...args] — run in order. */
-export type BehaviorAction = [string, ...unknown[]];
-
-export interface BehaviorRuleDef {
-  on: BehaviorTrigger;
-  if?: BehaviorCondition[];
-  do: BehaviorAction[];
-  note?: string;
-}
-
 export interface BehaviorDef {
   id: string;
   name?: string;
   description?: string;
   /** What kind of host this attaches to (editor filtering + validation). */
-  host?: "enemy" | "item" | "entity" | "global";
+  host?: "enemy" | "item" | "entity" | "tile" | "global";
   /** Semantic markers other systems key on (e.g. "sight" = hunts by sight:
    *  smoke hides the player from it and it draws a vision cone). */
   tags?: string[];
-  /** Auto-attach to every entity of these types (host "entity"). */
-  attachTo?: { entities?: EntityType[] };
-  /** Tunable defaults, overridable per attachment. String values starting
-   *  with "$" are references: "$host.field" reads the host's own def. */
-  params?: Record<string, unknown>;
-  /** Per-instance variables, initialized on first use. */
-  vars?: Record<string, number | string | boolean>;
-  rules: BehaviorRuleDef[];
+  /** penscript source, stored as lines (diffs cleanly, stays readable in
+   *  raw JSON). Top-level `var`s are the behavior's tweakable fields. */
+  script: string[];
 }
 
-/** A behavior attached to a def: plain id, or id + param overrides. */
+/** A behavior attached to a def: plain id, or id + field-value overrides
+ *  (params override the script's top-level `var` initializers by name). */
 export interface BehaviorRef {
   id: string;
   params?: Record<string, unknown>;
 }
 export type BehaviorAttachment = string | BehaviorRef;
+
+/**
+ * An entity TYPE's definition (brazier, door, locker...): footprint size and
+ * default behavior attachments. Serialized in content/entities.json — the
+ * per-def home for entity behavior wiring, same as enemies/items have.
+ */
+export interface EntityTypeDef {
+  id: string;
+  width: number;
+  height: number;
+  behaviors?: BehaviorAttachment[];
+  note?: string;
+}
 
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
@@ -423,6 +426,7 @@ export interface Content {
   elements: ElementDef[];
   rules: RuleDef[];
   behaviors: BehaviorDef[];
+  entityTypes: EntityTypeDef[];
   achievements: AchievementDef[];
   tiles: TileDef[];
   items: ItemDef[];

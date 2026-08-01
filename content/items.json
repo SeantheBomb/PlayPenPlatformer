@@ -80,7 +80,10 @@
     "element": "metal",
     "useMode": "swing",
     "description": "Swing with F. Brittle things (cracks, ice) shatter. Percussive problem solving.",
-    "capabilities": []
+    "capabilities": [],
+    "behaviors": [
+      "useSwing"
+    ]
   },
   {
     "id": "torch",
@@ -91,7 +94,11 @@
     "element": "wood",
     "useMode": "swing",
     "igniteTo": "torch_lit",
-    "description": "Cloth on a stick. Touch it to something burning and it becomes a very good stick."
+    "description": "Cloth on a stick. Touch it to something burning and it becomes a very good stick.",
+    "behaviors": [
+      "useSwing",
+      "ignitesNearFire"
+    ]
   },
   {
     "id": "torch_lit",
@@ -104,7 +111,12 @@
     "dousedBy": "water",
     "dousesTo": "torch",
     "douseOnDeselect": true,
-    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out."
+    "description": "Fire on demand. Burns wood and goo, melts ice, upsets certain creatures. Water puts it right out.",
+    "behaviors": [
+      "useSwing",
+      "dousedInLiquid",
+      "lightsBraziers"
+    ]
   },
   {
     "id": "bucket",
@@ -114,8 +126,14 @@
     "color": "#9aa7b8",
     "element": "metal",
     "useMode": "swing",
-    "scoopsInto": { "water": "bucket_full", "lava": "bucket_lava" },
-    "description": "Swing it at water or lava to scoop. The facility's most advanced technology."
+    "scoopsInto": {
+      "water": "bucket_full",
+      "lava": "bucket_lava"
+    },
+    "description": "Swing it at water or lava to scoop. The facility's most advanced technology.",
+    "behaviors": [
+      "useSwing"
+    ]
   },
   {
     "id": "bucket_full",
@@ -126,7 +144,10 @@
     "element": "water",
     "useMode": "splash",
     "emptiesTo": "bucket",
-    "description": "Sloshing and ready. Douses fire, washes goo away. Refillable."
+    "description": "Sloshing and ready. Douses fire, washes goo away. Refillable.",
+    "behaviors": [
+      "useSplash"
+    ]
   },
   {
     "id": "bucket_lava",
@@ -139,7 +160,11 @@
     "emptiesTo": "bucket",
     "dousedBy": "water",
     "dousesTo": "bucket",
-    "description": "Scalding and unwise. Ignites flammables, melts ice and metal, upsets creatures. Water quenches it."
+    "description": "Scalding and unwise. Ignites flammables, melts ice and metal, upsets creatures. Water quenches it.",
+    "behaviors": [
+      "useSplash",
+      "dousedInLiquid"
+    ]
   },
   {
     "id": "frost_vial",
@@ -149,7 +174,10 @@
     "color": "#b3e5fc",
     "element": "ice",
     "useMode": "swing",
-    "description": "Mushroom cold, concentrated. Freezes water solid, chills creatures. One use."
+    "description": "Mushroom cold, concentrated. Freezes water solid, chills creatures. One use.",
+    "behaviors": [
+      "useSwing"
+    ]
   },
   {
     "id": "spark_rod",
@@ -159,7 +187,10 @@
     "color": "#ffe95a",
     "element": "spark",
     "useMode": "swing",
-    "description": "A cog's teeth and a bad idea. Charge runs through metal and water. Mind your feet."
+    "description": "A cog's teeth and a bad idea. Charge runs through metal and water. Mind your feet.",
+    "behaviors": [
+      "useSwing"
+    ]
   },
   {
     "id": "spring",
@@ -170,7 +201,10 @@
     "element": "metal",
     "useMode": "place",
     "placeType": "spring",
-    "description": "F places it, anything that lands on it launches. E picks it back up. Bring your own architecture."
+    "description": "F places it, anything that lands on it launches. E picks it back up. Bring your own architecture.",
+    "behaviors": [
+      "usePlace"
+    ]
   },
   {
     "id": "smoke_bomb",
@@ -179,7 +213,10 @@
     "shape": "bottle",
     "color": "#8f9bb3",
     "useMode": "burst",
-    "description": "Stuns nearby creatures the old-fashioned way. Also great at parties."
+    "description": "Stuns nearby creatures the old-fashioned way. Also great at parties.",
+    "behaviors": [
+      "useBurst"
+    ]
   },
   {
     "id": "sticky_trap",
@@ -190,7 +227,10 @@
     "element": "goo",
     "useMode": "place",
     "placeType": "trap",
-    "description": "Place it down (F). Creatures that touch it are done having a good time. E picks it back up."
+    "description": "Place it down (F). Creatures that touch it are done having a good time. E picks it back up.",
+    "behaviors": [
+      "usePlace"
+    ]
   },
   {
     "id": "warden_plush",

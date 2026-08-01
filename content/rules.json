@@ -1,105 +1,75 @@
 [
   {
     "id": "fire_ignites_flammable",
-    "actor": "fire",
-    "targetProperty": "flammable",
-    "effect": "ignite",
+    "rule": "fire + flammable -> ignite",
     "note": "Burning tiles spread to adjacent flammables, then become their burnsTo."
   },
   {
     "id": "fire_melts_ice",
-    "actor": "fire",
-    "target": "ice",
-    "effect": "melt",
+    "rule": "fire + ice -> melt",
     "note": "Ice becomes its meltsTo (usually water)."
   },
   {
     "id": "fire_fizzles_on_water",
-    "actor": "fire",
-    "target": "water",
-    "effect": "fizzle",
+    "rule": "fire + water -> fizzle",
     "note": "Steam puff; nothing changes."
   },
   {
     "id": "water_extinguishes_fire",
-    "actor": "water",
-    "target": "fire",
-    "effect": "extinguish",
+    "rule": "water + fire -> extinguish",
     "note": "Fire tiles become their extinguishesTo; burning tiles stop burning."
   },
   {
     "id": "water_dissolves_goo",
-    "actor": "water",
-    "target": "goo",
-    "effect": "dissolve",
+    "rule": "water + goo -> dissolve",
     "note": "Goo becomes its dissolvesTo (washed away)."
   },
   {
     "id": "ice_freezes_water",
-    "actor": "ice",
-    "target": "water",
-    "effect": "freeze",
+    "rule": "ice + water -> freeze",
     "note": "Water becomes its freezesTo (walkable ice)."
   },
   {
     "id": "ice_quenches_fire",
-    "actor": "ice",
-    "target": "fire",
-    "effect": "extinguish"
+    "rule": "ice + fire -> extinguish"
   },
   {
     "id": "force_shatters_brittle",
-    "actor": "metal",
-    "targetProperty": "brittle",
-    "effect": "shatter",
+    "rule": "metal + brittle -> shatter",
     "note": "Kinetic force: brittle tiles become their shattersTo."
   },
   {
     "id": "spark_energizes_conductive",
-    "actor": "spark",
-    "targetProperty": "conductive",
-    "effect": "energize",
+    "rule": "spark + conductive -> energize",
     "note": "Charge floods through connected conductive tiles; hurts anything touching them; triggers fuse boxes."
   },
   {
     "id": "wood_ignites_self_on_fire",
-    "actor": "wood",
-    "target": "fire",
-    "effect": "ignite_self",
+    "rule": "wood + fire -> ignite_self",
     "note": "A wood carrier (torch) touched to fire becomes its lit form."
   },
   {
     "id": "fire_melts_cracked_to_lava",
-    "actor": "fire",
-    "target": "stone",
-    "effect": "melt",
+    "rule": "fire + stone -> melt",
     "note": "Only stone with a meltsTo (cracked) responds — solid wall shrugs it off."
   },
   {
     "id": "water_quenches_lava",
-    "actor": "water",
-    "target": "lava",
-    "effect": "extinguish",
+    "rule": "water + lava -> extinguish",
     "note": "Lava hardens back into cracked stone. The water survives."
   },
   {
     "id": "lava_ignites_flammable",
-    "actor": "lava",
-    "targetProperty": "flammable",
-    "effect": "ignite",
+    "rule": "lava + flammable -> ignite",
     "note": "Lava is fire, but more so."
   },
   {
     "id": "lava_melts_ice",
-    "actor": "lava",
-    "target": "ice",
-    "effect": "melt"
+    "rule": "lava + ice -> melt"
   },
   {
     "id": "lava_melts_metal",
-    "actor": "lava",
-    "target": "metal",
-    "effect": "melt",
+    "rule": "lava + metal -> melt",
     "note": "Especially hot: a metal block runs out as scrap. Torches can't do this."
   }
 ]

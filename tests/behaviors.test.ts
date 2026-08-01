@@ -1,10 +1,12 @@
-// The behavior grammar's customization contract: content-authored docs and
-// param overrides actually change gameplay — no engine edits. These cover the
-// three things the system exists for: composing behaviors onto entities,
-// overriding params per attachment, and the global sim tunables (including
-// the two knobs Sean asked for: melt chain range and fluid side bias).
+// The behavior system's customization contract: content-authored penscript
+// and field overrides actually change gameplay — no engine edits. These cover
+// the three things the system exists for: composing behaviors onto defs,
+// overriding script fields per attachment, and the global sim tunables
+// (including the two knobs Sean asked for: melt chain range and fluid side
+// bias). Plus the compiler itself.
 import { describe, expect, it } from "vitest";
 import { RoomRuntime } from "../src/game/room";
+import { compileScript } from "../src/game/penscript";
 import type {
   BehaviorDef, Content, EnemyDef, RoomDef, RoomEntity, RuleDef, TileDef,
 } from "../src/data/types";
@@ -14,11 +16,12 @@ import tilesJson from "../content/tiles.json";
 import gameJson from "../content/game.json";
 import rulesJson from "../content/rules.json";
 import behaviorsJson from "../content/behaviors.json";
+import entitiesJson from "../content/entities.json";
 import enemiesJson from "../content/enemies.json";
 
 const TILES = tilesJson as TileDef[];
 const BEHAVIORS = behaviorsJson as unknown as BehaviorDef[];
-const ENEMIES = enemiesJson as EnemyDef[];
+const ENEMIES = enemiesJson as unknown as EnemyDef[];
 
 function makeContent(opts: {
   behaviors?: BehaviorDef[];
@@ -30,6 +33,7 @@ function makeContent(opts: {
     elements: [],
     rules: opts.rules ?? [],
     behaviors: opts.behaviors ?? BEHAVIORS,
+    entityTypes: entitiesJson,
     achievements: [],
     tiles: TILES,
     items: [],
@@ -57,11 +61,20 @@ function makeRoom(rows: string[], content: Content, entities: RoomEntity[] = [])
   return new RoomRuntime(room, content, makeMuts());
 }
 
-/** Patch one behavior doc's params (deep-copied library). */
-function withParams(id: string, params: Record<string, unknown>): BehaviorDef[] {
+/** Deep-copy the shipped library and rewrite one doc's `var name = ...;`
+ *  line — exactly the edit Sean would make in the script pane. */
+function withVar(docId: string, name: string, valueSrc: string): BehaviorDef[] {
   const lib = JSON.parse(JSON.stringify(BEHAVIORS)) as BehaviorDef[];
-  const doc = lib.find((b) => b.id === id)!;
-  doc.params = { ...doc.params, ...params };
+  const doc = lib.find((b) => b.id === docId)!;
+  let hit = false;
+  doc.script = doc.script.map((line) => {
+    if (new RegExp(`^\\s*var\\s+${name}\\b`).test(line)) {
+      hit = true;
+      return `var ${name} = ${valueSrc};`;
+    }
+    return line;
+  });
+  if (!hit) throw new Error(`no var ${name} in ${docId}`);
   return lib;
 }
 
@@ -75,25 +88,76 @@ const FLOOR_ROOM = [
   "############",
 ];
 
-describe("custom behavior docs replace engine behavior without engine changes", () => {
-  it("a content-authored elementContact doc overrides the reactions table", () => {
+describe("penscript compiler", () => {
+  it("compiles the whole shipped behavior library clean", () => {
+    for (const doc of BEHAVIORS) {
+      const { errors } = compileScript(doc.script.join("\n"));
+      expect(errors, `${doc.id} should compile`).toEqual([]);
+    }
+  });
+
+  it("reports syntax errors with line numbers", () => {
+    const { errors } = compileScript("on tick {\n  if state == 3 { }\n}");
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].line).toBe(2); // missing parens around the condition
+  });
+
+  it("always terminates on malformed input (editor live-typing safety)", () => {
+    // Regression: a stray statement keyword at the top level used to stall
+    // the parser's error recovery in an infinite loop, hanging the editor.
+    const nasty = [
+      "if seesPlayer(range)) { state = \"chase\"; }",
+      "on tick { if (x { } }",
+      "var = ;",
+      "} } } on { { {",
+      "on tick {",
+    ];
+    for (const src of nasty) {
+      const { errors } = compileScript(src);
+      expect(errors.length, `should error, not hang: ${src}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("evaluates expressions with TS-style semantics (??, &&, ternary)", () => {
+    // Exercised through a room: a script that computes its field from host.
+    const doc: BehaviorDef = {
+      id: "exprCheck", host: "enemy",
+      script: [
+        "var a = host.chaseSpeed ?? host.speed * 2;",
+        "var b = host.missing ?? \"fallback\";",
+        "var c = host.speed > 50 ? 1 : 0;",
+      ],
+    };
+    const content = makeContent({ behaviors: [...BEHAVIORS, doc] });
+    const rt = makeRoom(FLOOR_ROOM, content);
+    const fields = rt.bhv.resolvedFields("exprCheck", crawler as unknown as Record<string, unknown>);
+    expect(fields.a).toBe(110);         // crawler: no chaseSpeed, speed 55
+    expect(fields.b).toBe("fallback");
+    expect(fields.c).toBe(1);
+  });
+});
+
+describe("custom behavior scripts replace engine behavior without engine changes", () => {
+  it("a content-authored elementContact script overrides the reactions table", () => {
     // A crawler variant whose fire response is a 1s stun, NOT the reactions
     // table's kill — purely by swapping one attachment in content.
     const customDoc: BehaviorDef = {
-      id: "fire_stuns_instead",
+      id: "fireStunsInstead",
       host: "enemy",
-      rules: [
-        { on: "elementContact", if: [["elementIs", "fire"]], do: [["stun", { ms: 1000 }]] },
+      script: [
+        "on elementContact(element) {",
+        "  if (element == \"fire\") { stun(1000); }",
+        "}",
       ],
     };
     const variant: EnemyDef = {
       ...crawler,
       id: "crawler_damp",
       behaviors: [
-        "hazard_reactions",
-        "fire_stuns_instead", // <- replaces element_reactions
-        { id: "stun_cycle", params: { wakeTo: "patrol" } },
-        "patrol_route", "grounded_move",
+        "hazardReactions",
+        "fireStunsInstead", // <- replaces elementReactions
+        { id: "stunCycle", params: { wakeTo: "patrol" } },
+        "patrolRoute", "groundedMove",
       ],
     };
     const content = makeContent({
@@ -115,13 +179,13 @@ describe("custom behavior docs replace engine behavior without engine changes", 
     expect(en.state).toBe("patrol");
   });
 
-  it("attachment params override behavior defaults ($host refs included)", () => {
+  it("attachment params override a script's field defaults", () => {
     const speedy: EnemyDef = {
       ...crawler,
       id: "crawler_speedy",
       behaviors: [
-        { id: "patrol_route", params: { speed: 200 } }, // vs. $host.speed = 55
-        "grounded_move",
+        { id: "patrolRoute", params: { speed: 200 } }, // vs. host.speed = 55
+        "groundedMove",
       ],
     };
     const content = makeContent({ enemies: [...ENEMIES, speedy] });
@@ -138,10 +202,10 @@ describe("custom behavior docs replace engine behavior without engine changes", 
 });
 
 describe("global sim tunables (behaviors.json global docs)", () => {
-  it("heat_spread.chainMeltRange = 0 stops the melt at direct lava contact", () => {
+  it("heatSpread.chainMeltRange = 0 stops the melt at direct lava contact", () => {
     const content = makeContent({
       rules: rulesJson as RuleDef[],
-      behaviors: withParams("heat_spread", { chainMeltRange: 0 }),
+      behaviors: withVar("heatSpread", "chainMeltRange", "0"),
     });
     const rt = makeRoom(["LMMMM."], content);
     for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
@@ -150,10 +214,10 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     expect(charAt(rt, 3, 0)).toBe("M");
   });
 
-  it("heat_spread.chainMeltRange = 1 lets the melt travel exactly one tile further", () => {
+  it("heatSpread.chainMeltRange = 1 lets the melt travel exactly one tile further", () => {
     const content = makeContent({
       rules: rulesJson as RuleDef[],
-      behaviors: withParams("heat_spread", { chainMeltRange: 1 }),
+      behaviors: withVar("heatSpread", "chainMeltRange", "1"),
     });
     const rt = makeRoom(["LMMMM."], content);
     for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
@@ -169,7 +233,7 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     for (let x = 1; x <= 4; x++) expect(charAt(rt, x, 0)).toBe(".");
   });
 
-  it("fluid_flow.sideBias pins which side finite fluid commits to (the slosh knob)", () => {
+  it("fluidFlow.sideBias pins which side finite fluid commits to (the slosh knob)", () => {
     // One water tile perched on a one-tile pillar, open holes both sides —
     // exactly the can't-pick-a-direction shape. A pinned bias must commit.
     const rows = [
@@ -182,14 +246,31 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     const tickOnce = (rt: RoomRuntime) =>
       (rt as never as { tickWaterFlow(ev: unknown[]): void }).tickWaterFlow([]);
 
-    const left = makeRoom(rows, makeContent({ behaviors: withParams("fluid_flow", { sideBias: "left" }) }));
+    const left = makeRoom(rows, makeContent({ behaviors: withVar("fluidFlow", "sideBias", '"left"') }));
     tickOnce(left);
     expect(charAt(left, 4, 1)).toBe("w"); // moved left
     expect(charAt(left, 6, 1)).toBe(".");
 
-    const right = makeRoom(rows, makeContent({ behaviors: withParams("fluid_flow", { sideBias: "right" }) }));
+    const right = makeRoom(rows, makeContent({ behaviors: withVar("fluidFlow", "sideBias", '"right"') }));
     tickOnce(right);
     expect(charAt(right, 6, 1)).toBe("w"); // moved right
     expect(charAt(right, 4, 1)).toBe(".");
+  });
+
+  it("rules.json pattern lines drive the element table (lava + metal -> melt)", () => {
+    const content = makeContent({ rules: rulesJson as RuleDef[] });
+    const rt = makeRoom(["LM."], content);
+    rt.update(0.7, null, 0, () => {});
+    expect(charAt(rt, 1, 0)).toBe("."); // melted via the pattern line
+  });
+
+  it("legacy split-field rules (stale saves) still work", () => {
+    const legacy: RuleDef[] = [
+      { id: "old_style", actor: "lava", target: "metal", effect: "melt" },
+    ];
+    const content = makeContent({ rules: legacy });
+    const rt = makeRoom(["LM."], content);
+    rt.update(0.7, null, 0, () => {});
+    expect(charAt(rt, 1, 0)).toBe(".");
   });
 });

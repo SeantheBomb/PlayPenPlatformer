@@ -111,6 +111,7 @@ function assemble(files: Record<string, unknown>): Content {
     elements: mergeArrayById((BUNDLED["elements.json"] ?? []) as Content["elements"], files["elements.json"]),
     rules: mergeArrayById((BUNDLED["rules.json"] ?? []) as Content["rules"], files["rules.json"]),
     behaviors: mergeArrayById((BUNDLED["behaviors.json"] ?? []) as Content["behaviors"], files["behaviors.json"]),
+    entityTypes: mergeArrayById((BUNDLED["entities.json"] ?? []) as Content["entityTypes"], files["entities.json"]),
     achievements: mergeArrayById(
       (BUNDLED["achievements.json"] ?? []) as Content["achievements"], files["achievements.json"]
     ),
@@ -141,6 +142,7 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   out["elements.json"] = c.elements;
   out["rules.json"] = c.rules;
   out["behaviors.json"] = c.behaviors;
+  out["entities.json"] = c.entityTypes;
   out["achievements.json"] = c.achievements;
   out["tiles.json"] = c.tiles;
   out["items.json"] = c.items;

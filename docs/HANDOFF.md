@@ -271,6 +271,38 @@ reads tile `extinguishesTo`). The burst CHARGING input flow still keys on
 recorded sessions replay through the same merged-bundled behaviors.json, so
 drift should stay 0px — worth eyeballing one old session in the sessions tab.
 
+## 2026-07-31 (same day, round 2) — penscript replaces the JSON grammar
+
+Sean reviewed the JSON trigger/condition/action grammar in the editor and
+rejected it structurally (see the locked principles in CLAUDE.md's editor
+rules): instance-shape-derived forms are an illusion of control, attachment
+must live on the def, no form-wrapped-JSON half-UIs, and JSON-encoded logic is
+too opaque to read. After a workshop (PuzzleScript / ZZT-OOP / Bedrock JSON /
+Factorio Lua / event sheets), he picked: a custom DSL (braces, TS/C#-light,
+`var`-only — Unity public-field mental model), pattern-line element rules, and
+the structural editor fixes. Same-day replacement, all on this branch, nothing
+of the JSON grammar shipped:
+
+- **penscript** (`src/game/penscript.ts` lexer/parser/AST + evaluator in
+  `behavior.ts`): scripts live in behaviors.json as line arrays; top-level
+  `var`s = tweakable fields (per-attachment overrides via `params`); handlers
+  `on tick { ... }` etc.; engine capability only via registered functions
+  (deterministic by construction). All 19 docs ported; the enemy/item/brazier
+  behavior itself is byte-for-byte the same sim (26 characterization tests
+  unchanged and green through BOTH ports).
+- **rules.json** rows became pattern lines: `"lava + metal -> melt"`
+  (legacy split-field rows still parse — stale-save safe).
+- **entities.json + entities tab**: EntityTypeDef (footprints + default
+  behaviors) replaces hardcoded ENTITY_SIZES + the doc-side attachTo.
+- **Schema-driven forms**: tiles/items/enemies/entities render the FULL field
+  schema (fire shows `fluid`, water shows `repels`); empty optional fields
+  delete their key. Schemas live in editor.ts.
+- **Behaviors tab**: metadata form + monospace script pane with live compile
+  errors (line-numbered) + legend generated from the function registry.
+  Parser recovery has no-stall guards — it compiles per keystroke and an
+  infinite recovery loop froze the page once in testing (regression-tested).
+- 111 tests green; sideBias/chainMeltRange knobs verified at multiple values.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

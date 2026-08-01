@@ -1,7 +1,7 @@
 // Runtime instantiation of a RoomDef, including the elemental simulation:
 // tile transformations, fire spread, spark conduction, and enemy reactions.
 import type {
-  Content, EnemyDef, EnemyReaction, RoomDef, RoomEntity, RuleDef, TileDef,
+  Content, EnemyDef, EnemyReaction, RoomDef, RoomEntity, RuleDef, RuleEffect, TileDef,
 } from "../data/types";
 import { TILE, TileMap } from "../engine/tilemap";
 import { drawBlob, drawItemIcon, drawNpcAvatar, drawTile, roundRect, shade } from "../engine/renderer";
@@ -11,7 +11,7 @@ import { Rng } from "../engine/rng";
 import type { PlacedItem, RoomMutations, ScatterDrop } from "./state";
 import {
   BehaviorSystem, enemyAttachments, enemyResetState,
-  registerAction, registerCondition, type BehaviorCtx,
+  registerFn, type ScriptCtx,
 } from "./behavior";
 
 export interface EntityInstance extends Rect {
@@ -56,6 +56,52 @@ export interface ElementEvent {
 
 const SIGHT_HALF_SLOPE = 0.55; // vertical spread of the vision cone (~29°)
 
+/** A rule row resolved to actionable form, whichever way it was authored. */
+export interface ParsedRule {
+  actor: string;
+  target?: string;
+  targetProperty?: string;
+  effect: RuleEffect;
+}
+
+/** Tile properties a rule line may target (vs. an element id). */
+const RULE_PROPERTIES = new Set(["flammable", "brittle", "conductive"]);
+
+/** Parse a pattern line: "fire + flammable -> ignite". The middle token is a
+ *  known tile property, else an element id. Null = malformed. */
+export function parseRuleLine(line: string): ParsedRule | null {
+  const m = /^\s*(\w+)\s*\+\s*(\w+)\s*->\s*(\w+)\s*$/.exec(line);
+  if (!m) return null;
+  const [, actor, target, effect] = m;
+  return RULE_PROPERTIES.has(target)
+    ? { actor, targetProperty: target, effect: effect as RuleEffect }
+    : { actor, target, effect: effect as RuleEffect };
+}
+
+const parsedRuleCache = new WeakMap<RuleDef, ParsedRule | null>();
+
+/** A RuleDef in either form (pattern line, or the legacy split fields stale
+ *  saves still carry) resolved to a ParsedRule, cached per object. */
+function ruleOf(r: RuleDef): ParsedRule | null {
+  let p = parsedRuleCache.get(r);
+  if (p !== undefined) return p;
+  if (typeof r.rule === "string" && r.rule.trim() !== "") {
+    p = parseRuleLine(r.rule);
+  } else if (r.actor && r.effect) {
+    p = {
+      actor: r.actor,
+      target: r.target || undefined,
+      targetProperty: r.targetProperty || undefined,
+      effect: r.effect,
+    };
+  } else {
+    p = null;
+  }
+  parsedRuleCache.set(r, p);
+  return p;
+}
+
+/** Fallback footprints for stale content — content/entities.json wins. */
 const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   pickup: [14, 14],
   note: [12, 12],
@@ -175,15 +221,15 @@ export class RoomRuntime {
       // Global sim tunables from behaviors.json (content wins, consts fall back).
       const num = (v: unknown, fb: number) =>
         typeof v === "number" && Number.isFinite(v) ? v : fb;
-      const flow = this.bhv.globalParams("fluid_flow");
+      const flow = this.bhv.globalParams("fluidFlow");
       this.flowIntervalSec = num(flow.intervalSec, WATER_FLOW_INTERVAL);
       this.sideBias = typeof flow.sideBias === "string" ? flow.sideBias : "alternate";
       this.recedeMsEff = num(flow.recedeMs, RECEDE_MS);
       this.toyblockPushSec = num(flow.toyblockPushSec, TOYBLOCK_PUSH_TIME);
-      const heat = this.bhv.globalParams("heat_spread");
+      const heat = this.bhv.globalParams("heatSpread");
       this.spreadIntervalSec = num(heat.intervalSec, SPREAD_INTERVAL);
       this.chainMeltRange = num(heat.chainMeltRange, -1);
-      const fx = this.bhv.globalParams("element_effects");
+      const fx = this.bhv.globalParams("elementEffects");
       this.energizeMs = num(fx.energizeMs, ENERGIZE_MS);
       this.freezeSpreadMax = num(fx.freezeSpreadMax, 32);
       this.energizeSpreadMax = num(fx.energizeSpreadMax, 600);
@@ -201,7 +247,7 @@ export class RoomRuntime {
     // connectivity below is computed against the tile grid.
     for (const def of room.entities) {
       if (def.type !== "door" && def.type !== "trapdoor") continue;
-      const [w, h] = ENTITY_SIZES[def.type] ?? [16, 16];
+      const [w, h] = this.entitySize(def.type);
       const cx = def.x * TILE + TILE / 2;
       const feetY = (def.y + 1) * TILE;
       const tx0 = Math.floor((cx - w / 2) / TILE);
@@ -296,7 +342,7 @@ export class RoomRuntime {
         });
         return;
       }
-      const [w, h] = ENTITY_SIZES[def.type] ?? [16, 16];
+      const [w, h] = this.entitySize(def.type);
       const litOverride = muts.brazierLit.find(([i]) => i === index);
       // Doors/trapdoors can be authored to start open; a fuse trip (open or
       // close) overrides that for the rest of the run once it happens.
@@ -322,6 +368,15 @@ export class RoomRuntime {
     }
   }
 
+  /** Entity footprint: content/entities.json wins, code table falls back. */
+  private entitySize(type: RoomEntity["type"]): [number, number] {
+    const et = this.content.entityTypes?.find((e) => e.id === type);
+    if (et && typeof et.width === "number" && typeof et.height === "number") {
+      return [et.width, et.height];
+    }
+    return ENTITY_SIZES[type] ?? [16, 16];
+  }
+
   private makePlacedInstance(p: PlacedItem): PlacedInstance {
     const size: [number, number] = p.type === "spring" ? [16, 8] : [16, 8];
     return { data: p, x: p.x, y: p.y, w: size[0], h: size[1] };
@@ -329,15 +384,19 @@ export class RoomRuntime {
 
   // ================= ELEMENTAL CORE =================
 
-  private findRule(actor: string, tile: TileDef): RuleDef | undefined {
-    return this.content.rules.find((r) => {
-      if (r.actor !== actor) return false;
-      if (r.target) return r.target === tile.element;
-      if (r.targetProperty) {
-        return !!(tile as unknown as Record<string, unknown>)[r.targetProperty];
+  private findRule(actor: string, tile: TileDef): ParsedRule | undefined {
+    for (const r of this.content.rules) {
+      const p = ruleOf(r);
+      if (!p || p.actor !== actor) continue;
+      if (p.target) {
+        if (p.target === tile.element) return p;
+        continue;
       }
-      return false;
-    });
+      if (p.targetProperty && (tile as unknown as Record<string, unknown>)[p.targetProperty]) {
+        return p;
+      }
+    }
+    return undefined;
   }
 
   private setTileById(tx: number, ty: number, tileId: string | undefined): void {
@@ -1049,6 +1108,7 @@ export class RoomRuntime {
         hostKey: "entity:" + e.index,
         attachments,
         api: { rt: this, e, events },
+        builtins: entityBuiltins(this, e),
       });
     }
   }
@@ -1078,6 +1138,7 @@ export class RoomRuntime {
         attachments,
         data: { element },
         api: { rt: this, e, events },
+        builtins: entityBuiltins(this, e),
       });
     }
     return events;
@@ -1282,6 +1343,7 @@ export class RoomRuntime {
       attachments: enemyAttachments(en.def),
       data,
       api: { rt: this, en, player: null, dt: 0, stunMs, events: [] },
+      builtins: enemyBuiltins(en),
     });
     const r = data.reaction;
     return r === "kill" || r === "stun" || r === "knockback" ? r : "none";
@@ -1458,6 +1520,8 @@ export class RoomRuntime {
 
   /** Send every enemy back to its post (called on player respawn). */
   resetEnemies(): void {
+    // Fresh behavior state too (chase memory like seenAt starts over).
+    this.bhv.resetInstances("enemy:");
     for (const en of this.enemies) {
       if (en.state === "trapped") continue;
       en.x = en.homeX - en.def.width / 2;
@@ -1480,7 +1544,7 @@ export class RoomRuntime {
     const atts = enemyAttachments(d);
     const tagged = this.bhv.taggedAttachment(atts, "sight");
     if (!tagged) return null;
-    const p = this.bhv.resolvedParams(atts, tagged.id, d as unknown as Record<string, unknown>) ?? {};
+    const p = this.bhv.attachedFields(atts, tagged.id, d as unknown as Record<string, unknown>) ?? {};
     const num = (v: unknown, fb: number) =>
       typeof v === "number" && Number.isFinite(v) ? v : fb;
     return {
@@ -1594,6 +1658,7 @@ export class RoomRuntime {
         hostKey: "enemy:" + en.index,
         attachments: enemyAttachments(en.def),
         api: { rt: this, en, player, dt, stunMs, events },
+        builtins: enemyBuiltins(en),
       });
     }
 
@@ -2110,10 +2175,11 @@ export class RoomRuntime {
 }
 
 // ===========================================================================
-// Behavior-verb registry — the engine primitives content/behaviors.json
-// composes. Each verb is small and single-purpose; adding one here (plus a
-// mention in the editor's dropdowns) is how the vocabulary grows. Registered
-// at module load, shared by every RoomRuntime.
+// penscript function registry — the engine capabilities behavior scripts
+// call. Each function is small and single-purpose; adding one here (it shows
+// up in the editor's legend automatically) is how the vocabulary grows.
+// Registered at module load, shared by every RoomRuntime. Determinism rule:
+// only simNow() and the room's seeded RNG — never wall clock/Math.random.
 // ===========================================================================
 
 interface EnemyApi {
@@ -2124,16 +2190,42 @@ interface EnemyApi {
   stunMs: number;
   events: ElementEvent[];
 }
-const enemyApi = (ctx: BehaviorCtx) => ctx.api as unknown as EnemyApi;
+const enemyApi = (ctx: ScriptCtx) => ctx.api as unknown as EnemyApi;
 
 interface EntityApi {
   rt: RoomRuntime;
   e: EntityInstance;
   events: ElementEvent[];
 }
-const entityApi = (ctx: BehaviorCtx) => ctx.api as unknown as EntityApi;
+const entityApi = (ctx: ScriptCtx) => ctx.api as unknown as EntityApi;
 
-function applyReaction(ctx: BehaviorCtx, reaction: EnemyReaction, msOverride?: number): void {
+/** Script-facing builtins for an enemy dispatch (the `state` variable). */
+export function enemyBuiltins(en: EnemyInstance) {
+  return {
+    state: {
+      get: () => en.state as unknown,
+      set: (v: unknown) => {
+        en.state = String(v) as EnemyInstance["state"];
+      },
+    },
+  };
+}
+
+/** Script-facing builtins for an entity dispatch (the `lit` variable). */
+export function entityBuiltins(rt: RoomRuntime, e: EntityInstance) {
+  return {
+    lit: {
+      get: () => (e.lit !== false) as unknown,
+      set: (v: unknown) => rt.setBrazierLit(e, !!v),
+    },
+  };
+}
+
+const argNum = (v: unknown, fb: number) =>
+  typeof v === "number" && Number.isFinite(v) ? v : fb;
+const argStr = (v: unknown, fb: string) => (typeof v === "string" ? v : fb);
+
+function applyReaction(ctx: ScriptCtx, reaction: EnemyReaction, msOverride?: number): void {
   const { rt, en, stunMs } = enemyApi(ctx);
   switch (reaction) {
     case "kill":
@@ -2154,30 +2246,12 @@ function applyReaction(ctx: BehaviorCtx, reaction: EnemyReaction, msOverride?: n
   ctx.data.reaction = reaction;
 }
 
-// ---- generic conditions ----
-registerCondition("stateIs", (ctx, args) => {
-  const { en } = enemyApi(ctx);
-  return ctx.str(args[0], "").split("|").includes(en.state);
-});
-registerCondition("elementIs", (ctx, args) => ctx.data.element === ctx.arg(args[0]));
-registerCondition("sinceVar", (ctx, args) => {
-  const name = typeof args[0] === "string" ? args[0] : "";
-  const t = ctx.vars[name];
-  return simNow() - (typeof t === "number" ? t : 0) > ctx.num(args[1], 0);
-});
-
-// ---- generic actions ----
-registerAction("setVar", (ctx, args) => {
-  const name = typeof args[0] === "string" ? args[0] : "";
-  if (name) ctx.vars[name] = ctx.arg(args[1]);
-});
-
-// ---- enemy conditions ----
-registerCondition("stunElapsed", (ctx) => {
+// ---- enemy senses ----
+registerFn("stunElapsed", (ctx) => {
   const { en } = enemyApi(ctx);
   return simNow() >= en.stunUntil;
 });
-registerCondition("seesPlayer", (ctx, args) => {
+registerFn("seesPlayer", (ctx, args) => {
   const { rt, en, player } = enemyApi(ctx);
   if (!player || player.hidden) return false;
   const d = en.def;
@@ -2188,35 +2262,27 @@ registerCondition("seesPlayer", (ctx, args) => {
   const dx = player.centerX - cx;
   const dy = player.centerY - cy;
   if (dx * en.facing <= 0) return false; // forward only
-  const halfSlope = ctx.num(ctx.opt(args, "halfSlope"), SIGHT_HALF_SLOPE);
-  const conePad = ctx.num(ctx.opt(args, "conePad"), 12);
+  const halfSlope = argNum(args[1], SIGHT_HALF_SLOPE);
+  const conePad = argNum(args[2], 12);
   if (Math.abs(dy) > Math.abs(dx) * halfSlope + conePad) return false;
-  if (Math.abs(dx) > ctx.num(ctx.opt(args, "range"), 120)) return false;
+  if (Math.abs(dx) > argNum(args[0], 120)) return false;
   return rt.map.lineOfSight(cx, cy, player.centerX, player.centerY);
 });
-registerCondition("sightLost", (ctx, args) => {
+registerFn("playerHidden", (ctx) => {
+  // No player, hiding in a locker, or smoke on either end of the sightline.
   const { rt, en, player } = enemyApi(ctx);
   if (!player || player.hidden) return true;
   const cx = en.x + en.def.width / 2;
   const cy = en.y + en.def.height / 2;
-  if (rt.smokeAtPoint(player.centerX, player.centerY) || rt.smokeAtPoint(cx, cy)) return true;
-  return simNow() - en.lastSawPlayerAt > ctx.num(ctx.opt(args, "loseTargetMs"), 2000);
+  return rt.smokeAtPoint(player.centerX, player.centerY) || rt.smokeAtPoint(cx, cy);
 });
 
-// ---- enemy actions ----
-registerAction("setState", (ctx, args) => {
-  const { en } = enemyApi(ctx);
-  en.state = ctx.str(args[0], en.state) as EnemyInstance["state"];
-});
-registerAction("noteSeen", (ctx) => {
-  const { en } = enemyApi(ctx);
-  en.lastSawPlayerAt = simNow();
-});
-registerAction("reactToTileHazards", (ctx, args) => {
+// ---- enemy reactions ----
+registerFn("reactToTileHazards", (ctx, args) => {
   const { rt, en, stunMs, events } = enemyApi(ctx);
   const d = en.def;
   const now = simNow();
-  if (now - en.lastHazardAt <= ctx.num(ctx.opt(args, "cooldownMs"), HAZARD_COOLDOWN_MS)) return;
+  if (now - en.lastHazardAt <= argNum(args[0], HAZARD_COOLDOWN_MS)) return undefined;
   const tx0 = Math.floor(en.x / TILE);
   const tx1 = Math.floor((en.x + d.width) / TILE);
   const ty0 = Math.floor(en.y / TILE);
@@ -2230,7 +2296,7 @@ registerAction("reactToTileHazards", (ctx, args) => {
       else if (rt.isEnergized(tx, ty)) applied = "spark";
     }
   }
-  if (!applied) return;
+  if (!applied) return undefined;
   en.lastHazardAt = now;
   const r = rt.reactEnemy(en, applied, stunMs);
   if (r !== "none") {
@@ -2241,23 +2307,31 @@ registerAction("reactToTileHazards", (ctx, args) => {
     });
   }
   if (r === "kill") ctx.halt = true;
+  return r;
 });
-registerAction("reactFromTable", (ctx) => {
+registerFn("reactFromTable", (ctx) => {
   const { en } = enemyApi(ctx);
   const element = typeof ctx.data.element === "string" ? ctx.data.element : "";
   applyReaction(ctx, en.def.reactions?.[element] ?? "none");
+  return ctx.data.reaction;
 });
-registerAction("kill", (ctx) => applyReaction(ctx, "kill"));
-registerAction("stun", (ctx, args) => {
-  const ms = ctx.opt(args, "ms");
-  applyReaction(ctx, "stun", typeof ms === "number" ? ms : undefined);
+registerFn("kill", (ctx) => {
+  applyReaction(ctx, "kill");
+  return undefined;
 });
-registerAction("knockback", (ctx, args) => {
+registerFn("stun", (ctx, args) => {
+  applyReaction(ctx, "stun", typeof args[0] === "number" ? args[0] : undefined);
+  return undefined;
+});
+registerFn("knockback", (ctx, args) => {
   const { en } = enemyApi(ctx);
-  en.vx = en.facing * -ctx.num(ctx.opt(args, "vx"), 120);
+  en.vx = en.facing * -argNum(args[0], 120);
   ctx.data.reaction = "knockback";
+  return undefined;
 });
-registerAction("steerPatrol", (ctx, args) => {
+
+// ---- enemy steering + physics ----
+registerFn("patrol", (ctx, args) => {
   const { rt, en } = enemyApi(ctx);
   const d = en.def;
   const cx = en.x + d.width / 2;
@@ -2271,48 +2345,46 @@ registerAction("steerPatrol", (ctx, args) => {
     want = rt.canStepAhead(en, -want) ? -want : 0;
   }
   if (want !== 0) en.facing = want;
-  en.vx = want * ctx.num(ctx.opt(args, "speed"), d.speed);
+  en.vx = want * argNum(args[0], d.speed);
+  return undefined;
 });
-registerAction("steerChase", (ctx, args) => {
+registerFn("moveToward", (ctx, args) => {
   const { rt, en, player } = enemyApi(ctx);
   const d = en.def;
-  if (!player) {
-    en.vx = 0;
-    return;
+  const target = argStr(args[0], "player");
+  let targetX: number;
+  if (target === "home") {
+    targetX = en.homeX;
+  } else {
+    if (!player) {
+      en.vx = 0;
+      return undefined;
+    }
+    targetX = player.centerX;
   }
   const cx = en.x + d.width / 2;
-  const dx = player.centerX - cx;
+  const dx = targetX - cx;
   let want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
   // Too smart to strand itself: no drops it can't climb, no wading.
   if (want !== 0 && !rt.canStepAhead(en, want)) want = 0;
   if (want !== 0) en.facing = want;
-  en.vx = want * ctx.num(ctx.opt(args, "speed"), d.chaseSpeed ?? d.speed * 2);
+  en.vx = want * argNum(args[1], d.speed);
+  return undefined;
 });
-registerAction("steerHome", (ctx, args) => {
-  const { rt, en } = enemyApi(ctx);
-  const d = en.def;
-  const cx = en.x + d.width / 2;
-  const dx = en.homeX - cx;
-  let want = Math.abs(dx) > 4 ? Math.sign(dx) : 0;
-  if (want !== 0 && !rt.canStepAhead(en, want)) want = 0;
-  if (want !== 0) en.facing = want;
-  en.vx = want * ctx.num(ctx.opt(args, "speed"), d.speed);
-});
-registerAction("applyGravityAndMove", (ctx, args) => {
+registerFn("applyGravityAndMove", (ctx, args) => {
   const { rt, en, dt } = enemyApi(ctx);
   const d = en.def;
-  const gravity = ctx.num(ctx.opt(args, "gravity"), 1400);
-  const maxFall = ctx.num(ctx.opt(args, "maxFall"), 460);
-  en.vy = Math.min(en.vy + gravity * dt, maxFall);
+  en.vy = Math.min(en.vy + argNum(args[0], 1400) * dt, argNum(args[1], 460));
   const res = rt.map.move(en.x, en.y, d.width, d.height, en.vx, en.vy, dt);
-  if (res.hitWall && en.state === ctx.str(ctx.opt(args, "flipOnWallIn"), "patrol")) {
+  if (res.hitWall && en.state === argStr(args[2], "patrol")) {
     en.facing = -en.facing;
   }
   en.x = res.x;
   en.y = res.y;
   en.vy = res.vy;
+  return undefined;
 });
-registerAction("checkTraps", (ctx) => {
+registerFn("checkTraps", (ctx) => {
   const { rt, en } = enemyApi(ctx);
   const d = en.def;
   const rect = { x: en.x, y: en.y, w: d.width, h: d.height };
@@ -2323,16 +2395,13 @@ registerAction("checkTraps", (ctx) => {
       rt.muts.disabledEnemies.add(en.index);
     }
   }
+  return undefined;
 });
 
-// ---- entity (brazier & friends) conditions/actions ----
-registerCondition("isLit", (ctx, args) => {
-  const { e } = entityApi(ctx);
-  return (e.lit !== false) === ctx.bool(args[0], true);
-});
-registerCondition("touchesTileElement", (ctx, args) => {
+// ---- entity (brazier & friends) ----
+registerFn("touchesTileElement", (ctx, args) => {
   const { rt, e } = entityApi(ctx);
-  const el = ctx.str(args[0], "");
+  const el = argStr(args[0], "");
   if (!el) return false;
   const tx0 = Math.floor(e.x / TILE);
   const tx1 = Math.floor((e.x + e.w - 1) / TILE);
@@ -2345,16 +2414,14 @@ registerCondition("touchesTileElement", (ctx, args) => {
   }
   return false;
 });
-registerAction("setLit", (ctx, args) => {
-  const { rt, e } = entityApi(ctx);
-  rt.setBrazierLit(e, ctx.bool(args[0], true));
-});
-registerAction("emitEvent", (ctx, args) => {
+registerFn("emitEvent", (ctx, args) => {
   const { e, events } = entityApi(ctx);
   events.push({
-    effect: ctx.str(ctx.opt(args, "effect"), "fizzle"),
+    effect: argStr(args[0], "fizzle"),
     x: e.x + e.w / 2,
-    y: ctx.str(ctx.opt(args, "at"), "top") === "center" ? e.y + e.h / 2 : e.y,
-    color: ctx.str(ctx.opt(args, "color"), "#ffffff"),
+    y: argStr(args[2], "top") === "center" ? e.y + e.h / 2 : e.y,
+    color: argStr(args[1], "#ffffff"),
   });
+  return undefined;
 });
+

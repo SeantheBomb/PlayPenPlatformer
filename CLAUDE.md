@@ -172,38 +172,57 @@ republishing/re-saving from the editor is still the fix for those.
   face) and `sprite`/`spriteFrames` (animated in-room body, `RoomEntity extends
   SpriteFields`) — don't conflate them, they're edited in different inspector rows.
 
-## Behavior grammar (content/behaviors.json — the scripting layer)
+## penscript (content/behaviors.json — the behavior scripting language)
 
-- **Behaviors are named trigger→condition→action rule docs** in
-  `content/behaviors.json`, attached to enemies/items (def-level `behaviors`
-  arrays), entities (`attachTo.entities`, e.g. brazier_flame), or standing
-  alone as `host: "global"` tunables docs. Interpreter: `src/game/behavior.ts`;
-  verb registries live at the bottom of `room.ts` (enemy + entity verbs) and
-  `game.ts` (item verbs). Args support `$param`, `$host.field`, `$data.field`,
-  `$var.name`, `$now` references.
+- **Behaviors are penscript scripts**: TS/C#-flavored (braces, `var`, `if`,
+  `??`/`&&`/ternary, `//` comments), no loops/user functions, stored as a
+  `script` lines array per doc in `content/behaviors.json`. Compiler:
+  `src/game/penscript.ts`; runtime + attachment model: `src/game/behavior.ts`;
+  engine functions register at the bottom of `room.ts` (enemy/entity) and
+  `game.ts` (item, static block). Top-level `var`s are the behavior's
+  tweakable FIELDS — evaluated per attached instance (`host.speed` refs work),
+  overridable per attachment via `{ id, params: { field: value } }` (Unity
+  public-field model), and mutable at runtime as per-instance state.
+  Handlers: `on tick / flowTick / elementContact(element) / use(charge) /
+  heldTick / carriedTick`. Built-ins: `now`, `host.*`, `state` (enemies),
+  `lit` (entities), `player`/`home` targets, `halt` (consume dispatch),
+  `return` (end handler).
 - **Enemy AI, item use (swing/splash/place/burst + passive douse/ignite), and
-  brazier flame logic run THROUGH the grammar** — don't add new hardcoded
-  branches to the old code paths; write/extend a behavior doc, and only add a
-  new verb when the grammar genuinely can't express it (register it + it shows
-  up in the editor's legend automatically). Verbs must stay replay-deterministic:
-  `simNow()` + the room's seeded RNG only.
-- Defs WITHOUT a `behaviors` array get the legacy-derived set
-  (`enemyAttachments` / `itemAttachments` in behavior.ts) that reproduces the
-  pre-grammar behavior exactly — keep those mappings in sync if legacy fields
-  change. `EnemyDef.behavior` ("patrol"/"chase") is now only that fallback's
-  input; sight-cone drawing and smoke immunity key on the `"sight"` behavior
-  tag instead.
-- **Global tunables** (content wins, code consts are only fallbacks):
-  `fluid_flow.sideBias` (alternate/left/right — water direction-commitment),
-  `fluid_flow.intervalSec/recedeMs/toyblockPushSec`, `heat_spread.intervalSec`,
-  `heat_spread.chainMeltRange` (-1 = unlimited chain-melt, the shipped default
-  matching melt-chain.test.ts; 0 = direct lava contact only; N = cap),
-  `element_effects.energizeMs` + flood caps.
+  brazier flame logic run THROUGH scripts** — don't add hardcoded branches to
+  the old code paths; edit/write a behavior script, and only register a new
+  function when the language genuinely can't express it (it appears in the
+  editor legend automatically). Functions must stay replay-deterministic:
+  `simNow()` + the room's seeded RNG only — scripts have no other time/random
+  access by construction. The parser's error recovery must always consume a
+  token (no-stall guards in parseScript/parseBlockBody) — the editor compiles
+  on every keystroke, and a parser hang freezes the whole page.
+- **Attachment lives on the def**: `behaviors` arrays on enemies.json /
+  items.json / entities.json entries (tiles have the field reserved). Defs
+  WITHOUT one get the legacy-derived set (`enemyAttachments` /
+  `itemAttachments`) that reproduces pre-scripting behavior — keep those in
+  sync if legacy fields change. Sight-cone drawing + smoke immunity key on the
+  `"sight"` behavior TAG (not the legacy `behavior` enum). `entities.json`
+  (EntityTypeDef) owns entity footprints + default behaviors (brazier →
+  brazierFlame); ENTITY_SIZES in room.ts is only the stale-content fallback.
+- **rules.json is pattern lines**: `"rule": "fire + flammable -> ignite"`
+  (target = element id, or property flammable/brittle/conductive; parsed in
+  room.ts `parseRuleLine`). Legacy split-field rows still work (stale saves).
+- **Global tunables are `host: "global"` scripts with only vars** (content
+  wins, code consts fall back): `fluidFlow.sideBias` (alternate/left/right —
+  water direction-commitment), `fluidFlow.intervalSec/recedeMs/
+  toyblockPushSec`, `heatSpread.chainMeltRange` (-1 = unlimited chain-melt,
+  the shipped default matching melt-chain.test.ts; 0 = direct lava contact
+  only; N = cap), `heatSpread.intervalSec`, `elementEffects.*`.
+- **Editor rules (Sean-locked, 2026-07-31)**: forms are SCHEMA-driven — every
+  def shows every field the engine supports (see TILE_SCHEMA etc. in
+  editor.ts; add new schema fields there too or they're invisible); behavior
+  attachment is edited on each def's own page; scripts are plain text with
+  live compile errors — no form-wrapped-JSON half-UIs.
 - Tests: `tests/enemy-behaviors.test.ts` pins the ported enemy behavior;
-  `tests/behaviors.test.ts` pins the customization contract (custom docs,
-  param overrides, the global knobs). Any test harness that builds a `Content`
-  and touches enemies/items/braziers MUST include behaviors.json, or hosts
-  silently do nothing.
+  `tests/behaviors.test.ts` pins the compiler + customization contract
+  (custom scripts, field overrides, the global knobs, parser-hang safety).
+  Any test harness that builds a `Content` and touches enemies/items/braziers
+  MUST include behaviors.json (+ entities.json), or hosts silently do nothing.
 
 ## Story engine (run-reactive NPCs — see DESIGN.md "Story" for the iceberg doc)
 

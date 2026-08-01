@@ -71,12 +71,8 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
       "energize", "ignite_self", "fizzle"],
     targetProperty: ["flammable", "brittle", "conductive"],
     behavior: ["patrol", "chase"],
-    // Behavior grammar (behaviors.json)
-    on: ["tick", "flowTick", "elementContact", "use", "heldTick", "carriedTick"],
-    host: ["enemy", "item", "entity", "global"],
-    wakeTo: ["patrol", "return", "chase"],
-    giveUpTo: ["patrol", "return"],
-    sideBias: ["alternate", "left", "right"],
+    // Behavior scripting (behaviors.json)
+    host: ["enemy", "item", "entity", "tile", "global"],
     style: ["block", "platform", "spikes", "cracked", "spring", "goo",
       "wood", "ice", "water", "fire", "metal", "waterfall", "drain",
       "lava", "lavafall", "balloon", "stringlight", "crayon", "toyblock"],
@@ -217,6 +213,149 @@ export function autoForm(
           },
         })
       );
+    }
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// Schema-driven forms: render the FULL field set for a content type, not just
+// the fields an instance happens to have. This is what makes any tile able to
+// toggle `fluid` or `repels` regardless of what it currently is — a form
+// derived from instance shape only offers the knobs already turned, which is
+// an illusion of control (Sean, 2026-07-31).
+// ---------------------------------------------------------------------------
+
+export interface FieldSpec {
+  key: string;
+  kind: "string" | "number" | "bool" | "color" | "json";
+  /** Required fields always keep a value; optional ones DELETE the key when
+   *  emptied/unchecked, keeping the serialized JSON lean. */
+  req?: boolean;
+  hint?: string;
+}
+
+/**
+ * Build a form over `schema` (every field, present on the object or not),
+ * writing changes into `obj` in place: empty optional fields delete their
+ * key. Fields the object carries beyond the schema still show (via a plain
+ * autoForm appended by the caller with these keys skipped) so nothing hides.
+ */
+export function schemaForm(
+  obj: Record<string, unknown>,
+  schema: FieldSpec[],
+  onChange: () => void,
+  fieldOptions?: (key: string) => string[] | undefined
+): HTMLElement {
+  const wrap = el("div", { className: "pp-form" });
+  for (const spec of schema) {
+    const val = obj[spec.key];
+    const row = el("div", { className: "pp-row" });
+    row.append(el("label", { title: spec.hint ?? "" }, spec.key));
+    switch (spec.kind) {
+      case "bool":
+        row.append(
+          el("input", {
+            type: "checkbox", ...(val ? { checked: true } : {}),
+            onchange: (e) => {
+              if ((e.target as HTMLInputElement).checked) obj[spec.key] = true;
+              else delete obj[spec.key];
+              onChange();
+            },
+          })
+        );
+        break;
+      case "number":
+        row.append(
+          el("input", {
+            type: "number", step: "any",
+            value: typeof val === "number" ? val : "",
+            oninput: (e) => {
+              const raw = (e.target as HTMLInputElement).value.trim();
+              if (raw === "" && !spec.req) delete obj[spec.key];
+              else {
+                const n = parseFloat(raw);
+                if (!Number.isNaN(n)) obj[spec.key] = n;
+              }
+              onChange();
+            },
+          })
+        );
+        break;
+      case "color": {
+        const cur = isColor(val) ? val : "#888888";
+        const picker = el("input", {
+          type: "color", value: cur,
+          oninput: (e) => {
+            obj[spec.key] = (e.target as HTMLInputElement).value;
+            text.value = obj[spec.key] as string;
+            onChange();
+          },
+        });
+        const text = el("input", {
+          type: "text", value: typeof val === "string" ? val : "", className: "pp-colortext",
+          oninput: (e) => {
+            const v = (e.target as HTMLInputElement).value;
+            if (v === "" && !spec.req) delete obj[spec.key];
+            else if (isColor(v)) {
+              obj[spec.key] = v;
+              picker.value = v;
+            }
+            onChange();
+          },
+        });
+        row.append(picker, text);
+        break;
+      }
+      case "json":
+        row.append(
+          el("textarea", {
+            rows: 2, className: "pp-json",
+            value: val === undefined ? "" : JSON.stringify(val),
+            title: spec.hint ?? "JSON",
+            oninput: (e) => {
+              const t = e.target as HTMLTextAreaElement;
+              const raw = t.value.trim();
+              if (raw === "") {
+                if (!spec.req) delete obj[spec.key];
+                t.classList.remove("pp-bad");
+                onChange();
+                return;
+              }
+              try {
+                obj[spec.key] = JSON.parse(raw);
+                t.classList.remove("pp-bad");
+                onChange();
+              } catch {
+                t.classList.add("pp-bad");
+              }
+            },
+          })
+        );
+        break;
+      default: { // string
+        const options = fieldOptions?.(spec.key);
+        const listId = options && options.length > 0 ? `pp-dl-${++datalistSeq}` : null;
+        row.append(
+          el("input", {
+            type: "text",
+            value: typeof val === "string" ? val : "",
+            ...(listId ? { list: listId } : {}),
+            oninput: (e) => {
+              const v = (e.target as HTMLInputElement).value;
+              if (v === "" && !spec.req) delete obj[spec.key];
+              else obj[spec.key] = v;
+              onChange();
+            },
+          })
+        );
+        if (listId) {
+          row.append(
+            el("datalist", { id: listId }, ...options!.map((o) => el("option", { value: o })))
+          );
+        }
+      }
     }
     wrap.append(row);
   }
