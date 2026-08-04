@@ -272,7 +272,7 @@
     "description": "Tunables the fluid sim core reads. Edit and save; rooms pick them up on next load.",
     "script": [
       "var intervalSec = 0.5;      // seconds between flow ticks",
-      "var sideBias = \"alternate\"; // which side fluid tries first: alternate | left | right",
+      "var sideBias = \"alternate\"; // which side fluid tries first: alternate | left | right | lower",
       "var recedeMs = 2000;        // how long a cut-off sourced pool takes to recede",
       "var toyblockPushSec = 0.25; // lean time before a toyblock hops"
     ]

@@ -288,6 +288,64 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     expect(charAt(right, 4, 1)).toBe(".");
   });
 
+  describe("fluidFlow.sideBias = \"lower\" (falls toward the deeper-connected side)", () => {
+    const tickOnce = (rt: RoomRuntime) =>
+      (rt as never as { tickWaterFlow(ev: unknown[]): void }).tickWaterFlow([]);
+    const lowerContent = () => makeContent({ behaviors: withVar("fluidFlow", "sideBias", '"lower"') });
+
+    it("prefers the side whose floor is further down when the right side is deeper", () => {
+      // Water perched on a pillar at (5,1); left (x=4) has a shallow floor
+      // two rows down (y=3), right (x=6) stays open until y=5 — genuinely
+      // more room to fall, not just a wider single opening.
+      const rows = [
+        "#...........#",
+        "#....w......#", // water at (5,1)
+        "#....#......#", // pillar at (5,2)
+        "#...#.......#", // shallow floor at x=4 (left depth = 2)
+        "#...........#",
+        "#############", // deep floor (right depth = 4)
+      ];
+      const rt = makeRoom(rows, lowerContent());
+      tickOnce(rt);
+      expect(charAt(rt, 6, 1)).toBe("w"); // moved to the deeper (right) side
+      expect(charAt(rt, 4, 1)).toBe(".");
+    });
+
+    it("prefers the side whose floor is further down when the left side is deeper", () => {
+      // Mirror image: right (x=6) has the shallow floor, left (x=4) is deep.
+      const rows = [
+        "#...........#",
+        "#....w......#",
+        "#....#......#",
+        "#.....#.....#", // shallow floor at x=6 (right depth = 2)
+        "#...........#",
+        "#############", // deep floor (left depth = 4)
+      ];
+      const rt = makeRoom(rows, lowerContent());
+      tickOnce(rt);
+      expect(charAt(rt, 4, 1)).toBe("w"); // moved to the deeper (left) side
+      expect(charAt(rt, 6, 1)).toBe(".");
+    });
+
+    it("falls back to the alternating flip on an equal-depth tie", () => {
+      // Same symmetric shape as the slosh-knob test above — both sides tie
+      // in depth, so "lower" degrades to the same flip-based order
+      // "alternate" uses (flowSideFlip toggles true on the very first tick
+      // of a fresh room, which biases the first tie-break rightward).
+      const rows = [
+        "#..........#",
+        "#....w.....#",
+        "#....#.....#",
+        "#..........#",
+        "############",
+      ];
+      const rt = makeRoom(rows, lowerContent());
+      tickOnce(rt);
+      expect(charAt(rt, 6, 1)).toBe("w");
+      expect(charAt(rt, 4, 1)).toBe(".");
+    });
+  });
+
   it("rules.json pattern lines drive the element table (lava + metal -> melt)", () => {
     const content = makeContent({ rules: rulesJson as RuleDef[] });
     const rt = makeRoom(["LM."], content);

@@ -380,6 +380,37 @@ lighter mechanism instead:
   to read the value from content (128, spotter's `chaseOnSight` param)
   instead of the now-deleted `en.def.chaseSpeed`.
 
+## 2026-08-04 — `fluidFlow.sideBias: "lower"`
+
+Sean asked, off the `sideBias` var's doc comment: where do valid values for
+a tunable like this actually live (nowhere formally — it's a plain string,
+the comment is a hint, the real meaning is whatever `room.ts` checks it
+against), and could he add a fourth mode ("falls toward whichever side is
+connected to the lowest tile, alternate on a tie") himself. Answer was no —
+this needed real comparison logic the sim didn't have, not just a new
+tunable value — so built it:
+
+- **`RoomRuntime.dropDepth(tx, ty)`** (room.ts): straight-down scan from
+  `(tx,ty)` to the first REAL solid tile, walking through platforms (same
+  as the rest of the sim) and through existing fluid (a spot that already
+  has a pool sitting in it shouldn't read as shallower than its actual
+  floor — that's what "connected to the lowest tile" means). Off the map
+  or open all the way to the floor reads as maximally deep.
+- **`sideXs(tx, ty)`** — signature gained `ty` (every one of its 5 call
+  sites updated to pass it, one as `baseTy` in `tickFalls`). When
+  `sideBias === "lower"`, compares `dropDepth(tx-1,ty)` vs
+  `dropDepth(tx+1,ty)` and returns the deeper one first; an equal-depth tie
+  falls through to the existing flip-based order unchanged.
+- `flowFlipEff`'s computation (`tickWaterFlow`) restructured from a
+  `sideBias==="alternate" ? flip : sideBias==="right"` ternary to explicit
+  left/right/else branches, so the "else" (alternate flip) fallback now
+  correctly covers `"lower"`'s tie-break too — byte-identical behavior for
+  the three pre-existing values, verified by the full `fluids.test.ts`
+  suite staying green untouched.
+- Three new tests in `tests/behaviors.test.ts` (asymmetric-depth rooms,
+  both directions, plus the tie-falls-back-to-alternate case reusing the
+  existing slosh-knob test's symmetric room shape). 117 tests green.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

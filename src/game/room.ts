@@ -847,17 +847,52 @@ export class RoomRuntime {
    * Water and lava meeting quenches the lava into its extinguishesTo
    * (cracked stone) — the water survives.
    */
-  /** [tx-1, tx+1] or [tx+1, tx-1], per the sideBias tunable — see flowFlipEff. */
-  private sideXs(tx: number): [number, number] {
+  /** [tx-1, tx+1] or [tx+1, tx-1] — which neighbor fluid tries FIRST when
+   *  spreading/sliding sideways at row `ty`, per the sideBias tunable.
+   *  "alternate"/"left"/"right" go straight to the flowFlipEff order (see
+   *  tickWaterFlow). "lower" compares dropDepth on each side first and
+   *  prefers whichever reaches a deeper floor; an equal-depth tie falls
+   *  through to the same flip-based order (Sean's "if equal, alternate"). */
+  private sideXs(tx: number, ty: number): [number, number] {
+    if (this.sideBias === "lower") {
+      const leftDepth = this.dropDepth(tx - 1, ty);
+      const rightDepth = this.dropDepth(tx + 1, ty);
+      if (leftDepth !== rightDepth) {
+        return leftDepth > rightDepth ? [tx - 1, tx + 1] : [tx + 1, tx - 1];
+      }
+    }
     return this.flowFlipEff ? [tx + 1, tx - 1] : [tx - 1, tx + 1];
+  }
+
+  /** How far straight down from (tx,ty) the drop goes before hitting real
+   *  solid ground — walks through existing fluid (a body already pooling
+   *  somewhere doesn't make that spot read as shallower; the floor
+   *  position underneath is what "lower" compares) and skips platforms,
+   *  same tile classification tickWaterFlow uses elsewhere. Off the map
+   *  (x out of bounds, or the column is open all the way to the floor)
+   *  reads as maximally deep — sideXs's caller already discards
+   *  out-of-bounds candidates regardless of how they sort. Only sideBias
+   *  "lower" calls this. */
+  private dropDepth(tx: number, ty: number): number {
+    let y = ty;
+    while (y < this.map.height) {
+      if (this.doorBlocksFluid(tx, y)) return y - ty; // closed gate = floor here
+      const t = this.map.at(tx, y);
+      if (t === null || t.style === "platform" || this.isFluid(t)) { y++; continue; }
+      return y - ty; // real solid ground
+    }
+    return y - ty;
   }
 
   private tickWaterFlow(events: ElementEvent[]): void {
     if (!this.waterFlowEnabled) return;
     this.flowSideFlip = !this.flowSideFlip;
-    // sideBias tunable: "alternate" keeps the drift-cancelling flip;
-    // "left"/"right" pin every side check to one direction.
-    this.flowFlipEff = this.sideBias === "alternate" ? this.flowSideFlip : this.sideBias === "right";
+    // sideBias tunable: "left"/"right" pin every side check to one
+    // direction; "alternate" (and "lower"'s equal-depth tie-break, and any
+    // unrecognized value) use the drift-cancelling flip.
+    this.flowFlipEff = this.sideBias === "left" ? false
+      : this.sideBias === "right" ? true
+      : this.flowSideFlip;
     this.tickFalls(events);
 
     // Pre-pass: drains eat every adjacent fluid tile BEFORE anything moves,
@@ -978,7 +1013,7 @@ export class RoomRuntime {
         const columnGrounded = belowBelowInfo.ty >= this.map.height ||
           (belowBelowInfo.solid && !(belowBelowInfo.def && this.isFluid(belowBelowInfo.def)));
         if (columnGrounded) {
-          for (const nx of this.sideXs(tx)) {
+          for (const nx of this.sideXs(tx, ty)) {
             if (nx < 0 || nx >= this.map.width) continue;
             const target = this.fluidOccupied(nx, ty);
             if (target.solid) continue;
@@ -997,7 +1032,7 @@ export class RoomRuntime {
       if (hasFluidAbove) {
         // 3. Column pressure: the base squeezes out sideways (a move), the
         // column above falls into the vacated space next tick.
-        for (const nx of this.sideXs(tx)) {
+        for (const nx of this.sideXs(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty);
           if (target.solid) continue;
@@ -1010,7 +1045,7 @@ export class RoomRuntime {
       if (distance === SOURCED) {
         // Fall-fed fluid IS an infinite source — it replicates outward until
         // walls or a drain stop it.
-        for (const nx of this.sideXs(tx)) {
+        for (const nx of this.sideXs(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty);
           if (target.solid) continue;
@@ -1026,7 +1061,7 @@ export class RoomRuntime {
       // It only moves toward an adjacent hole it can fall into, so when a
       // neighboring tile drops away the grounded body follows it down: the
       // whole thing slushes downhill instead of becoming an infinite source.
-      for (const nx of this.sideXs(tx)) {
+      for (const nx of this.sideXs(tx, ty)) {
         if (nx < 0 || nx >= this.map.width) continue;
         const target = this.fluidOccupied(nx, ty);
         if (target.solid) continue;
@@ -1099,7 +1134,7 @@ export class RoomRuntime {
       // the pool by emitting into open side tiles, one row above the solid
       // (which may be several rows below the fall if grates were skipped).
       const baseTy = belowTy - 1;
-      for (const nx of this.sideXs(tx)) {
+      for (const nx of this.sideXs(tx, baseTy)) {
         if (nx < 0 || nx >= this.map.width) continue;
         // baseTy itself may be a grate spanning the whole walkway (flush over
         // the real floor, no gap) — resolve through it same as falling does,

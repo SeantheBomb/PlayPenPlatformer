@@ -213,11 +213,18 @@ republishing/re-saving from the editor is still the fix for those.
   (target = element id, or property flammable/brittle/conductive; parsed in
   room.ts `parseRuleLine`). Legacy split-field rows still work (stale saves).
 - **Global tunables are `host: "global"` scripts with only vars** (content
-  wins, code consts fall back): `fluidFlow.sideBias` (alternate/left/right —
-  water direction-commitment), `fluidFlow.intervalSec/recedeMs/
-  toyblockPushSec`, `heatSpread.chainMeltRange` (-1 = unlimited chain-melt,
+  wins, code consts fall back): `fluidFlow.sideBias` (alternate/left/right/
+  lower — water direction-commitment) and `fluidFlow.intervalSec/recedeMs/
+  toyblockPushSec`; `heatSpread.chainMeltRange` (-1 = unlimited chain-melt,
   the shipped default matching melt-chain.test.ts; 0 = direct lava contact
-  only; N = cap), `heatSpread.intervalSec`, `elementEffects.*`.
+  only; N = cap) and `heatSpread.intervalSec`; `elementEffects.*`.
+  `sideBias: "lower"` compares `dropDepth(tx, ty)` (room.ts) — a
+  straight-down scan to real solid ground, walking through platforms and
+  existing fluid so an already-pooling body doesn't read as shallower — on
+  the tx-1 and tx+1 candidates and prefers whichever reaches a deeper
+  floor, falling back to the alternate flip on an equal-depth tie. This is
+  why `sideXs` takes `(tx, ty)` now, not just `tx` — every call site passes
+  the row being evaluated.
 - **Editor rules (Sean-locked, 2026-07-31)**: forms are SCHEMA-driven — every
   def shows every field the engine supports (see TILE_SCHEMA etc. in
   editor.ts; add new schema fields there too or they're invisible); behavior
