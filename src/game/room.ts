@@ -1074,12 +1074,12 @@ export class RoomRuntime {
           continue;
         }
       }
-      const moveTo = (nx: number, ny: number, d: number) => {
+      const moveTo = (nx: number, ny: number, d: number, grab = true) => {
         // Seed vacate's visited set with the destination — otherwise the
         // grab-chain could immediately pull the very tile that just moved
         // back where it came from (an infinite ping-pong).
         const cameFrom = new Set<number>([this.map.index(nx, ny)]);
-        const grabAfter = distance !== SOURCED;
+        const grabAfter = grab && distance !== SOURCED;
         if (this.resolveFluidContact(nx, ny, def, tx, ty, events)) {
           // Contact: the mover is destroyed instead of relocating. The
           // origin still vacates (and grabs a neighbor of its own).
@@ -1115,7 +1115,15 @@ export class RoomRuntime {
             // too, not just a single flat opening at ty.
             const holeBelow = this.fluidOccupied(nx, target.ty + 1);
             if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
-            moveTo(nx, target.ty, distance);
+            // No grab-refill here: this tile is escaping a dead end (resting
+            // beside a solid wall) sideways, not falling into open space. If
+            // vacate() pulled a neighbor in behind it, that neighbor would
+            // land in the exact same dead end and immediately take the same
+            // escape route next tick — a two-tile ping-pong that never
+            // actually drains (confirmed by a repro: melted water beside a
+            // solid pillar flanked by open channels on both sides settled
+            // into an infinite side-to-side swap instead of draining).
+            moveTo(nx, target.ty, distance, false);
             break;
           }
         }
@@ -1125,12 +1133,15 @@ export class RoomRuntime {
       const hasFluidAbove = ty > 0 && !!this.fluidDefAt(tx, ty - 1);
       if (hasFluidAbove) {
         // 3. Column pressure: the base squeezes out sideways (a move), the
-        // column above falls into the vacated space next tick.
+        // column above falls into the vacated space next tick. No
+        // grab-refill (see the matching note on case 2) — this base is
+        // resting on solid ground, so pulling a neighbor into its old spot
+        // would just hand that neighbor the same squeeze-and-swap escape.
         for (const nx of this.sideXs(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty);
           if (target.solid) continue;
-          moveTo(nx, target.ty, distance);
+          moveTo(nx, target.ty, distance, false);
           break;
         }
         continue;
@@ -1162,7 +1173,8 @@ export class RoomRuntime {
         if (target.solid) continue;
         const holeBelow = this.fluidOccupied(nx, target.ty + 1);
         if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
-        moveTo(nx, target.ty, distance);
+        // No grab-refill (see case 2's note) — same dead-end-escape shape.
+        moveTo(nx, target.ty, distance, false);
         break;
       }
     }

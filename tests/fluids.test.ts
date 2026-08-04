@@ -582,3 +582,106 @@ describe("a drain fully empties a flat, non-fall-fed lake via the grab-chain", (
     expect(increasing, `column depths were ${depths.join(",")}`).toBeLessThanOrEqual(6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSION (Sean, 2026-08-04): player report — "the water on the ice
+// oscillates back and forth instead of falling", greenhouse room, melting
+// the ice pillar with a torch. The pillar is a solid, one-tile-wide column
+// with an open channel on EACH side, each channel bottoming out onto its own
+// floor drain (the room's real layout: drains flank the pillar's base).
+// ---------------------------------------------------------------------------
+describe("melted water beside a solid pillar flanked by two drains", () => {
+  it("fully drains down both faces instead of getting stuck beside the pillar", () => {
+    const rows = [
+      "#####",
+      "#wIw#", // melt result: water both sides of the pillar's top
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#DID#", // drains flank the pillar's base
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 60); // 30 simulated seconds — plenty of time to fall + drain
+    for (let y = 1; y <= 7; y++) {
+      expect(fluidAt(rt, 1, y, "water"), `expected (1,${y}) to have drained`).toBe(false);
+      expect(fluidAt(rt, 3, y, "water"), `expected (3,${y}) to have drained`).toBe(false);
+    }
+  });
+
+  it("makes visible downward progress every few ticks, not a stationary plateau", () => {
+    const rows = [
+      "#####",
+      "#wIw#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#DID#",
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    const stillAtTop = () => (fluidAt(rt, 1, 1, "water") ? 1 : 0) + (fluidAt(rt, 3, 1, "water") ? 1 : 0);
+    expect(stillAtTop()).toBe(2);
+    tick(rt, 10); // 5 simulated seconds — should be long gone from the melt spot
+    expect(stillAtTop(), "water is still sitting at the melt origin after 5s").toBe(0);
+  });
+
+  // Faithful reproduction: melting 3 STACKED segments of the pillar itself
+  // (matching the real torch swing, which melted (44,14)/(44,15)/(44,16) in
+  // a vertical run) — open channels flank the pillar's FULL height on both
+  // sides (matching the real room, not just below the melt point), and the
+  // remaining pillar continues solid beneath the melt.
+  it("a 3-tile vertical melt inside the pillar's own column still drains both ways", () => {
+    const rows = [
+      "#####",
+      "#.w.#", // melted (top)
+      "#.w.#", // melted
+      "#.w.#", // melted (bottom of melt)
+      "#.I.#", // pillar resumes, solid
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#DID#",
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 60); // 30 simulated seconds
+    for (let y = 1; y <= 7; y++) {
+      expect(fluidAt(rt, 1, y, "water"), `expected (1,${y}) to have drained`).toBe(false);
+      expect(fluidAt(rt, 2, y, "water"), `expected (2,${y}) to have drained`).toBe(false);
+      expect(fluidAt(rt, 3, y, "water"), `expected (3,${y}) to have drained`).toBe(false);
+    }
+  });
+
+  it("a 3-tile vertical melt makes progress within 5 simulated seconds", () => {
+    const rows = [
+      "#####",
+      "#.w.#",
+      "#.w.#",
+      "#.w.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#.I.#",
+      "#DID#",
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    const countAll = () => {
+      let n = 0;
+      for (let y = 1; y <= 7; y++) for (let x = 1; x <= 3; x++) if (fluidAt(rt, x, y, "water")) n++;
+      return n;
+    };
+    expect(countAll()).toBe(3);
+    tick(rt, 10); // 5 simulated seconds
+    const stillAtOrigin =
+      (fluidAt(rt, 2, 1, "water") ? 1 : 0) + (fluidAt(rt, 2, 2, "water") ? 1 : 0) + (fluidAt(rt, 2, 3, "water") ? 1 : 0);
+    expect(stillAtOrigin, "water is still sitting unmoved at the melt column after 5s").toBeLessThan(3);
+  });
+});
