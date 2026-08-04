@@ -23,6 +23,7 @@ export interface EntityInstance extends Rect {
   helped?: boolean;
   occupied?: boolean; // locker with player inside
   lit?: boolean;      // brazier flame state (water douses, fire relights)
+  amount?: number;    // source: remaining stock (-1 = infinite); unused otherwise
 }
 
 export interface EnemyInstance {
@@ -132,6 +133,8 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   hint: [16, 16],
   brazier: [16, 14],
   fusebox: [14, 18],
+  source: [16, 16],
+  converter: [16, 16],
 };
 
 // Code-level fallbacks for the global tunables in content/behaviors.json
@@ -362,6 +365,7 @@ export class RoomRuntime {
       }
       const [w, h] = this.entitySize(def.type);
       const litOverride = muts.brazierLit.find(([i]) => i === index);
+      const amountOverride = muts.sourceAmounts.find(([i]) => i === index);
       // Doors/trapdoors can be authored to start open; a fuse trip (open or
       // close) overrides that for the rest of the run once it happens.
       const isGate = def.type === "door" || def.type === "trapdoor";
@@ -375,6 +379,9 @@ export class RoomRuntime {
         open,
         helped: muts.helpedNpcs.has(index),
         lit: litOverride ? litOverride[1] : def.lit ?? true,
+        amount: def.type === "source"
+          ? (amountOverride ? amountOverride[1] : def.sourceAmount ?? 0)
+          : undefined,
       });
     });
 
@@ -1431,6 +1438,21 @@ export class RoomRuntime {
     return null;
   }
 
+  // ================= SOURCES =================
+
+  /** Grabs one unit from a source, persisting the reduced stock. Returns
+   *  false (no mutation) when a finite source is already empty; infinite
+   *  (-1) sources never deplete. */
+  grabFromSource(e: EntityInstance): boolean {
+    if (e.amount === undefined || e.amount === SOURCED) return e.amount === SOURCED;
+    if (e.amount <= 0) return false;
+    e.amount -= 1;
+    const existing = this.muts.sourceAmounts.find(([i]) => i === e.index);
+    if (existing) existing[1] = e.amount;
+    else this.muts.sourceAmounts.push([e.index, e.amount]);
+    return true;
+  }
+
   // ================= QUERIES =================
 
   /** Nearest interactable entity within reach of the player center. */
@@ -1439,7 +1461,7 @@ export class RoomRuntime {
     let bestD = range;
     for (const e of this.entities) {
       if (e.collected) continue;
-      if (!["note", "door", "trapdoor", "locker", "npc", "exit"].includes(e.kind)) continue;
+      if (!["note", "door", "trapdoor", "locker", "npc", "exit", "source", "converter"].includes(e.kind)) continue;
       if ((e.kind === "door" || e.kind === "trapdoor") && e.def.gate && e.open) continue; // open gates are scenery
       const nx = Math.max(e.x, Math.min(px, e.x + e.w));
       const ny = Math.max(e.y, Math.min(py, e.y + e.h));
@@ -2137,6 +2159,59 @@ export class RoomRuntime {
         const glow = 0.4 + Math.sin(animT * 3) * 0.2;
         ctx.fillStyle = `rgba(137,240,177,${glow * 0.25})`;
         ctx.fillRect(e.x - 6, e.y - 6, e.w + 12, e.h + 6);
+        break;
+      }
+      case "source": {
+        const item = this.content.items.find((i) => i.id === e.def.sourceItem);
+        const empty = e.amount !== undefined && e.amount !== SOURCED && e.amount <= 0;
+        const cx = e.x + e.w / 2, cy = e.y + e.h / 2 + bob * 0.5;
+        ctx.fillStyle = empty ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.09)";
+        ctx.beginPath();
+        ctx.ellipse(cx, e.y + e.h + 3, 8, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (item) {
+          ctx.globalAlpha = empty ? 0.35 : 1;
+          drawItemIcon(ctx, item, cx, cy, 1.1);
+          ctx.globalAlpha = 1;
+        }
+        // Amount/infinity badge — always visible so a source's stock is
+        // clear at a glance, not just discoverable on interact.
+        const label = e.amount === SOURCED ? "∞" : String(e.amount ?? 0);
+        ctx.font = "8px monospace";
+        ctx.fillStyle = empty ? "#8a7f9a" : "#f4ead8";
+        const tw = ctx.measureText(label).width;
+        ctx.fillText(label, cx - tw / 2, e.y - 3 + bob * 0.5);
+        break;
+      }
+      case "converter": {
+        const inItem = this.content.items.find((i) => i.id === e.def.convertInput);
+        const outItem = this.content.items.find((i) => i.id === e.def.convertOutput);
+        const cy = e.y + e.h / 2 + bob * 0.5;
+        ctx.fillStyle = "rgba(255,255,255,0.09)";
+        ctx.beginPath();
+        ctx.ellipse(e.x + e.w / 2, e.y + e.h + 3, 9, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const leftX = e.x - 2, rightX = e.x + e.w + 2;
+        if (inItem) drawItemIcon(ctx, inItem, leftX, cy, 0.8);
+        if (outItem) drawItemIcon(ctx, outItem, rightX, cy, 0.8);
+        // Arrow between the two icons — this IS the "trade" affordance.
+        ctx.strokeStyle = "#c9b8e8";
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(leftX + 6, cy);
+        ctx.lineTo(rightX - 6, cy);
+        ctx.moveTo(rightX - 9, cy - 2.5);
+        ctx.lineTo(rightX - 6, cy);
+        ctx.lineTo(rightX - 9, cy + 2.5);
+        ctx.stroke();
+        const inCount = e.def.convertInputCount ?? 1;
+        const outCount = e.def.convertOutputCount ?? 1;
+        if (inCount > 1 || outCount > 1) {
+          ctx.font = "7px monospace";
+          ctx.fillStyle = "#f4ead8";
+          if (inCount > 1) ctx.fillText(String(inCount), leftX - 3, cy - 7);
+          if (outCount > 1) ctx.fillText(String(outCount), rightX - 3, cy - 7);
+        }
         break;
       }
     }

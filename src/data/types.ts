@@ -341,7 +341,7 @@ export interface TauntDef {
 export type EntityType =
   | "spawn" | "checkpoint" | "pickup" | "note" | "door" | "trapdoor"
   | "locker" | "enemy" | "npc" | "exit" | "hint"
-  | "brazier" | "fusebox";
+  | "brazier" | "fusebox" | "source" | "converter";
 
 /** The cast's procedural body styles (dialog portraits reuse them too). */
 export type NpcAvatar = "blocky" | "scribble" | "plush" | "trophy" | "windup";
@@ -382,6 +382,19 @@ export interface RoomEntity extends SpriteFields {
    *  (nothing carries over by default; this is what a checkpoint hands you
    *  back instead of nothing). */
   loadout?: { item: string; count: number }[];
+  // source — E grabs one unit of sourceItem, up to sourceAmount total
+  sourceItem?: string;
+  /** Total units this source can ever give out. -1 (the SOURCED convention
+   *  used elsewhere for fall-fed fluid) means infinite/never depletes. */
+  sourceAmount?: number;
+  // converter — E trades convertInputCount of convertInput for
+  // convertOutputCount of convertOutput, whenever the player has enough
+  // input on hand. Unlimited uses — self-limited by how much input the
+  // player can bring, not a separate stock like a source.
+  convertInput?: string;
+  convertInputCount?: number;
+  convertOutput?: string;
+  convertOutputCount?: number;
   // brazier
   lit?: boolean; // default true; author false for a cold brazier the player must light
   // npc
