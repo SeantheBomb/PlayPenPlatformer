@@ -63,6 +63,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     // References to other content definitions
     item: itemIds, itemId: itemIds, igniteTo: itemIds, dousesTo: itemIds,
     emptiesTo: itemIds, output: itemIds,
+    sourceItem: itemIds, convertInput: itemIds, convertOutput: itemIds,
     to: [...roomIds, "next"], roomId: roomIds,
     element: elementIds, actor: elementIds, target: elementIds, dousedBy: elementIds,
     enemy: enemyIds,

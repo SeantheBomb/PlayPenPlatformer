@@ -87,12 +87,15 @@
     "id": "returnHome",
     "name": "Returns to its post",
     "host": "enemy",
-    "description": "In the return state, walks back toward its spawn point.",
+    "description": "In the return state, walks back toward its spawn point, then settles back into patrol once it arrives.",
     "script": [
       "var speed = host.speed;",
       "",
       "on tick {",
-      "  if (state == \"return\") { moveToward(home, speed); }",
+      "  if (state == \"return\") {",
+      "    if (nearHome()) { state = \"patrol\"; }",
+      "    else { moveToward(home, speed); }",
+      "  }",
       "}"
     ]
   },

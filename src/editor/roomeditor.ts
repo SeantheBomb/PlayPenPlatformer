@@ -25,7 +25,7 @@ type Tool =
 
 const ENTITY_TYPES: RoomEntity["type"][] = [
   "spawn", "checkpoint", "pickup", "note", "door", "trapdoor", "locker", "enemy",
-  "npc", "exit", "hint", "brazier", "fusebox",
+  "npc", "exit", "hint", "brazier", "fusebox", "source", "converter",
 ];
 
 const UNDO_CAP = 50;
@@ -754,6 +754,11 @@ export class RoomEditor {
         rewardItems: [], rewardRecipes: [],
         dialogAsk: "Hey.", dialogDone: "Thanks!", dialogAfter: "Good luck.",
       },
+      source: { sourceItem: firstMaterial, sourceAmount: -1 },
+      converter: {
+        convertInput: firstMaterial, convertInputCount: 1,
+        convertOutput: firstMaterial, convertOutputCount: 1,
+      },
     };
     this.pushUndo();
     const entity: RoomEntity = { type, x: tx, y: ty, ...(defaults[type] ?? {}) } as RoomEntity;
@@ -1106,7 +1111,7 @@ export class RoomEditor {
       collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
       gateTouched: new Set<number>(),
       helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), drops: [],
-      placedItems: [], brazierLit: [],
+      placedItems: [], brazierLit: [], sourceAmounts: [],
     };
     try {
       const rt = new RoomRuntime(room, this.content, emptyMuts);

@@ -1117,6 +1117,7 @@ export class Game {
         note: "read", door: near.def.gate && !near.open ? "look" : "go",
         trapdoor: near.def.gate && !near.open ? "look" : "go",
         locker: "hide", npc: "talk", exit: "EXIT",
+        source: "take", converter: "trade",
       };
       return { kind: "interact", label: verbs[near.kind] ?? "use" };
     }
@@ -1194,7 +1195,39 @@ export class Game {
       case "door": case "trapdoor": this.useDoor(e); break;
       case "npc": this.talkToNpc(e); break;
       case "exit": this.winGame(); break;
+      case "source": this.grabSource(e); break;
+      case "converter": this.tradeConverter(e); break;
     }
+  }
+
+  private grabSource(e: EntityInstance): void {
+    const item = this.content.items.find((i) => i.id === e.def.sourceItem);
+    if (!item) return;
+    if (!this.roomRt.grabFromSource(e)) {
+      sfx.play("locked");
+      this.floaty("Empty", e.x + e.w / 2, e.y, "#c98a8a");
+      return;
+    }
+    this.state.add(item.id);
+    sfx.play("pickup");
+    this.floaty(`+1 ${item.name}`, e.x + e.w / 2, e.y);
+  }
+
+  private tradeConverter(e: EntityInstance): void {
+    const inItem = this.content.items.find((i) => i.id === e.def.convertInput);
+    const outItem = this.content.items.find((i) => i.id === e.def.convertOutput);
+    if (!inItem || !outItem) return;
+    const inCount = e.def.convertInputCount ?? 1;
+    const outCount = e.def.convertOutputCount ?? 1;
+    if (!this.state.has(inItem.id, inCount)) {
+      sfx.play("craftFail");
+      this.floaty(`Need ${inCount} ${inItem.name}`, e.x + e.w / 2, e.y, "#c98a8a");
+      return;
+    }
+    this.state.remove(inItem.id, inCount);
+    this.state.add(outItem.id, outCount);
+    sfx.play("craft");
+    this.floaty(`+${outCount} ${outItem.name}`, e.x + e.w / 2, e.y);
   }
 
   private useDoor(e: EntityInstance): void {
@@ -1781,6 +1814,7 @@ export class Game {
             note: "read", door: near.def.gate && !near.open ? "inspect" : "open",
             trapdoor: near.def.gate && !near.open ? "inspect" : "open",
             locker: "hide", npc: "talk", exit: "ESCAPE",
+            source: "take", converter: "trade",
           };
           drawPrompt(ctx, `${iKey} — ${verbs[near.kind] ?? "use"}`, near.x + near.w / 2, near.y - 6);
         } else {

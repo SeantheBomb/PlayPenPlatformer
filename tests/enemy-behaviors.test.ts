@@ -266,12 +266,21 @@ describe("chase behavior", () => {
     const player = playerAt(15);
     sim.step(player);
     expect(en.state).toBe("chase");
+    // Chase long enough to actually clear home by more than returnHome's
+    // arrival threshold, or losing sight immediately would already count as
+    // "arrived" and skip straight past "return" into "patrol" this same tick.
+    sim.step(player, 15);
     const gone: PlayerStub = { ...player!, hidden: true };
     sim.step(gone);
     expect(en.state).toBe("return"); // hidden = instantly lost; returnsHome -> return
     sim.run(6, gone);
-    // Back at its post.
-    expect(Math.abs(en.x + en.def.width / 2 - en.homeX)).toBeLessThan(8);
+    // Back at its post, and resumed patrolling from there instead of
+    // standing frozen in "return" forever (the reported bug this fixed:
+    // returnHome had no arrival check to hand control back to patrolRoute).
+    expect(en.state).toBe("patrol");
+    const cx = en.x + en.def.width / 2;
+    expect(cx).toBeGreaterThanOrEqual(en.patrolMin);
+    expect(cx).toBeLessThanOrEqual(en.patrolMax);
   });
 });
 
@@ -322,14 +331,16 @@ describe("element reactions", () => {
     expect(en.state).toBe("patrol"); // crawler wakes to patrol
   });
 
-  it("spotter: water stuns, then wakes to return (goes home)", () => {
+  it("spotter: water stuns, then wakes homeward and straight back to patrol (never having left home)", () => {
     const { rt } = makeRoom(rows, [enemyEntity(5, 2, "spotter")]);
     const sim = new Sim(rt);
     const en = rt.enemies[0];
     hit(rt, en, "water");
     expect(en.state).toBe("stunned");
     sim.run(3.2);
-    expect(en.state).toBe("return"); // spotter wakes homeward
+    // Wakes to "return" (stunCycle), but returnHome sees it's already at its
+    // post and hands off to patrol the same tick — never visibly stuck.
+    expect(en.state).toBe("patrol");
   });
 
   it("spotter: fire does nothing (fireproof)", () => {

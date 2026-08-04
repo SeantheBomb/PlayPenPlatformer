@@ -34,6 +34,7 @@ export interface RoomMutations {
   drops: ScatterDrop[]; // death drops + melted-tile drops (scattered, real icons)
   placedItems: PlacedItem[];  // player-placed springs and traps
   brazierLit: [number, boolean][]; // entity index -> lit override (douse/relight)
+  sourceAmounts: [number, number][]; // entity index -> remaining stock override
 }
 
 export interface RunStats {
@@ -56,6 +57,7 @@ export interface RoomMutationsSnapshot {
   drops: ScatterDrop[];
   placedItems: PlacedItem[];
   brazierLit: [number, boolean][];
+  sourceAmounts: [number, number][];
 }
 
 /** Everything in RunState, as plain JSON — a periodic "heartbeat" ground
@@ -143,6 +145,7 @@ export class RunState {
         drops: m.drops.map((d) => ({ ...d })),
         placedItems: m.placedItems.map((p) => ({ ...p })),
         brazierLit: [...m.brazierLit],
+        sourceAmounts: [...m.sourceAmounts],
       }]),
       selectedConsumable: this.selectedConsumable,
       hasDiedOnce: this.hasDiedOnce,
@@ -174,6 +177,7 @@ export class RunState {
       drops: m.drops.map((d) => ({ ...d })),
       placedItems: m.placedItems.map((p) => ({ ...p })),
       brazierLit: [...m.brazierLit],
+      sourceAmounts: [...m.sourceAmounts],
     }]));
     this.selectedConsumable = snap.selectedConsumable;
     this.hasDiedOnce = snap.hasDiedOnce;
@@ -198,6 +202,7 @@ export class RunState {
         drops: [],
         placedItems: [],
         brazierLit: [],
+        sourceAmounts: [],
       };
       this.roomStates.set(roomId, m);
     }

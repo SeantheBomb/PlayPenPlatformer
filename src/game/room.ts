@@ -23,6 +23,7 @@ export interface EntityInstance extends Rect {
   helped?: boolean;
   occupied?: boolean; // locker with player inside
   lit?: boolean;      // brazier flame state (water douses, fire relights)
+  amount?: number;    // source: remaining stock (-1 = infinite); unused otherwise
 }
 
 export interface EnemyInstance {
@@ -132,6 +133,8 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   hint: [16, 16],
   brazier: [16, 14],
   fusebox: [14, 18],
+  source: [16, 16],
+  converter: [16, 16],
 };
 
 // Code-level fallbacks for the global tunables in content/behaviors.json
@@ -362,6 +365,7 @@ export class RoomRuntime {
       }
       const [w, h] = this.entitySize(def.type);
       const litOverride = muts.brazierLit.find(([i]) => i === index);
+      const amountOverride = muts.sourceAmounts.find(([i]) => i === index);
       // Doors/trapdoors can be authored to start open; a fuse trip (open or
       // close) overrides that for the rest of the run once it happens.
       const isGate = def.type === "door" || def.type === "trapdoor";
@@ -375,6 +379,9 @@ export class RoomRuntime {
         open,
         helped: muts.helpedNpcs.has(index),
         lit: litOverride ? litOverride[1] : def.lit ?? true,
+        amount: def.type === "source"
+          ? (amountOverride ? amountOverride[1] : def.sourceAmount ?? 0)
+          : undefined,
       });
     });
 
@@ -1466,6 +1473,21 @@ export class RoomRuntime {
     return null;
   }
 
+  // ================= SOURCES =================
+
+  /** Grabs one unit from a source, persisting the reduced stock. Returns
+   *  false (no mutation) when a finite source is already empty; infinite
+   *  (-1) sources never deplete. */
+  grabFromSource(e: EntityInstance): boolean {
+    if (e.amount === undefined || e.amount === SOURCED) return e.amount === SOURCED;
+    if (e.amount <= 0) return false;
+    e.amount -= 1;
+    const existing = this.muts.sourceAmounts.find(([i]) => i === e.index);
+    if (existing) existing[1] = e.amount;
+    else this.muts.sourceAmounts.push([e.index, e.amount]);
+    return true;
+  }
+
   // ================= QUERIES =================
 
   /** Nearest interactable entity within reach of the player center. */
@@ -1474,7 +1496,7 @@ export class RoomRuntime {
     let bestD = range;
     for (const e of this.entities) {
       if (e.collected) continue;
-      if (!["note", "door", "trapdoor", "locker", "npc", "exit"].includes(e.kind)) continue;
+      if (!["note", "door", "trapdoor", "locker", "npc", "exit", "source", "converter"].includes(e.kind)) continue;
       if ((e.kind === "door" || e.kind === "trapdoor") && e.def.gate && e.open) continue; // open gates are scenery
       const nx = Math.max(e.x, Math.min(px, e.x + e.w));
       const ny = Math.max(e.y, Math.min(py, e.y + e.h));
@@ -2174,6 +2196,126 @@ export class RoomRuntime {
         ctx.fillRect(e.x - 6, e.y - 6, e.w + 12, e.h + 6);
         break;
       }
+      case "source": {
+        const item = this.content.items.find((i) => i.id === e.def.sourceItem);
+        const empty = e.amount !== undefined && e.amount !== SOURCED && e.amount <= 0;
+        const casing = "#454e5e";
+        const bx = e.x - 2, by = e.y - 2, bw = e.w + 4, bh = e.h + 4;
+        const wx = e.x + e.w / 2, wy = e.y + e.h / 2 - 1 + bob * 0.4;
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        ctx.beginPath();
+        ctx.ellipse(wx, e.y + e.h + 3, 8, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // A riveted steel hopper — reads as a dispensing MACHINE, not the
+        // item it holds. The item only appears in the recessed display.
+        ctx.fillStyle = casing;
+        roundRect(ctx, bx, by, bw, bh, 3);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -25);
+        roundRect(ctx, bx, by, bw, 3, 2);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -35);
+        for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
+          [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+          ctx.beginPath();
+          ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Dispense slot at the base.
+        ctx.fillStyle = "#0d0f14";
+        ctx.fillRect(e.x + 2, e.y + e.h, e.w - 4, 2);
+        // Recessed display window showing the real item icon.
+        ctx.fillStyle = "#181c24";
+        roundRect(ctx, wx - 6, wy - 6, 12, 12, 2);
+        ctx.fill();
+        if (item) {
+          ctx.globalAlpha = empty ? 0.35 : 1;
+          drawItemIcon(ctx, item, wx, wy, 0.85);
+          ctx.globalAlpha = 1;
+        }
+        // Status light: lit green while stocked, dead red when empty.
+        const lx = bx + bw - 4, ly = by + bh - 4;
+        if (!empty) {
+          ctx.globalAlpha = 0.4 + Math.sin(animT * 3 + e.index) * 0.3;
+          ctx.fillStyle = "#5ad18a";
+          ctx.beginPath();
+          ctx.arc(lx, ly, 2.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = empty ? "#5a3a3a" : "#8af0b8";
+        ctx.beginPath();
+        ctx.arc(lx, ly, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+        // Amount/infinity badge — always visible so a source's stock is
+        // clear at a glance, not just discoverable on interact.
+        const label = e.amount === SOURCED ? "∞" : String(e.amount ?? 0);
+        ctx.font = "8px monospace";
+        ctx.fillStyle = empty ? "#8a7f9a" : "#f4ead8";
+        const tw = ctx.measureText(label).width;
+        ctx.fillText(label, wx - tw / 2, by - 3);
+        break;
+      }
+      case "converter": {
+        const inItem = this.content.items.find((i) => i.id === e.def.convertInput);
+        const outItem = this.content.items.find((i) => i.id === e.def.convertOutput);
+        const casing = "#3f4a52";
+        const cy = e.y + e.h / 2 - 1 + bob * 0.4;
+        const leftX = e.x - 3, rightX = e.x + e.w + 3;
+        const bx = leftX - 5, by = e.y - 2, bw = rightX + 5 - bx, bh = e.h + 4;
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        ctx.beginPath();
+        ctx.ellipse(e.x + e.w / 2, e.y + e.h + 3, bw / 2, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // A wider chassis with two hopper windows and a grinding gear
+        // core between them — reads as a converter MACHINE, not a pair
+        // of floating icons.
+        ctx.fillStyle = casing;
+        roundRect(ctx, bx, by, bw, bh, 3);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -25);
+        roundRect(ctx, bx, by, bw, 3, 2);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -35);
+        for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
+          [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+          ctx.beginPath();
+          ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = "#181c24";
+        roundRect(ctx, leftX - 6, cy - 6, 12, 12, 2);
+        ctx.fill();
+        roundRect(ctx, rightX - 6, cy - 6, 12, 12, 2);
+        ctx.fill();
+        if (inItem) drawItemIcon(ctx, inItem, leftX, cy, 0.75);
+        if (outItem) drawItemIcon(ctx, outItem, rightX, cy, 0.75);
+        // Slow-turning gear core — the "trade" affordance, animated so it
+        // reads as active machinery rather than a static prop.
+        ctx.save();
+        ctx.translate(e.x + e.w / 2, cy);
+        ctx.rotate(animT * 1.1);
+        ctx.strokeStyle = "#c9b8e8";
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i;
+          ctx.moveTo(Math.cos(a) * 2.6, Math.sin(a) * 2.6);
+          ctx.lineTo(Math.cos(a) * 5, Math.sin(a) * 5);
+        }
+        ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        const inCount = e.def.convertInputCount ?? 1;
+        const outCount = e.def.convertOutputCount ?? 1;
+        if (inCount > 1 || outCount > 1) {
+          ctx.font = "7px monospace";
+          ctx.fillStyle = "#f4ead8";
+          if (inCount > 1) ctx.fillText(String(inCount), leftX - 3, by - 3);
+          if (outCount > 1) ctx.fillText(String(outCount), rightX - 3, by - 3);
+        }
+        break;
+      }
     }
   }
 
@@ -2472,6 +2614,11 @@ registerFn("moveToward", (ctx, args) => {
   en.vx = want * argNum(args[1], d.speed);
   return undefined;
 }, "moveToward(player | home, speed?) — walk toward the player or the spawn post, refusing unsafe steps");
+registerFn("nearHome", (ctx, args) => {
+  const { en } = enemyApi(ctx);
+  const cx = en.x + en.def.width / 2;
+  return Math.abs(en.homeX - cx) <= argNum(args[0], 4); // matches moveToward's own arrival snap
+}, "nearHome(threshold?) -> bool — within threshold px of the spawn post (default 4)");
 registerFn("applyGravityAndMove", (ctx, args) => {
   const { rt, en, dt } = enemyApi(ctx);
   const d = en.def;
