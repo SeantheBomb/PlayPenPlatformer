@@ -2164,53 +2164,120 @@ export class RoomRuntime {
       case "source": {
         const item = this.content.items.find((i) => i.id === e.def.sourceItem);
         const empty = e.amount !== undefined && e.amount !== SOURCED && e.amount <= 0;
-        const cx = e.x + e.w / 2, cy = e.y + e.h / 2 + bob * 0.5;
-        ctx.fillStyle = empty ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.09)";
+        const casing = "#454e5e";
+        const bx = e.x - 2, by = e.y - 2, bw = e.w + 4, bh = e.h + 4;
+        const wx = e.x + e.w / 2, wy = e.y + e.h / 2 - 1 + bob * 0.4;
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
         ctx.beginPath();
-        ctx.ellipse(cx, e.y + e.h + 3, 8, 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(wx, e.y + e.h + 3, 8, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // A riveted steel hopper — reads as a dispensing MACHINE, not the
+        // item it holds. The item only appears in the recessed display.
+        ctx.fillStyle = casing;
+        roundRect(ctx, bx, by, bw, bh, 3);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -25);
+        roundRect(ctx, bx, by, bw, 3, 2);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -35);
+        for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
+          [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+          ctx.beginPath();
+          ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Dispense slot at the base.
+        ctx.fillStyle = "#0d0f14";
+        ctx.fillRect(e.x + 2, e.y + e.h, e.w - 4, 2);
+        // Recessed display window showing the real item icon.
+        ctx.fillStyle = "#181c24";
+        roundRect(ctx, wx - 6, wy - 6, 12, 12, 2);
         ctx.fill();
         if (item) {
           ctx.globalAlpha = empty ? 0.35 : 1;
-          drawItemIcon(ctx, item, cx, cy, 1.1);
+          drawItemIcon(ctx, item, wx, wy, 0.85);
           ctx.globalAlpha = 1;
         }
+        // Status light: lit green while stocked, dead red when empty.
+        const lx = bx + bw - 4, ly = by + bh - 4;
+        if (!empty) {
+          ctx.globalAlpha = 0.4 + Math.sin(animT * 3 + e.index) * 0.3;
+          ctx.fillStyle = "#5ad18a";
+          ctx.beginPath();
+          ctx.arc(lx, ly, 2.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = empty ? "#5a3a3a" : "#8af0b8";
+        ctx.beginPath();
+        ctx.arc(lx, ly, 1.4, 0, Math.PI * 2);
+        ctx.fill();
         // Amount/infinity badge — always visible so a source's stock is
         // clear at a glance, not just discoverable on interact.
         const label = e.amount === SOURCED ? "∞" : String(e.amount ?? 0);
         ctx.font = "8px monospace";
         ctx.fillStyle = empty ? "#8a7f9a" : "#f4ead8";
         const tw = ctx.measureText(label).width;
-        ctx.fillText(label, cx - tw / 2, e.y - 3 + bob * 0.5);
+        ctx.fillText(label, wx - tw / 2, by - 3);
         break;
       }
       case "converter": {
         const inItem = this.content.items.find((i) => i.id === e.def.convertInput);
         const outItem = this.content.items.find((i) => i.id === e.def.convertOutput);
-        const cy = e.y + e.h / 2 + bob * 0.5;
-        ctx.fillStyle = "rgba(255,255,255,0.09)";
+        const casing = "#3f4a52";
+        const cy = e.y + e.h / 2 - 1 + bob * 0.4;
+        const leftX = e.x - 3, rightX = e.x + e.w + 3;
+        const bx = leftX - 5, by = e.y - 2, bw = rightX + 5 - bx, bh = e.h + 4;
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
         ctx.beginPath();
-        ctx.ellipse(e.x + e.w / 2, e.y + e.h + 3, 9, 3, 0, 0, Math.PI * 2);
+        ctx.ellipse(e.x + e.w / 2, e.y + e.h + 3, bw / 2, 3, 0, 0, Math.PI * 2);
         ctx.fill();
-        const leftX = e.x - 2, rightX = e.x + e.w + 2;
-        if (inItem) drawItemIcon(ctx, inItem, leftX, cy, 0.8);
-        if (outItem) drawItemIcon(ctx, outItem, rightX, cy, 0.8);
-        // Arrow between the two icons — this IS the "trade" affordance.
+        // A wider chassis with two hopper windows and a grinding gear
+        // core between them — reads as a converter MACHINE, not a pair
+        // of floating icons.
+        ctx.fillStyle = casing;
+        roundRect(ctx, bx, by, bw, bh, 3);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -25);
+        roundRect(ctx, bx, by, bw, 3, 2);
+        ctx.fill();
+        ctx.fillStyle = shade(casing, -35);
+        for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
+          [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+          ctx.beginPath();
+          ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = "#181c24";
+        roundRect(ctx, leftX - 6, cy - 6, 12, 12, 2);
+        ctx.fill();
+        roundRect(ctx, rightX - 6, cy - 6, 12, 12, 2);
+        ctx.fill();
+        if (inItem) drawItemIcon(ctx, inItem, leftX, cy, 0.75);
+        if (outItem) drawItemIcon(ctx, outItem, rightX, cy, 0.75);
+        // Slow-turning gear core — the "trade" affordance, animated so it
+        // reads as active machinery rather than a static prop.
+        ctx.save();
+        ctx.translate(e.x + e.w / 2, cy);
+        ctx.rotate(animT * 1.1);
         ctx.strokeStyle = "#c9b8e8";
         ctx.lineWidth = 1.3;
         ctx.beginPath();
-        ctx.moveTo(leftX + 6, cy);
-        ctx.lineTo(rightX - 6, cy);
-        ctx.moveTo(rightX - 9, cy - 2.5);
-        ctx.lineTo(rightX - 6, cy);
-        ctx.lineTo(rightX - 9, cy + 2.5);
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i;
+          ctx.moveTo(Math.cos(a) * 2.6, Math.sin(a) * 2.6);
+          ctx.lineTo(Math.cos(a) * 5, Math.sin(a) * 5);
+        }
+        ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.restore();
         const inCount = e.def.convertInputCount ?? 1;
         const outCount = e.def.convertOutputCount ?? 1;
         if (inCount > 1 || outCount > 1) {
           ctx.font = "7px monospace";
           ctx.fillStyle = "#f4ead8";
-          if (inCount > 1) ctx.fillText(String(inCount), leftX - 3, cy - 7);
-          if (outCount > 1) ctx.fillText(String(outCount), rightX - 3, cy - 7);
+          if (inCount > 1) ctx.fillText(String(inCount), leftX - 3, by - 3);
+          if (outCount > 1) ctx.fillText(String(outCount), rightX - 3, by - 3);
         }
         break;
       }
@@ -2509,6 +2576,11 @@ registerFn("moveToward", (ctx, args) => {
   en.vx = want * argNum(args[1], d.speed);
   return undefined;
 }, "moveToward(player | home, speed?) — walk toward the player or the spawn post, refusing unsafe steps");
+registerFn("nearHome", (ctx, args) => {
+  const { en } = enemyApi(ctx);
+  const cx = en.x + en.def.width / 2;
+  return Math.abs(en.homeX - cx) <= argNum(args[0], 4); // matches moveToward's own arrival snap
+}, "nearHome(threshold?) -> bool — within threshold px of the spawn post (default 4)");
 registerFn("applyGravityAndMove", (ctx, args) => {
   const { rt, en, dt } = enemyApi(ctx);
   const d = en.def;
