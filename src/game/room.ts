@@ -1,7 +1,8 @@
 // Runtime instantiation of a RoomDef, including the elemental simulation:
 // tile transformations, fire spread, spark conduction, and enemy reactions.
 import type {
-  Content, EnemyDef, EnemyReaction, RoomDef, RoomEntity, RuleDef, RuleEffect, TileDef,
+  BehaviorTrigger, Content, EnemyDef, EnemyReaction, RoomDef, RoomEntity,
+  RuleDef, RuleEffect, TileDef,
 } from "../data/types";
 import { TILE, TileMap } from "../engine/tilemap";
 import { drawBlob, drawItemIcon, drawNpcAvatar, drawTile, roundRect, shade } from "../engine/renderer";
@@ -569,16 +570,36 @@ export class RoomRuntime {
       const odef = this.fluidDefAt(ox, oy);
       if (!odef || odef.element !== opposite) continue;
       const lavaDef = moverDef.element === "lava" ? moverDef : odef;
-      if (this.grateFluid.has(this.map.index(ox, oy))) {
-        // The grate itself can't harden into cracked stone — it's just not
-        // carrying fluid anymore.
-        this.grateFluid.delete(this.map.index(ox, oy));
-      } else {
-        this.transformTile(ox, oy, lavaDef.extinguishesTo ?? "cracked");
+      // What happens is fluidFlow's `on fluidContact(mover, other)` policy:
+      // destroyMover/keepMover × hardenOther(id?)/destroyOther/keepOther.
+      // No handler = the classic rule (mover destroyed, other hardens).
+      const data: Record<string, unknown> = {
+        mover: moverDef.element, other: odef.element,
+      };
+      this.fireGlobalHook("fluidFlow", "fluidContact", data, ox, oy);
+      const moverFate = data.moverFate ?? "destroy";
+      const otherFate = data.otherFate ?? "harden";
+      const oIdx = this.map.index(ox, oy);
+      if (otherFate === "harden") {
+        if (this.grateFluid.has(oIdx)) {
+          // The grate itself can't harden into cracked stone — it's just
+          // not carrying fluid anymore.
+          this.grateFluid.delete(oIdx);
+        } else {
+          const hardenTo = typeof data.hardenTo === "string" ? data.hardenTo : undefined;
+          this.transformTile(ox, oy, hardenTo ?? lavaDef.extinguishesTo ?? "cracked");
+        }
+        this.waterFlowDist.delete(oIdx);
+      } else if (otherFate === "destroy") {
+        this.clearFluid(ox, oy);
+        this.waterFlowDist.delete(oIdx);
       }
-      this.waterFlowDist.delete(this.map.index(ox, oy));
-      events.push({ effect: "extinguish", x: ox * TILE + 8, y: oy * TILE + 8, color: "#8f9bb3" });
-      return true;
+      if (moverFate !== "keep" || otherFate !== "keep") {
+        events.push({ effect: "extinguish", x: ox * TILE + 8, y: oy * TILE + 8, color: "#8f9bb3" });
+      }
+      // true = the mover was consumed by the contact (caller skips placing
+      // it); keepMover lets it complete its move and coexist alongside.
+      return moverFate !== "keep";
     }
     return false;
   }
@@ -854,32 +875,77 @@ export class RoomRuntime {
    * Water and lava meeting quenches the lava into its extinguishesTo
    * (cracked stone) — the water survives.
    */
+  /**
+   * Fire a policy hook on a global doc (fluidFlow / heatSpread). The doc's
+   * handler writes its decision into `data` via the decision functions
+   * (prefer, spreadLeft, keepHot, setDelay...); an untouched `data` field
+   * means "no handler decided" and the caller falls back to legacy engine
+   * behavior — which is what keeps stale docs (a localStorage draft or old
+   * published bundle predating the hooks, possibly still carrying sideBias/
+   * chainMeltRange vars) working unchanged.
+   */
+  private fireGlobalHook(
+    docId: string, trigger: BehaviorTrigger,
+    data: Record<string, unknown>, tx: number, ty: number
+  ): void {
+    this.bhv.fire(trigger, {
+      hostDef: {},
+      hostKey: "global:" + docId,
+      attachments: [docId],
+      data,
+      api: { rt: this, tx, ty },
+    });
+  }
+
   /** [tx-1, tx+1] or [tx+1, tx-1] — which neighbor fluid tries FIRST when
-   *  spreading/sliding sideways at row `ty`, per the sideBias tunable.
-   *  "alternate"/"left"/"right" go straight to the flowFlipEff order (see
-   *  tickWaterFlow). "lower" compares dropDepth on each side first and
-   *  prefers whichever reaches a deeper floor; an equal-depth tie falls
-   *  through to the same flip-based order (Sean's "if equal, alternate"). */
+   *  it must pick ONE side (a diagonal slide, a column squeeze, a finite
+   *  pour moving). Policy lives in fluidFlow's `on pickSide` handler
+   *  (prefer("left"/"right"/"alternate"), typically comparing sideDepth()
+   *  on each side); no handler = legacy sideBias var, then the
+   *  drift-cancelling alternate flip. */
   private sideXs(tx: number, ty: number): [number, number] {
-    if (this.sideBias === "lower") {
+    if (this.bhv.hasHandler("fluidFlow", "pickSide")) {
+      const data: Record<string, unknown> = {};
+      this.fireGlobalHook("fluidFlow", "pickSide", data, tx, ty);
+      const pref = data.preferred;
+      if (pref === "left") return [tx - 1, tx + 1];
+      if (pref === "right") return [tx + 1, tx - 1];
+      // "alternate", or a handler that stayed silent: the flip below.
+    } else if (this.sideBias === "lower") {
+      // Stale doc without a pickSide handler, still carrying the short-lived
+      // sideBias:"lower" var — the original one-tile-lookahead comparison.
       const leftDepth = this.dropDepth(tx - 1, ty);
       const rightDepth = this.dropDepth(tx + 1, ty);
       if (leftDepth !== rightDepth) {
         return leftDepth > rightDepth ? [tx - 1, tx + 1] : [tx + 1, tx - 1];
       }
     }
+    // Alternate flip; legacy left/right sideBias values ride flowFlipEff.
+    return this.flowFlipEff ? [tx + 1, tx - 1] : [tx - 1, tx + 1];
+  }
+
+  /** Which sides a SOURCED (fall-fed) surface tile widens into this tick.
+   *  Policy lives in fluidFlow's `on sourcedSpread` handler (spreadBoth /
+   *  spreadLeft / spreadRight / spreadNone); no handler = both sides, the
+   *  classic symmetric fill. */
+  private spreadTargets(tx: number, ty: number): number[] {
+    const data: Record<string, unknown> = {};
+    this.fireGlobalHook("fluidFlow", "sourcedSpread", data, tx, ty);
+    const mode = typeof data.spread === "string" ? data.spread : "both";
+    if (mode === "none") return [];
+    if (mode === "left") return [tx - 1];
+    if (mode === "right") return [tx + 1];
     return this.flowFlipEff ? [tx + 1, tx - 1] : [tx - 1, tx + 1];
   }
 
   /** How far straight down from (tx,ty) the drop goes before hitting real
    *  solid ground — walks through existing fluid (a body already pooling
    *  somewhere doesn't make that spot read as shallower; the floor
-   *  position underneath is what "lower" compares) and skips platforms,
+   *  position underneath is what depth compares) and skips platforms,
    *  same tile classification tickWaterFlow uses elsewhere. Off the map
    *  (x out of bounds, or the column is open all the way to the floor)
-   *  reads as maximally deep — sideXs's caller already discards
-   *  out-of-bounds candidates regardless of how they sort. Only sideBias
-   *  "lower" calls this. */
+   *  reads as maximally deep — callers already discard out-of-bounds
+   *  candidates regardless of how they sort. */
   private dropDepth(tx: number, ty: number): number {
     let y = ty;
     while (y < this.map.height) {
@@ -889,6 +955,27 @@ export class RoomRuntime {
       return y - ty; // real solid ground
     }
     return y - ty;
+  }
+
+  /**
+   * Script query (sideDepth in fluidFlow handlers): the deepest floor
+   * reachable within `lookahead` tiles to one side of (tx,ty) — slope-
+   * following, so fluid a few tiles from a ledge still "sees" it, unlike a
+   * bare one-tile dropDepth. A solid wall (or closed gate) at the fluid's
+   * own row stops the scan: depth beyond a wall isn't connected.
+   */
+  sideDepth(tx: number, ty: number, dir: -1 | 1, lookahead: number): number {
+    let best = 0;
+    for (let i = 1; i <= lookahead; i++) {
+      const x = tx + dir * i;
+      if (x < 0 || x >= this.map.width) break;
+      if (this.doorBlocksFluid(x, ty)) break;
+      const t = this.map.at(x, ty);
+      if (t !== null && t.style !== "platform" && !this.isFluid(t)) break; // wall
+      const d = this.dropDepth(x, ty);
+      if (d > best) best = d;
+    }
+    return best;
   }
 
   private tickWaterFlow(events: ElementEvent[]): void {
@@ -1051,8 +1138,9 @@ export class RoomRuntime {
       // 4. Surface tile, fully fallen.
       if (distance === SOURCED) {
         // Fall-fed fluid IS an infinite source — it replicates outward until
-        // walls or a drain stop it.
-        for (const nx of this.sideXs(tx, ty)) {
+        // walls or a drain stop it. WHICH sides it widens into each tick is
+        // fluidFlow's `on sourcedSpread` policy (spreadTargets).
+        for (const nx of this.spreadTargets(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty);
           if (target.solid) continue;
@@ -1122,12 +1210,26 @@ export class RoomRuntime {
       if (below.style === "drain") continue; // fully absorbed, nothing pools
       const fluidDef = this.tilesById.get(def.fallSpawns);
       if (!fluidDef) continue;
-      // Fall landing on the opposite liquid: both destroyed, the STATIONARY
-      // pool below hardens into cracked stone (the fall never gets a tile).
+      // Fall landing on the opposite liquid — same `on fluidContact` policy
+      // as horizontal contact (mover = the falling fluid; it never gets a
+      // tile regardless, the fall just keeps pouring into the reaction).
       if (this.isFluid(below) && below.element !== fluidDef.element) {
         const lavaSide = below.element === "lava" ? below : fluidDef;
-        this.transformTile(tx, belowTy, lavaSide.extinguishesTo ?? "");
-        events.push({ effect: "extinguish", x: tx * TILE + 8, y: belowTy * TILE + 8, color: "#8f9bb3" });
+        const data: Record<string, unknown> = {
+          mover: fluidDef.element, other: below.element,
+        };
+        this.fireGlobalHook("fluidFlow", "fluidContact", data, tx, belowTy);
+        const otherFate = data.otherFate ?? "harden";
+        if (otherFate === "harden") {
+          const hardenTo = typeof data.hardenTo === "string" ? data.hardenTo : undefined;
+          this.transformTile(tx, belowTy, hardenTo ?? lavaSide.extinguishesTo ?? "");
+        } else if (otherFate === "destroy") {
+          this.clearFluid(tx, belowTy);
+          this.waterFlowDist.delete(this.map.index(tx, belowTy));
+        }
+        if (otherFate !== "keep") {
+          events.push({ effect: "extinguish", x: tx * TILE + 8, y: belowTy * TILE + 8, color: "#8f9bb3" });
+        }
         continue;
       }
       // The pool has risen to meet the fall: keep it topped up as a source
@@ -1140,8 +1242,9 @@ export class RoomRuntime {
       // First landing on solid ground: this is the fall's true base — start
       // the pool by emitting into open side tiles, one row above the solid
       // (which may be several rows below the fall if grates were skipped).
+      // This is sourced spreading too, so `on sourcedSpread` governs it.
       const baseTy = belowTy - 1;
-      for (const nx of this.sideXs(tx, baseTy)) {
+      for (const nx of this.spreadTargets(tx, baseTy)) {
         if (nx < 0 || nx >= this.map.width) continue;
         // baseTy itself may be a grate spanning the whole walkway (flush over
         // the real floor, no gap) — resolve through it same as falling does,
@@ -1360,9 +1463,17 @@ export class RoomRuntime {
     }
     for (const { idx, d } of cut) {
       const ratio = maxDist > 0 ? d / maxDist : 1;
-      this.draining.set(idx, now + this.recedeMsEff * (1 - ratio));
-      this.waterFlowDist.delete(idx);
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      // WHEN each cut-off tile dries is fluidFlow's `on recede(ratio)`
+      // policy (setDelay(ms); ratio 0 = at the closed gate, 1 = farthest).
+      // No handler = the legacy stagger, farthest-first over recedeMs.
+      const data: Record<string, unknown> = { ratio };
+      this.fireGlobalHook("fluidFlow", "recede", data, tx, ty);
+      const delay = typeof data.delayMs === "number"
+        ? Math.max(0, data.delayMs)
+        : this.recedeMsEff * (1 - ratio);
+      this.draining.set(idx, now + delay);
+      this.waterFlowDist.delete(idx);
       events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
     }
   }
@@ -1742,10 +1853,23 @@ export class RoomRuntime {
           if (rule?.effect === "melt" && ndef.meltsTo !== undefined) {
             this.transformTile(nx, ny, ndef.meltsTo);
             events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: elem });
-            // heat_spread.chainMeltRange caps how far the chain reaches
-            // beyond direct contact (-1 = unlimited, the shipped default).
-            if (elem === "lava" && (this.chainMeltRange < 0 || depth + 1 <= this.chainMeltRange)) {
-              this.meltedHot.set(this.map.index(nx, ny), depth + 1);
+            // Whether the chain continues is heatSpread's `on meltChain(depth)`
+            // policy — keepHot() lets the vacated cell radiate one more tick,
+            // and a handler that stays silent is CHOOSING to stop the chain
+            // (hence the explicit hasHandler check: silence from an existing
+            // handler must not fall through to the legacy default). No
+            // handler at all = the legacy chainMeltRange var (-1 = unlimited).
+            if (elem === "lava") {
+              const nDepth = depth + 1;
+              let keep: boolean;
+              if (this.bhv.hasHandler("heatSpread", "meltChain")) {
+                const data: Record<string, unknown> = { depth: nDepth };
+                this.fireGlobalHook("heatSpread", "meltChain", data, nx, ny);
+                keep = data.keepHot === true;
+              } else {
+                keep = this.chainMeltRange < 0 || nDepth <= this.chainMeltRange;
+              }
+              if (keep) this.meltedHot.set(this.map.index(nx, ny), nDepth);
             }
           }
         }
@@ -2672,4 +2796,73 @@ registerFn("emitEvent", (ctx, args) => {
   });
   return undefined;
 }, "emitEvent(effect, color?, at?) — push a feedback event (particles/sfx) at this entity (\"top\" or \"center\")");
+
+// ---- fluid/heat policy hooks (fluidFlow / heatSpread global docs) ----
+// Decision functions: each writes the handler's choice into ctx.data, which
+// the engine reads back at the decision point (see fireGlobalHook). Queries
+// like sideDepth let the handler inspect terrain before deciding.
+interface HookApi {
+  rt: RoomRuntime;
+  /** The tile the decision is about (the fluid tile for pickSide/
+   *  sourcedSpread, the stationary side for fluidContact, the candidate
+   *  hot cell for meltChain, the drying tile for recede). */
+  tx: number;
+  ty: number;
+}
+const hookApi = (ctx: ScriptCtx) => ctx.api as unknown as HookApi;
+
+registerFn("sideDepth", (ctx, args) => {
+  const { rt, tx, ty } = hookApi(ctx);
+  const dir = argStr(args[0], "left") === "right" ? 1 : -1;
+  return rt.sideDepth(tx, ty, dir, Math.max(1, argNum(args[1], 1)));
+}, "sideDepth(\"left\" | \"right\", lookahead?) -> tiles — the deepest floor reachable within lookahead tiles to that side (slope-following: sees through platforms and existing fluid; a wall stops the scan)");
+registerFn("prefer", (ctx, args) => {
+  ctx.data.preferred = argStr(args[0], "alternate");
+  return undefined;
+}, "prefer(\"left\" | \"right\" | \"alternate\") — pickSide's decision: which neighbor fluid tries first (alternate flips each tick, cancelling drift)");
+registerFn("spreadBoth", (ctx) => {
+  ctx.data.spread = "both";
+  return undefined;
+}, "spreadBoth() — sourcedSpread's decision: widen the pool into both open sides (the classic symmetric fill)");
+registerFn("spreadLeft", (ctx) => {
+  ctx.data.spread = "left";
+  return undefined;
+}, "spreadLeft() — sourcedSpread's decision: widen only leftward this tick");
+registerFn("spreadRight", (ctx) => {
+  ctx.data.spread = "right";
+  return undefined;
+}, "spreadRight() — sourcedSpread's decision: widen only rightward this tick");
+registerFn("spreadNone", (ctx) => {
+  ctx.data.spread = "none";
+  return undefined;
+}, "spreadNone() — sourcedSpread's decision: hold the pool at its current width this tick");
+registerFn("destroyMover", (ctx) => {
+  ctx.data.moverFate = "destroy";
+  return undefined;
+}, "destroyMover() — fluidContact's decision: the fluid that MOVED into contact is consumed (never placed)");
+registerFn("keepMover", (ctx) => {
+  ctx.data.moverFate = "keep";
+  return undefined;
+}, "keepMover() — fluidContact's decision: the mover completes its move and the two fluids coexist side by side");
+registerFn("hardenOther", (ctx, args) => {
+  ctx.data.otherFate = "harden";
+  if (typeof args[0] === "string") ctx.data.hardenTo = args[0];
+  return undefined;
+}, "hardenOther(tileId?) — fluidContact's decision: the stationary fluid solidifies (default: the lava side's extinguishesTo, cracked stone)");
+registerFn("destroyOther", (ctx) => {
+  ctx.data.otherFate = "destroy";
+  return undefined;
+}, "destroyOther() — fluidContact's decision: the stationary fluid is removed outright, nothing left behind");
+registerFn("keepOther", (ctx) => {
+  ctx.data.otherFate = "keep";
+  return undefined;
+}, "keepOther() — fluidContact's decision: the stationary fluid is untouched");
+registerFn("keepHot", (ctx) => {
+  ctx.data.keepHot = true;
+  return undefined;
+}, "keepHot() — meltChain's decision: the just-melted cell radiates lava heat one more tick, so the melt chains onward; not calling it stops the chain here");
+registerFn("setDelay", (ctx, args) => {
+  ctx.data.delayMs = argNum(args[0], 0);
+  return undefined;
+}, "setDelay(ms) — recede's decision: how long this cut-off sourced tile lingers before drying up");
 

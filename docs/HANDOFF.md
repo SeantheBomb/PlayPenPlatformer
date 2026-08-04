@@ -411,6 +411,52 @@ tunable value — so built it:
   both directions, plus the tie-falls-back-to-alternate case reusing the
   existing slosh-knob test's symmetric room shape). 117 tests green.
 
+## 2026-08-04 (round 2) — fluid/heat policy hooks (decisions move into scripts)
+
+Sean's `sideBias: "lower"` test showed nothing, and his diagnosis of WHY cut
+deeper than the bug: the global docs were var-lists with all the actual logic
+invisible in engine code — "you have too much hidden inside engine code...
+break the engine functions down into more elemental pieces and let these
+behavior scripts handle more of the actual integration and logic." (The
+specific failures: sourced/fall-fed spreading replicated to BOTH sides so a
+side preference was meaningless there; the depth compare only looked one tile
+out; and globals only load at room construction.)
+
+Confirmed split with Sean: engine keeps the MECHANICS (iteration order,
+conservation, grate transparency — the locked fluids-test invariants, which
+penscript couldn't express anyway with no loops); every DECISION becomes an
+`on <hook>` handler on the global doc, called via `RoomRuntime.fireGlobalHook`
+with decision functions writing the answer into ctx.data:
+
+- `on pickSide` — prefer("left"/"right"/"alternate"); terrain queried with
+  `sideDepth(dir, lookahead)` (slope-following: deepest floor reachable
+  within lookahead tiles, walls stop the scan, sees through platforms and
+  existing fluid).
+- `on sourcedSpread` — spreadBoth/spreadLeft/spreadRight/spreadNone; governs
+  case-4 sourced widening AND tickFalls' base emit (both sites).
+- `on fluidContact(mover, other)` — destroyMover/keepMover ×
+  hardenOther(tileId?)/destroyOther/keepOther; governs resolveFluidContact
+  and the fall-landing case (the passive lava-adjacent fallback stays
+  engine). keepMover lets fluids coexist side by side.
+- `on recede(ratio)` — setDelay(ms).
+- heatSpread `on meltChain(depth)` — keepHot() chains the melt onward.
+
+**The sentinel lesson (cost one debug round):** "handler ran but stayed
+silent" is a real decision (meltChain not calling keepHot = stop the chain)
+and is indistinguishable from "no handler" if you only inspect ctx.data —
+added `BehaviorSystem.hasHandler(docId, trigger)` and the call sites branch
+on it explicitly. No-handler = full legacy fallback, INCLUDING the retired
+sideBias/chainMeltRange vars, so stale localStorage drafts / old publishes
+keep working (tested).
+
+Shipped default handlers reproduce classic behavior exactly — fluids.test.ts
+and melt-chain.test.ts pass untouched. 126 tests green (hook coverage: capped
+melt chains, pinned sides, script-authored "lower" both directions + tie,
+one-sided sourced fill, inverted contact outcome, both legacy fallbacks).
+Verified live with a synthetic stepped-terrain room: waterfall pool committed
+entirely toward the deep basin, far shelf bone dry — the "lower" policy Sean
+asked for, authored as ~8 lines in the fluidFlow script pane.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

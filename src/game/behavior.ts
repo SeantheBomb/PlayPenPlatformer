@@ -68,6 +68,7 @@ export function fnDoc(name: string): string {
 
 export const TRIGGERS: BehaviorTrigger[] = [
   "tick", "flowTick", "elementContact", "use", "heldTick", "carriedTick",
+  "pickSide", "sourcedSpread", "fluidContact", "meltChain", "recede",
 ];
 
 function warnOnce(key: string, message: string): void {
@@ -248,6 +249,15 @@ export class BehaviorSystem {
   /** Compile diagnostics for the editor. */
   errorsFor(id: string): ScriptError[] {
     return this.docs.get(id)?.errors ?? [];
+  }
+
+  /** Does this doc define an `on <trigger>` handler? Policy-hook call sites
+   *  need this to tell "handler ran and chose to do nothing" (a meaningful
+   *  decision — e.g. meltChain not calling keepHot stops the chain) apart
+   *  from "no handler at all" (fall back to legacy engine behavior). */
+  hasHandler(docId: string, trigger: BehaviorTrigger): boolean {
+    const doc = this.docs.get(docId);
+    return !!doc?.script?.handlers.some((h) => h.event === trigger);
   }
 
   /** Behavior attachments for an entity TYPE (brazier, door...), from

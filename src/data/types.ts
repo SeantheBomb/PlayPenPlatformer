@@ -135,7 +135,17 @@ export type BehaviorTrigger =
   | "elementContact" // an element was applied to the host (tool hit, hazard overlap)
   | "use"            // the player used the host item (F)
   | "heldTick"       // per-step while the host item is the selected hotbar item
-  | "carriedTick";   // per-step for every item in the inventory
+  | "carriedTick"    // per-step for every item in the inventory
+  // Policy hooks — the fluid/heat sims keep their iteration + conservation
+  // machinery in engine code, but call these on the global docs at every
+  // DECISION point so the policy is authored (and troubleshootable) in
+  // script. When a doc has no handler for one, the engine falls back to
+  // legacy behavior (incl. old sideBias/chainMeltRange vars on stale docs).
+  | "pickSide"       // fluidFlow: which side does fluid try first? (prefer)
+  | "sourcedSpread"  // fluidFlow: how does a fall-fed pool widen? (spreadBoth/Left/Right/None)
+  | "fluidContact"   // fluidFlow(mover, other): two fluids met — who dies, who hardens
+  | "meltChain"      // heatSpread(depth): does a lava melt chain keep going? (keepHot)
+  | "recede";        // fluidFlow(ratio): when does a cut-off sourced tile dry up? (setDelay)
 
 export interface BehaviorDef {
   id: string;

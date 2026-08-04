@@ -212,19 +212,26 @@ republishing/re-saving from the editor is still the fix for those.
 - **rules.json is pattern lines**: `"rule": "fire + flammable -> ignite"`
   (target = element id, or property flammable/brittle/conductive; parsed in
   room.ts `parseRuleLine`). Legacy split-field rows still work (stale saves).
-- **Global tunables are `host: "global"` scripts with only vars** (content
-  wins, code consts fall back): `fluidFlow.sideBias` (alternate/left/right/
-  lower — water direction-commitment) and `fluidFlow.intervalSec/recedeMs/
-  toyblockPushSec`; `heatSpread.chainMeltRange` (-1 = unlimited chain-melt,
-  the shipped default matching melt-chain.test.ts; 0 = direct lava contact
-  only; N = cap) and `heatSpread.intervalSec`; `elementEffects.*`.
-  `sideBias: "lower"` compares `dropDepth(tx, ty)` (room.ts) — a
-  straight-down scan to real solid ground, walking through platforms and
-  existing fluid so an already-pooling body doesn't read as shallower — on
-  the tx-1 and tx+1 candidates and prefers whichever reaches a deeper
-  floor, falling back to the alternate flip on an equal-depth tie. This is
-  why `sideXs` takes `(tx, ty)` now, not just `tx` — every call site passes
-  the row being evaluated.
+- **Global docs are POLICY, not just tunables (2026-08-04)**: the fluid/heat
+  sims keep their mechanics in engine code (iteration order, conservation,
+  grates — the test-locked invariants), but every DECISION calls a policy
+  hook on the global doc: `on pickSide` (which side fluid tries first —
+  prefer("left"/"right"/"alternate"), query terrain with
+  `sideDepth("left"|"right", lookahead)`), `on sourcedSpread` (how a
+  fall-fed pool widens — spreadBoth/spreadLeft/spreadRight/spreadNone),
+  `on fluidContact(mover, other)` (destroyMover/keepMover ×
+  hardenOther(tileId?)/destroyOther/keepOther), `on recede(ratio)`
+  (setDelay(ms)), and heatSpread's `on meltChain(depth)` (keepHot() chains
+  the melt onward; **a handler that stays silent is CHOOSING to stop** —
+  hence `hasHandler` checks at the call sites; only a doc with NO handler
+  falls back to legacy engine behavior, including old sideBias/
+  chainMeltRange vars on stale drafts/publishes). Plain vars remain for
+  rates: `fluidFlow.intervalSec/recedeMs/toyblockPushSec/lookahead`,
+  `heatSpread.intervalSec`, `elementEffects.*`. The shipped default
+  handlers reproduce classic behavior exactly (fluids/melt-chain suites pin
+  this). New sim behavior should be a policy-hook edit first; only add a
+  new decision hook (fireGlobalHook site + decision fns in room.ts) when a
+  decision genuinely isn't exposed yet.
 - **Editor rules (Sean-locked, 2026-07-31)**: forms are SCHEMA-driven — every
   def shows every field the engine supports (see TILE_SCHEMA etc. in
   editor.ts; add new schema fields there too or they're invisible); behavior

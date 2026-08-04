@@ -28,6 +28,13 @@ const EVENT_DOCS: Record<string, string> = {
   use: "on use(charge) — the player used this item with F (charge 0..1 for held throws)",
   heldTick: "on heldTick — every step while this item is the selected hotbar item",
   carriedTick: "on carriedTick — every step for this item anywhere in the inventory",
+  // Policy hooks — the fluid/heat sims call these on the GLOBAL docs at
+  // every decision point; the handler's decision functions write the answer.
+  pickSide: "on pickSide — (fluidFlow) fluid must pick ONE side to try first (slide/squeeze/finite move). Decide with prefer(\"left\"|\"right\"|\"alternate\"); query terrain with sideDepth(). Silent handler = alternate.",
+  sourcedSpread: "on sourcedSpread — (fluidFlow) a fall-fed surface tile widening its pool. Decide with spreadBoth() / spreadLeft() / spreadRight() / spreadNone().",
+  fluidContact: "on fluidContact(mover, other) — (fluidFlow) two different fluids met; mover is the one that moved. Decide with destroyMover()/keepMover() and hardenOther(tileId?)/destroyOther()/keepOther().",
+  meltChain: "on meltChain(depth) — (heatSpread) a lava melt consumed a tile `depth` tiles beyond direct lava contact. keepHot() chains the melt onward; a silent handler stops the chain here.",
+  recede: "on recede(ratio) — (fluidFlow) a sourced tile was cut off from every fall (ratio 0 = at the gate, 1 = farthest). setDelay(ms) schedules when it dries.",
 };
 
 const BUILTIN_DOCS: Record<string, string> = {

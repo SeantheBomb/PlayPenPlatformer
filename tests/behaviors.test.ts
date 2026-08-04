@@ -80,6 +80,15 @@ function withVar(docId: string, name: string, valueSrc: string): BehaviorDef[] {
   return lib;
 }
 
+/** Deep-copy the shipped library and replace one doc's whole script — how
+ *  policy-hook tests author their own handlers, same as the script pane. */
+function withScript(docId: string, script: string[]): BehaviorDef[] {
+  const lib = JSON.parse(JSON.stringify(BEHAVIORS)) as BehaviorDef[];
+  const doc = lib.find((b) => b.id === docId)!;
+  doc.script = script;
+  return lib;
+}
+
 const crawler = ENEMIES.find((e) => e.id === "crawler")!;
 const charAt = (rt: RoomRuntime, x: number, y: number) => rt.map.at(x, y)?.char ?? ".";
 
@@ -232,11 +241,28 @@ describe("custom behavior scripts replace engine behavior without engine changes
   });
 });
 
-describe("global sim tunables (behaviors.json global docs)", () => {
-  it("heatSpread.chainMeltRange = 0 stops the melt at direct lava contact", () => {
+describe("global policy hooks (behaviors.json global docs)", () => {
+  const tickOnce = (rt: RoomRuntime) =>
+    (rt as never as { tickWaterFlow(ev: unknown[]): void }).tickWaterFlow([]);
+
+  // The one-tile-pillar slosh room: water must pick a side.
+  const PILLAR_ROOM = [
+    "#..........#",
+    "#....w.....#", // water at (5,1)
+    "#....#.....#", // pillar at (5,2)
+    "#..........#",
+    "############",
+  ];
+
+  it("an `on meltChain` handler that never calls keepHot stops the chain at direct contact", () => {
     const content = makeContent({
       rules: rulesJson as RuleDef[],
-      behaviors: withVar("heatSpread", "chainMeltRange", "0"),
+      behaviors: withScript("heatSpread", [
+        "var intervalSec = 0.7;",
+        "on meltChain(depth) {",
+        "  // never keepHot() — only tiles touching real lava melt",
+        "}",
+      ]),
     });
     const rt = makeRoom(["LMMMM."], content);
     for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
@@ -245,10 +271,14 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     expect(charAt(rt, 3, 0)).toBe("M");
   });
 
-  it("heatSpread.chainMeltRange = 1 lets the melt travel exactly one tile further", () => {
+  it("`if (depth <= 1) keepHot()` lets the melt travel exactly one tile further", () => {
     const content = makeContent({
       rules: rulesJson as RuleDef[],
-      behaviors: withVar("heatSpread", "chainMeltRange", "1"),
+      behaviors: withScript("heatSpread", [
+        "on meltChain(depth) {",
+        "  if (depth <= 1) { keepHot(); }",
+        "}",
+      ]),
     });
     const rt = makeRoom(["LMMMM."], content);
     for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
@@ -257,46 +287,65 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     expect(charAt(rt, 3, 0)).toBe("M"); // no further
   });
 
-  it("default chainMeltRange (-1) keeps the unlimited chain (the shipped behavior)", () => {
+  it("the shipped default handler (always keepHot) keeps the unlimited chain", () => {
     const content = makeContent({ rules: rulesJson as RuleDef[] });
     const rt = makeRoom(["LMMMM."], content);
     for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
     for (let x = 1; x <= 4; x++) expect(charAt(rt, x, 0)).toBe(".");
   });
 
-  it("fluidFlow.sideBias pins which side finite fluid commits to (the slosh knob)", () => {
-    // One water tile perched on a one-tile pillar, open holes both sides —
-    // exactly the can't-pick-a-direction shape. A pinned bias must commit.
-    const rows = [
-      "#..........#",
-      "#....w.....#", // water at (5,1)
-      "#....#.....#", // pillar at (5,2)
-      "#..........#",
-      "############",
-    ];
-    const tickOnce = (rt: RoomRuntime) =>
-      (rt as never as { tickWaterFlow(ev: unknown[]): void }).tickWaterFlow([]);
+  it("a stale heatSpread doc with only the legacy chainMeltRange var still caps the chain", () => {
+    const content = makeContent({
+      rules: rulesJson as RuleDef[],
+      behaviors: withScript("heatSpread", ["var chainMeltRange = 1;"]), // no handler
+    });
+    const rt = makeRoom(["LMMMM."], content);
+    for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
+    expect(charAt(rt, 2, 0)).toBe(".");
+    expect(charAt(rt, 3, 0)).toBe("M");
+  });
 
-    const left = makeRoom(rows, makeContent({ behaviors: withVar("fluidFlow", "sideBias", '"left"') }));
+  it("`on pickSide` prefer() pins which side finite fluid commits to", () => {
+    const pickSideScript = (side: string) => withScript("fluidFlow", [
+      `on pickSide { prefer("${side}"); }`,
+    ]);
+    const left = makeRoom(PILLAR_ROOM, makeContent({ behaviors: pickSideScript("left") }));
     tickOnce(left);
     expect(charAt(left, 4, 1)).toBe("w"); // moved left
     expect(charAt(left, 6, 1)).toBe(".");
 
-    const right = makeRoom(rows, makeContent({ behaviors: withVar("fluidFlow", "sideBias", '"right"') }));
+    const right = makeRoom(PILLAR_ROOM, makeContent({ behaviors: pickSideScript("right") }));
     tickOnce(right);
     expect(charAt(right, 6, 1)).toBe("w"); // moved right
     expect(charAt(right, 4, 1)).toBe(".");
   });
 
-  describe("fluidFlow.sideBias = \"lower\" (falls toward the deeper-connected side)", () => {
-    const tickOnce = (rt: RoomRuntime) =>
-      (rt as never as { tickWaterFlow(ev: unknown[]): void }).tickWaterFlow([]);
-    const lowerContent = () => makeContent({ behaviors: withVar("fluidFlow", "sideBias", '"lower"') });
+  it("a stale fluidFlow doc with only the legacy sideBias var still pins the side", () => {
+    const content = makeContent({
+      behaviors: withScript("fluidFlow", ['var sideBias = "left";']), // no handler
+    });
+    const rt = makeRoom(PILLAR_ROOM, content);
+    tickOnce(rt);
+    expect(charAt(rt, 4, 1)).toBe("w");
+    expect(charAt(rt, 6, 1)).toBe(".");
+  });
+
+  describe("script-authored \"lower\" (sideDepth comparison in on pickSide)", () => {
+    // The policy Sean asked for, now written IN the script: fall toward
+    // whichever side is connected to the lower floor; tie = alternate.
+    const lowerContent = () => makeContent({
+      behaviors: withScript("fluidFlow", [
+        "on pickSide {",
+        "  var l = sideDepth(\"left\", 1);",
+        "  var r = sideDepth(\"right\", 1);",
+        "  if (l > r) { prefer(\"left\"); }",
+        "  else if (r > l) { prefer(\"right\"); }",
+        "  else { prefer(\"alternate\"); }",
+        "}",
+      ]),
+    });
 
     it("prefers the side whose floor is further down when the right side is deeper", () => {
-      // Water perched on a pillar at (5,1); left (x=4) has a shallow floor
-      // two rows down (y=3), right (x=6) stays open until y=5 — genuinely
-      // more room to fall, not just a wider single opening.
       const rows = [
         "#...........#",
         "#....w......#", // water at (5,1)
@@ -312,7 +361,6 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     });
 
     it("prefers the side whose floor is further down when the left side is deeper", () => {
-      // Mirror image: right (x=6) has the shallow floor, left (x=4) is deep.
       const rows = [
         "#...........#",
         "#....w......#",
@@ -328,22 +376,61 @@ describe("global sim tunables (behaviors.json global docs)", () => {
     });
 
     it("falls back to the alternating flip on an equal-depth tie", () => {
-      // Same symmetric shape as the slosh-knob test above — both sides tie
-      // in depth, so "lower" degrades to the same flip-based order
-      // "alternate" uses (flowSideFlip toggles true on the very first tick
-      // of a fresh room, which biases the first tie-break rightward).
-      const rows = [
-        "#..........#",
-        "#....w.....#",
-        "#....#.....#",
-        "#..........#",
-        "############",
-      ];
-      const rt = makeRoom(rows, lowerContent());
+      const rt = makeRoom(PILLAR_ROOM, lowerContent());
       tickOnce(rt);
+      // flowSideFlip toggles true on a fresh room's first tick -> right.
       expect(charAt(rt, 6, 1)).toBe("w");
       expect(charAt(rt, 4, 1)).toBe(".");
     });
+  });
+
+  it("`on sourcedSpread` spreadLeft() makes a fall pool fill one side only", () => {
+    // Lavafall at x=6 over a flat floor: with spreadLeft, the pool creeps
+    // left tick by tick and the right side stays dry.
+    const rows = [
+      "#.....J....#",
+      "#..........#",
+      "############",
+    ];
+    const content = makeContent({
+      behaviors: withScript("fluidFlow", [
+        "on sourcedSpread { spreadLeft(); }",
+      ]),
+    });
+    const rt = makeRoom(rows, content);
+    for (let i = 0; i < 10; i++) tickOnce(rt);
+    expect(charAt(rt, 5, 1)).toBe("L"); // spread left of the fall column
+    expect(charAt(rt, 4, 1)).toBe("L");
+    expect(charAt(rt, 7, 1)).toBe("."); // right side untouched
+    expect(charAt(rt, 8, 1)).toBe(".");
+  });
+
+  it("`on fluidContact` can invert the classic outcome (destroy the stationary side, keep the mover)", () => {
+    // Water on a pillar moves right into (5,1), then falls into (5,2) —
+    // whose neighbor (6,2) is stationary lava. Classic: the moving water
+    // is destroyed and the lava hardens to cracked. Custom policy: the
+    // lava is removed outright and the water completes its move.
+    const rows = [
+      "#.........#",
+      "#...w.....#", // water at (4,1)
+      "#...#.L...#", // pillar at (4,2), lava at (6,2)
+      "###########",
+    ];
+    const content = makeContent({
+      behaviors: withScript("fluidFlow", [
+        "on pickSide { prefer(\"right\"); }",
+        "on fluidContact(mover, other) {",
+        "  keepMover();",
+        "  destroyOther();",
+        "}",
+      ]),
+    });
+    const rt = makeRoom(rows, content);
+    tickOnce(rt); // water steps right to (5,1)
+    tickOnce(rt); // falls into (5,2); contact with the lava at (6,2) resolves
+    tickOnce(rt);
+    expect(charAt(rt, 6, 2)).toBe("."); // lava destroyed outright, no cracked
+    expect(charAt(rt, 5, 2)).toBe("w"); // the mover completed its move
   });
 
   it("rules.json pattern lines drive the element table (lava + metal -> melt)", () => {
