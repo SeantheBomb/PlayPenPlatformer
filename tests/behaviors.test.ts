@@ -219,6 +219,62 @@ describe("custom behavior scripts replace engine behavior without engine changes
     expect(en.state).toBe("patrol");
   });
 
+  // -------------------------------------------------------------------------
+  // REGRESSION (player report, 2026-08-05, mess_hall): the hammer reported
+  // itself as "Lit!" when swung near fire even though it has no `igniteTo`
+  // field, and the bucket showed the same "Lit!" instead of scooping lava.
+  // Root cause: a missing host field reads back as `undefined` (plain object
+  // member access), but `!=`/`==` used strict `!==`/`===`, and
+  // `undefined !== null` is TRUE — so every "field != null" guard in
+  // content (useSwing's igniteTo check, dousedInLiquid's dousesTo check)
+  // misfired for any item that simply doesn't define that field. Fixed by
+  // treating null and undefined as the same absence in `==`/`!=`, matching
+  // `??`'s existing treatment.
+  // -------------------------------------------------------------------------
+  it("`host.<missingField> != null` reads false — a missing field is not \"set\"", () => {
+    const customDoc: BehaviorDef = {
+      id: "nullCheckProbe",
+      host: "enemy",
+      script: [
+        "on elementContact(element) {",
+        // crawler has no `igniteTo` field — this must NOT fire.
+        "  if (host.igniteTo != null) { stun(1000); }",
+        "}",
+      ],
+    };
+    const variant: EnemyDef = { ...crawler, id: "crawler_probe", behaviors: ["nullCheckProbe"] };
+    const content = makeContent({ behaviors: [...BEHAVIORS, customDoc], enemies: [...ENEMIES, variant] });
+    const rt = makeRoom(FLOOR_ROOM, content, [
+      { type: "enemy", enemy: "crawler_probe", x: 5, y: 2 } as RoomEntity,
+    ]);
+    setSimTime(10_000);
+    const en = rt.enemies[0];
+    const events = rt.applyElementToEnemies("fire", { x: en.x - 2, y: en.y - 2, w: 24, h: 24 }, 3000);
+    expect(events.some((e) => e.effect === "enemy_stun")).toBe(false);
+  });
+
+  it("`host.<presentField> != null` still reads true — equality isn't broken for real values", () => {
+    const customDoc: BehaviorDef = {
+      id: "nullCheckProbePositive",
+      host: "enemy",
+      script: [
+        "on elementContact(element) {",
+        // crawler DOES define speed — this must still fire.
+        "  if (host.speed != null) { stun(1000); }",
+        "}",
+      ],
+    };
+    const variant: EnemyDef = { ...crawler, id: "crawler_probe2", behaviors: ["nullCheckProbePositive"] };
+    const content = makeContent({ behaviors: [...BEHAVIORS, customDoc], enemies: [...ENEMIES, variant] });
+    const rt = makeRoom(FLOOR_ROOM, content, [
+      { type: "enemy", enemy: "crawler_probe2", x: 5, y: 2 } as RoomEntity,
+    ]);
+    setSimTime(10_000);
+    const en = rt.enemies[0];
+    const events = rt.applyElementToEnemies("fire", { x: en.x - 2, y: en.y - 2, w: 24, h: 24 }, 3000);
+    expect(events.some((e) => e.effect === "enemy_stun")).toBe(true);
+  });
+
   it("attachment params override a script's field defaults", () => {
     const speedy: EnemyDef = {
       ...crawler,

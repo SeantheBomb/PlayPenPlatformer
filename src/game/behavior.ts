@@ -155,9 +155,15 @@ function evalExpr(e: Expr, env: Env): unknown {
       }
       const l = evalExpr(e.l, env);
       const r = evalExpr(e.r, env);
+      // A missing host/tile field reads back as undefined (member access
+      // above), but scripts write the idiomatic "field != null" — treat
+      // null and undefined as the same absence here (like ?? just above),
+      // or every "host.igniteTo != null"-style guard misfires true for any
+      // item that simply doesn't define that field.
+      const nullish = (v: unknown) => v === null || v === undefined;
       switch (op) {
-        case "==": return l === r;
-        case "!=": return l !== r;
+        case "==": return nullish(l) || nullish(r) ? nullish(l) === nullish(r) : l === r;
+        case "!=": return nullish(l) || nullish(r) ? nullish(l) !== nullish(r) : l !== r;
         case "<": return (l as number) < (r as number);
         case ">": return (l as number) > (r as number);
         case "<=": return (l as number) <= (r as number);
