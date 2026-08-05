@@ -324,10 +324,12 @@
       "// A lava melt just consumed a tile, `depth` tiles beyond direct lava",
       "// contact (1 = it touched real lava). keepHot() lets the vacated",
       "// cell radiate lava heat one more tick so the melt chains onward;",
-      "// doing nothing stops the chain here. Cap it with e.g.",
-      "// if (depth <= 2) { keepHot(); }",
+      "// doing nothing stops the chain here. keepHot() with no cap melts",
+      "// every connected metal block in the room — including door frames",
+      "// far from the lava (player report, 2026-08-05).",
       "on meltChain(depth) {",
-      "  keepHot(); // unlimited — consecutive metal melts away tile by tile",
+      "  // Lava only eats metal NEAR it: direct contact plus one chained tile.",
+      "  if (depth <= 1) { keepHot(); }",
       "}"
     ]
   },

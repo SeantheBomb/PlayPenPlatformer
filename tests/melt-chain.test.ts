@@ -5,6 +5,12 @@
 // "still hot" phase — only the ONE tile directly touching lava ever melted.
 // Run `npm test` before touching meltedHot / the spread-tick igniters loop
 // in room.ts.
+//
+// 2026-08-05 update (player report, mess_hall: "Lava melts all of the metal
+// instead of just the blocks near it"): how FAR the chain runs is now the
+// heatSpread doc's `on meltChain` policy, and the shipped default caps it at
+// direct contact + one tile (asserted in behaviors.test.ts). This file tests
+// the underlying chain MECHANISM with an explicit unlimited policy.
 import { describe, expect, it } from "vitest";
 import { RoomRuntime } from "../src/game/room";
 import type { Content, RoomDef, TileDef, RuleDef } from "../src/data/types";
@@ -17,9 +23,16 @@ import behaviorsJson from "../content/behaviors.json";
 const TILES = tilesJson as TileDef[];
 
 function makeContent(): Content {
+  // Unlimited melt-chain policy — the mechanism under test, decoupled from
+  // the shipped depth-capped default.
+  const behaviors = (behaviorsJson as { id: string; script?: string[] }[]).map((b) =>
+    b.id === "heatSpread"
+      ? { ...b, script: ["var intervalSec = 0.7;", "on meltChain(depth) { keepHot(); }"] }
+      : b
+  );
   return {
     game: gameJson as Content["game"],
-    elements: [], behaviors: behaviorsJson as never, rules: rulesJson as RuleDef[], achievements: [],
+    elements: [], behaviors: behaviors as never, rules: rulesJson as RuleDef[], achievements: [],
     tiles: TILES, items: [], recipes: [], enemies: [], taunts: [],
     campaign: { rooms: [] }, rooms: {},
   } as unknown as Content;

@@ -287,11 +287,17 @@ describe("global policy hooks (behaviors.json global docs)", () => {
     expect(charAt(rt, 3, 0)).toBe("M"); // no further
   });
 
-  it("the shipped default handler (always keepHot) keeps the unlimited chain", () => {
+  it("the shipped default handler melts direct contact plus one chained tile only", () => {
+    // Player report (2026-08-05, mess_hall): unlimited chaining melted every
+    // connected metal block in the room, including door frames far from the
+    // lava. The shipped heatSpread default is now `if (depth <= 1) keepHot()`.
     const content = makeContent({ rules: rulesJson as RuleDef[] });
     const rt = makeRoom(["LMMMM."], content);
     for (let i = 0; i < 8; i++) rt.update(0.7, null, 0, () => {});
-    for (let x = 1; x <= 4; x++) expect(charAt(rt, x, 0)).toBe(".");
+    expect(charAt(rt, 1, 0)).toBe("."); // direct contact melts
+    expect(charAt(rt, 2, 0)).toBe("."); // one chained tile melts
+    expect(charAt(rt, 3, 0)).toBe("M"); // the rest of the span survives
+    expect(charAt(rt, 4, 0)).toBe("M");
   });
 
   it("a stale heatSpread doc with only the legacy chainMeltRange var still caps the chain", () => {
