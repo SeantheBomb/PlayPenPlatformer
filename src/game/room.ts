@@ -475,7 +475,18 @@ export class RoomRuntime {
   private fluidOccupied(tx: number, ty: number): { ty: number; solid: boolean } {
     const r = this.realTileBelow(tx, ty);
     if (!r.solid) return { ty: r.ty, solid: false };
-    if (r.def && this.isFluid(r.def)) return { ty: r.ty, solid: true };
+    if (r.def && this.isFluid(r.def)) {
+      // Resting on fluid THROUGH a grate whose overlay is still dry: the
+      // grate cell itself is the resting spot — the pool's surface rising
+      // through the walkway. Without this, fluid arriving from above found
+      // "full below, no hole anywhere" and came to rest a full tile ABOVE
+      // a visibly dry grate (Sean's mess_hall report: lava stacked on top
+      // of the grate while the grate row itself carried nothing).
+      if (r.grateY >= 0 && !this.grateFluid.has(this.map.index(tx, r.grateY))) {
+        return { ty: r.grateY, solid: false };
+      }
+      return { ty: r.ty, solid: true };
+    }
     if (r.grateY >= 0) return { ty: r.grateY, solid: false };
     return { ty: r.ty, solid: true };
   }
@@ -1112,10 +1123,15 @@ export class RoomRuntime {
             const target = this.fluidOccupied(nx, ty);
             if (target.solid) continue;
             // "Into an open hole": there must be room below the landing spot
-            // too, not just a single flat opening at ty.
+            // too, not just a single flat opening at ty. Land IN the hole
+            // (one diagonal step down), not beside it on the same row — a
+            // same-row hop parks the tile over the hole for a tick, and the
+            // vacate grab-chain can drag a neighbor back before the fall
+            // turn ever comes, shuffling a two-tile body sideways forever
+            // (the greenhouse "oscillates instead of falling" report).
             const holeBelow = this.fluidOccupied(nx, target.ty + 1);
             if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
-            moveTo(nx, target.ty, distance);
+            moveTo(nx, holeBelow.ty, distance);
             break;
           }
         }
@@ -1160,9 +1176,11 @@ export class RoomRuntime {
         if (nx < 0 || nx >= this.map.width) continue;
         const target = this.fluidOccupied(nx, ty);
         if (target.solid) continue;
+        // Same "land IN the hole" rule as the diagonal slide above — see the
+        // perpetual-shuffle note there.
         const holeBelow = this.fluidOccupied(nx, target.ty + 1);
         if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
-        moveTo(nx, target.ty, distance);
+        moveTo(nx, holeBelow.ty, distance);
         break;
       }
     }

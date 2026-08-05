@@ -48,12 +48,6 @@
       "y": 20
     },
     {
-      "type": "pickup",
-      "item": "cloth",
-      "x": 12,
-      "y": 20
-    },
-    {
       "type": "brazier",
       "x": 2,
       "y": 14
@@ -92,6 +86,13 @@
       "color": "#7fd8e8",
       "dialogAsk": "Shh. Counting. ...41, 42 — there. The duct rattles every 43 seconds. The EXACT same rattle. Floors don't do that. I'm DEBUG.DEB. I'm not weird, I'm thorough. Run before the rattle and you'll be fine. I live down by the big box room now. Everyone's got their corner. Nobody visits.",
       "dialogAfter": "...41, 42. Go. GO."
+    },
+    {
+      "type": "source",
+      "x": 12,
+      "y": 20,
+      "sourceItem": "cloth",
+      "sourceAmount": 3
     }
   ]
 }

@@ -44,6 +44,16 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   GET `/api/content` on boot (precedence bundled < published < local draft). Publish /
   history / restore via the editor's **publish** tab, gated by the `EDITOR_PASSWORD`
   Pages secret (never hardcode it — the repo is public; ask Sean for the value).
+- **Published content is the primary source of truth** (Sean's standing directive —
+  the published bundle wholesale-wins over bundled per array entry via
+  `mergeArrayById`, so a stale published copy silently masks any repo change to the
+  same entry). Workflow: run `npm run content:pull` (tools/pull-content.mjs, writes
+  the live published bundle into `content/` + provenance in `.content-base.json`)
+  **before** starting any content or schema work, so you're developing against what
+  players actually have. `npm run content:push` (tools/publish-content.mjs) publishes
+  `content/` back to KV as a new version; `npm run deploy` chains it automatically so
+  code and content always ship together. Never edit repo `content/` and deploy code
+  without pushing content — that's the "pseudo regression" class this exists to kill.
 - Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`
   (add `-- --clear` to delete pulled reports from KV once they're fixed).
 - Anonymous gameplay telemetry (room attempts/completions/durations, deaths,
@@ -358,6 +368,18 @@ small generator script again; for local tweaks use the in-game editor or edit th
   Whichever side happens to be moving determines the outcome, not the element. A
   passive fallback (top of the main tick loop) covers rare non-move-caused adjacency
   (e.g. authored placement) by defaulting to lava-hardens/water-destroyed.
+- **Lateral fluid moves land IN the hole, not beside it** (2026-08-05, from the
+  greenhouse "oscillates instead of falling" report): case-4 slush moves and case-2
+  diagonal slides `moveTo` the hole's own cell (one diagonal step down), never the
+  same-row cell above it. A same-row hop parks the tile over the hole for a tick and
+  the vacate grab-chain can drag a neighbor back before the fall turn ever comes —
+  a two-tile body on a one-wide pillar then shuffles sideways forever. Regression
+  test in `tests/fluids.test.ts`; don't revert to `moveTo(nx, target.ty)`.
+- **Fluid arriving at a full pool under a flush grate rests IN the grate overlay**
+  (2026-08-05, mess_hall "lava on top of the grate" report): `fluidOccupied`'s
+  fluid-below branch offers `grateY` as the resting spot when the grate's overlay is
+  still dry — the pool's surface rising through the walkway — instead of reporting
+  solid and letting the mover stack a full tile above a visibly dry grate.
 - **Metal grates (`platform` style) and fluid occupy the SAME cell** (Sean's
   explicit call — grates must never be destroyed/replaced by fluid, even when
   fluid genuinely needs to be "at" a grate's position): `realTileBelow` walks

@@ -21,7 +21,7 @@
     "#.............=======...........########",
     "#...............................########",
     "#...............................########",
-    "#....=======....................########",
+    "#....=======...........=======..########",
     "#...............................########",
     "#..................b............########",
     "#...............................########",
@@ -29,7 +29,7 @@
     "#.y.............................########",
     "#..y.......................b....########",
     "#.............................T.########",
-    "#.......SS....^^^^............TT########",
+    "#.......SS...SS...SS..........TT########",
     "########################################",
     "########################################",
     "########################################"
@@ -59,7 +59,7 @@
     },
     {
       "type": "pickup",
-      "item": "plank",
+      "item": "spring_coil",
       "x": 17,
       "y": 12
     },
@@ -74,7 +74,7 @@
       "type": "hint",
       "x": 25,
       "y": 7,
-      "text": "{use} — place · jump on it · {interact} — reclaim"
+      "text": "F — place · jump on it · E — reclaim"
     },
     {
       "type": "door",
@@ -107,6 +107,24 @@
       "dialogConfirm": "IS THAT A BOING?! Can I hold it. Can I HOLD IT.",
       "dialogDone": "BOING. Bo-oing. Boing!! Okay, here, take it back — I just needed to KNOW. And here's my best invention: cloth plus rope equals a little guy. He does nothing! That's the point!! Everybody needs a little guy.",
       "dialogAfter": "The little guy believes in you. I checked."
+    },
+    {
+      "type": "converter",
+      "x": 26,
+      "y": 15,
+      "convertInput": "spring_coil",
+      "convertInputCount": 1,
+      "convertOutput": "plank",
+      "convertOutputCount": 1
+    },
+    {
+      "type": "converter",
+      "x": 24,
+      "y": 24,
+      "convertInput": "plank",
+      "convertInputCount": 1,
+      "convertOutput": "spring_coil",
+      "convertOutputCount": 1
     }
   ]
 }

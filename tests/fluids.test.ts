@@ -581,4 +581,65 @@ describe("a drain fully empties a flat, non-fall-fed lake via the grab-chain", (
     // adjacent steps increasing in a real run); the fix breaks that pattern.
     expect(increasing, `column depths were ${depths.join(",")}`).toBeLessThanOrEqual(6);
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean bug report, 2026-08-04, mess_hall): "Lava should lay
+  // only one layer deep, it shouldn't be on top of the metal grate here."
+  // Fluid arriving from above at a grate whose pool below is already full
+  // came to rest one tile ABOVE a visibly dry grate: fluidOccupied saw
+  // "fluid below, no hole" and returned solid without offering the grate
+  // cell's own (dry) overlay as the resting spot.
+  // -------------------------------------------------------------------------
+  it("fluid landing on a full pool under a grate rests IN the grate overlay, not above it", () => {
+    const rows = [
+      "#...#", // y0
+      "#.L.#", // y1  lava released from above
+      "#...#", // y2
+      "#.=.#", // y3  walkway grate
+      "#LLL#", // y4  basin already full to the grate
+      "#####", // y5
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 6);
+    expect(grateFluidAt(rt, 2, 3)?.element).toBe("lava"); // riding the grate
+    expect(charAt(rt, 2, 3)).toBe("="); // grate itself untouched
+    expect(charAt(rt, 2, 2)).toBe("."); // nothing stacked above the grate
+    expect(charAt(rt, 2, 1)).toBe(".");
+  });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean bug report, 2026-08-04, greenhouse): "The water on the
+  // ice oscillates back and forth instead of falling." A two-tile body atop
+  // a one-wide pillar shuffled sideways forever: the pillar tile hopped to
+  // the SAME ROW beside the hole, its vacate grab-chain dragged the neighbor
+  // back onto the pillar, and next tick's processing order repeated the
+  // shuffle before the overhang ever took its fall turn. The lateral move
+  // now lands IN the hole (one diagonal step down), so motion is
+  // monotonically downward and the cycle can't form.
+  // -------------------------------------------------------------------------
+  it("a two-tile body on a one-wide pillar drains off and settles instead of shuffling forever", () => {
+    const rows = [
+      "#.....#", // y0
+      "#.ww..#", // y1  pair: (3,1) on the pillar, (2,1) overhanging
+      "#..#..#", // y2  one-wide pillar at x3
+      "#.....#", // y3  open basin floor row
+      "#######", // y4
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 20);
+    // Fully quiescent: no flow events at all across several further ticks.
+    for (let i = 0; i < 4; i++) {
+      const ev: { effect?: string }[] = [];
+      (rt as never as { tickWaterFlow(e: unknown[]): void }).tickWaterFlow(ev);
+      expect(ev.filter((e) => e.effect === "flow").length).toBe(0);
+    }
+    // Both tiles conserved, resting on the floor row — none left aloft.
+    let onFloor = 0, aloft = 0;
+    for (let y = 0; y <= 3; y++) for (let x = 1; x <= 5; x++) {
+      if (!fluidAt(rt, x, y, "water")) continue;
+      if (y === 3) onFloor++; else aloft++;
+    }
+    expect(onFloor).toBe(2);
+    expect(aloft).toBe(0);
+  });
 });

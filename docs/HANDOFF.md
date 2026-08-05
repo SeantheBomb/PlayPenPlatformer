@@ -457,6 +457,42 @@ Verified live with a synthetic stepped-terrain room: waterfall pool committed
 entirely toward the deep basin, far shelf bone dry — the "lower" policy Sean
 asked for, authored as ~8 lines in the fluidFlow script pane.
 
+## 2026-08-05 — Published-content sync architecture + two fluid bug fixes
+
+**The pseudo-regression class, killed architecturally.** Sean: "The published
+content is always the primary source of truth... you should be aware of the
+authored content that's published, not just the generic content you've
+bundled." The failure mode: the published KV bundle wholesale-wins per array
+entry over bundled (`mergeArrayById`), so any repo-side change to an entry
+Sean has published (e.g. the fluidFlow behavior doc) is silently masked for
+every player and for Sean himself even after clearing his local draft. New
+tooling: `npm run content:pull` (tools/pull-content.mjs — live published
+bundle → `content/`, provenance in `.content-base.json`) and
+`npm run content:push` (tools/publish-content.mjs — `content/` → a new KV
+version via `npx wrangler`, prunes past 30). `npm run deploy` now chains
+content:push so code and content always ship together. Repo `content/` now
+carries Sean's authored rooms/game.json (pulled), reconciled against the
+5 code-coupled files which had zero authored deltas.
+
+**mess_hall report ("lava shouldn't be on top of the metal grate"):** lava
+released onto a full pool under a flush walkway grate came to rest one tile
+ABOVE the visibly dry grate. `fluidOccupied`'s fluid-below branch now offers
+the grate cell's dry overlay (`grateY`) as the resting spot — the pool's
+surface rising through the walkway.
+
+**greenhouse report ("water on the ice oscillates back and forth instead of
+falling"):** period-2 scans found nothing; a whole-room perpetual-motion scan
+(flag seeds still emitting flow events every tick after 40 settle ticks)
+caught it — a two-tile body atop a one-wide column shuffles sideways forever:
+the pillar tile's case-4 move hops to the SAME ROW beside the hole, vacate's
+grab-chain drags the neighbor back onto the pillar, and the intra-row
+processing order (alternating with flowSideFlip) reaches the pillar tile
+first both ticks, so the overhang never takes its fall turn. Fix: case-4
+moves and case-2 diagonal slides now land IN the hole (one diagonal step
+down) — motion is monotonically downward, the cycle can't form. Five
+behaviors.test.ts landing-row assertions updated (design intent unchanged);
+both bugs got permanent regression tests in fluids.test.ts. 128 tests green.
+
 ## Known non-blocking follow-ups (mentioned to Sean, not yet requested as work)
 
 - Group-clipboard paste (box-select tool) always offsets +1 tile from the current

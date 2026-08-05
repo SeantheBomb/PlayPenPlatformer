@@ -309,15 +309,16 @@ describe("global policy hooks (behaviors.json global docs)", () => {
     const pickSideScript = (side: string) => withScript("fluidFlow", [
       `on pickSide { prefer("${side}"); }`,
     ]);
+    // The move lands IN the hole (one diagonal step down), not beside it.
     const left = makeRoom(PILLAR_ROOM, makeContent({ behaviors: pickSideScript("left") }));
     tickOnce(left);
-    expect(charAt(left, 4, 1)).toBe("w"); // moved left
-    expect(charAt(left, 6, 1)).toBe(".");
+    expect(charAt(left, 4, 2)).toBe("w"); // moved left, into the hole
+    expect(charAt(left, 6, 2)).toBe(".");
 
     const right = makeRoom(PILLAR_ROOM, makeContent({ behaviors: pickSideScript("right") }));
     tickOnce(right);
-    expect(charAt(right, 6, 1)).toBe("w"); // moved right
-    expect(charAt(right, 4, 1)).toBe(".");
+    expect(charAt(right, 6, 2)).toBe("w"); // moved right, into the hole
+    expect(charAt(right, 4, 2)).toBe(".");
   });
 
   it("a stale fluidFlow doc with only the legacy sideBias var still pins the side", () => {
@@ -326,8 +327,8 @@ describe("global policy hooks (behaviors.json global docs)", () => {
     });
     const rt = makeRoom(PILLAR_ROOM, content);
     tickOnce(rt);
-    expect(charAt(rt, 4, 1)).toBe("w");
-    expect(charAt(rt, 6, 1)).toBe(".");
+    expect(charAt(rt, 4, 2)).toBe("w");
+    expect(charAt(rt, 6, 2)).toBe(".");
   });
 
   describe("script-authored \"lower\" (sideDepth comparison in on pickSide)", () => {
@@ -356,8 +357,8 @@ describe("global policy hooks (behaviors.json global docs)", () => {
       ];
       const rt = makeRoom(rows, lowerContent());
       tickOnce(rt);
-      expect(charAt(rt, 6, 1)).toBe("w"); // moved to the deeper (right) side
-      expect(charAt(rt, 4, 1)).toBe(".");
+      expect(charAt(rt, 6, 2)).toBe("w"); // moved to the deeper (right) side
+      expect(charAt(rt, 4, 2)).toBe(".");
     });
 
     it("prefers the side whose floor is further down when the left side is deeper", () => {
@@ -371,16 +372,16 @@ describe("global policy hooks (behaviors.json global docs)", () => {
       ];
       const rt = makeRoom(rows, lowerContent());
       tickOnce(rt);
-      expect(charAt(rt, 4, 1)).toBe("w"); // moved to the deeper (left) side
-      expect(charAt(rt, 6, 1)).toBe(".");
+      expect(charAt(rt, 4, 2)).toBe("w"); // moved to the deeper (left) side
+      expect(charAt(rt, 6, 2)).toBe(".");
     });
 
     it("falls back to the alternating flip on an equal-depth tie", () => {
       const rt = makeRoom(PILLAR_ROOM, lowerContent());
       tickOnce(rt);
       // flowSideFlip toggles true on a fresh room's first tick -> right.
-      expect(charAt(rt, 6, 1)).toBe("w");
-      expect(charAt(rt, 4, 1)).toBe(".");
+      expect(charAt(rt, 6, 2)).toBe("w");
+      expect(charAt(rt, 4, 2)).toBe(".");
     });
   });
 

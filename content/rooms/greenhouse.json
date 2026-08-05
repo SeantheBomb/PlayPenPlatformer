@@ -79,12 +79,6 @@
       "text": "Mushroom cold + goo = winter in a bottle. Water freezes hard enough to walk on. Slick, though. — Subject #28. P.S. The flowers turn to watch you go by. Wave back. Being polite costs nothing."
     },
     {
-      "type": "pickup",
-      "item": "glow_mushroom",
-      "x": 19,
-      "y": 22
-    },
-    {
       "type": "hint",
       "x": 23,
       "y": 19,
@@ -120,29 +114,10 @@
       "y": 22
     },
     {
-      "type": "pickup",
-      "item": "glow_mushroom",
-      "x": 53,
-      "y": 22
-    },
-    {
-      "type": "pickup",
-      "item": "goo_blob",
-      "x": 55,
-      "y": 22
-    },
-    {
       "type": "door",
       "x": 61,
       "y": 22,
       "to": "next"
-    },
-    {
-      "type": "pickup",
-      "x": 48,
-      "y": 17,
-      "item": "scrap_metal",
-      "count": 1
     },
     {
       "type": "npc",
@@ -201,6 +176,34 @@
       "avatar": "scribble",
       "color": "#ff8a5c",
       "dialogAsk": "MARLA LET ME HOLD THREE THINGS!! Progress!! We are basically a guild now."
+    },
+    {
+      "type": "pickup",
+      "item": "goo_blob",
+      "x": 36,
+      "y": 17
+    },
+    {
+      "type": "pickup",
+      "item": "cloth",
+      "x": 1,
+      "y": 22
+    },
+    {
+      "type": "converter",
+      "x": 48,
+      "y": 17,
+      "convertInput": "cloth",
+      "convertInputCount": 1,
+      "convertOutput": "scrap_metal",
+      "convertOutputCount": 1
+    },
+    {
+      "type": "source",
+      "x": 37,
+      "y": 22,
+      "sourceItem": "glow_mushroom",
+      "sourceAmount": 3
     }
   ]
 }
