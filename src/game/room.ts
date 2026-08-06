@@ -450,13 +450,43 @@ export class RoomRuntime {
     return !!def.fluid || def.style === "water";
   }
 
-  /** A closed gate (door + trapdoor) blocks fluid exactly like it blocks the
-   *  player — open gates and plain (non-gated) teleport doors don't. */
-  private doorBlocksFluid(tx: number, ty: number): boolean {
-    const box = { x: tx * TILE, y: ty * TILE, w: TILE, h: TILE };
+  /** Does any closed gate (door + trapdoor) overlap this rect? Open gates
+   *  and plain (non-gated) teleport doors never block — shared by every
+   *  "does a closed gate stand here" check (fluid, enemy sight, enemy
+   *  movement) so they can't drift out of sync with how it blocks the
+   *  player (game.ts's own closed-gate collision pass). */
+  private gateBlocksRect(box: { x: number; y: number; w: number; h: number }): boolean {
     return this.entities.some(
       (e) => (e.kind === "door" || e.kind === "trapdoor") && e.def.gate && !e.open && rectsOverlap(e, box)
     );
+  }
+
+  /** A closed gate (door + trapdoor) blocks fluid exactly like it blocks the
+   *  player — open gates and plain (non-gated) teleport doors don't. */
+  private doorBlocksFluid(tx: number, ty: number): boolean {
+    return this.gateBlocksRect({ x: tx * TILE, y: ty * TILE, w: TILE, h: TILE });
+  }
+
+  /** Is this point inside a closed gate? Used by enemy sight, which rays
+   *  through world-space points rather than tile cells. */
+  private doorBlocksPoint(x: number, y: number): boolean {
+    return this.gateBlocksRect({ x, y, w: 1, h: 1 });
+  }
+
+  /** A closed gate blocks enemy sight exactly like it blocks fluid and the
+   *  player — the tile grid alone (Tilemap.lineOfSight) has no idea gates
+   *  exist, since a closed gate is an entity overlay, not a carved tile
+   *  (see the room-construction note above about doors never getting a
+   *  solid tile under their own footprint). Samples the ray the same way
+   *  Tilemap.lineOfSight does, so a spotter reacts consistently whether
+   *  the thing in its cone is a wall or a shut door. */
+  lineOfSightBlockedByDoor(x1: number, y1: number, x2: number, y2: number): boolean {
+    const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1) / (TILE / 2));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (this.doorBlocksPoint(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)) return true;
+    }
+    return false;
   }
 
   /**
@@ -1260,7 +1290,21 @@ export class RoomRuntime {
       const below = belowInfo.def;
       const belowTy = belowInfo.ty;
       if (below === null) {
-        if (belowInfo.solid) continue; // blocked by a closed door — wait
+        if (belowInfo.solid) {
+          // Blocked by a closed gate — realTileBelow reports this the same
+          // shape as "genuinely nothing here yet" (def: null), which used to
+          // make this branch just `continue` forever: a shut door could stop
+          // the fall from growing, but could never trigger the pool-forming
+          // logic below (that only ever fired for a REAL solid tile def), so
+          // water dammed by a closed trapdoor just hung there indefinitely
+          // instead of pooling — reported live: "the trapdoor was very much
+          // not stopping the water even after I closed it." A closed gate
+          // needs to behave exactly like landing on solid ground: start (or
+          // keep) pooling at the row just above it.
+          const fluidDef = this.tilesById.get(def.fallSpawns);
+          if (fluidDef) this.poolFallBase(tx, belowInfo.ty - 1, fluidDef, events);
+          continue;
+        }
         // Genuinely open — the fall's own vertical body just keeps growing.
         // (A grate flush against real ground further down is handled below,
         // as the base pool's landing spot, not as fall growth.)
@@ -1303,23 +1347,29 @@ export class RoomRuntime {
         continue;
       }
       // First landing on solid ground: this is the fall's true base — start
-      // the pool by emitting into open side tiles, one row above the solid
-      // (which may be several rows below the fall if grates were skipped).
-      // This is sourced spreading too, so `on sourcedSpread` governs it.
-      const baseTy = belowTy - 1;
-      for (const nx of this.spreadTargets(tx, baseTy)) {
-        if (nx < 0 || nx >= this.map.width) continue;
-        // baseTy itself may be a grate spanning the whole walkway (flush over
-        // the real floor, no gap) — resolve through it same as falling does,
-        // so the pool can spread along/under a grated walkway toward a door
-        // instead of being unable to find anywhere to place a single tile.
-        const target = this.fluidOccupied(nx, baseTy);
-        if (target.solid) continue;
-        if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
-        this.placeFluid(nx, target.ty, fluidDef);
-        this.waterFlowDist.set(this.map.index(nx, target.ty), SOURCED);
-        events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: fluidDef.color });
-      }
+      // the pool (see poolFallBase) one row above the solid (which may be
+      // several rows below the fall if grates were skipped).
+      this.poolFallBase(tx, belowTy - 1, fluidDef, events);
+    }
+  }
+
+  /** A fall has hit its base (real solid ground OR a closed gate — see the
+   *  call sites) at baseTy+1: start (or keep) the pool by emitting into open
+   *  side tiles at baseTy. Sourced spreading, so `on sourcedSpread` governs
+   *  which sides it widens into. */
+  private poolFallBase(tx: number, baseTy: number, fluidDef: TileDef, events: ElementEvent[]): void {
+    for (const nx of this.spreadTargets(tx, baseTy)) {
+      if (nx < 0 || nx >= this.map.width) continue;
+      // baseTy itself may be a grate spanning the whole walkway (flush over
+      // the real floor, no gap) — resolve through it same as falling does,
+      // so the pool can spread along/under a grated walkway toward a door
+      // instead of being unable to find anywhere to place a single tile.
+      const target = this.fluidOccupied(nx, baseTy);
+      if (target.solid) continue;
+      if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
+      this.placeFluid(nx, target.ty, fluidDef);
+      this.waterFlowDist.set(this.map.index(nx, target.ty), SOURCED);
+      events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: fluidDef.color });
     }
   }
 
@@ -1753,6 +1803,14 @@ export class RoomRuntime {
     const tyBody1 = Math.floor((footY - 1) / TILE);
     for (let ty = tyBody0; ty <= tyBody1; ty++) {
       if (this.map.at(aheadTx, ty)?.solid) return false;
+    }
+    // A closed gate blocks exactly like a real wall — it's an entity
+    // overlay, not a tile, so the tile-grid solid check above never sees it
+    // (same reason enemy sight needs lineOfSightBlockedByDoor: a gate's
+    // footprint is deliberately never carved as a solid tile, see the room-
+    // construction note near the door/trapdoor entity loop).
+    if (this.gateBlocksRect({ x: aheadTx * TILE, y: tyBody0 * TILE, w: TILE, h: (tyBody1 - tyBody0 + 1) * TILE })) {
+      return false;
     }
     // Metal creatures refuse water — pools are a safe zone.
     if (d.element === "metal") {
@@ -2693,8 +2751,9 @@ registerFn("seesPlayer", (ctx, args) => {
   const conePad = argNum(args[2], 12);
   if (Math.abs(dy) > Math.abs(dx) * halfSlope + conePad) return false;
   if (Math.abs(dx) > argNum(args[0], 120)) return false;
-  return rt.map.lineOfSight(cx, cy, player.centerX, player.centerY);
-}, "seesPlayer(range?, halfSlope?, conePad?) -> bool — forward vision cone + line of sight; hidden players and smoke on either end block it");
+  return rt.map.lineOfSight(cx, cy, player.centerX, player.centerY)
+    && !rt.lineOfSightBlockedByDoor(cx, cy, player.centerX, player.centerY);
+}, "seesPlayer(range?, halfSlope?, conePad?) -> bool — forward vision cone + line of sight; hidden players, smoke, and closed gates block it");
 registerFn("playerHidden", (ctx) => {
   // No player, hiding in a locker, or smoke on either end of the sightline.
   const { rt, en, player } = enemyApi(ctx);

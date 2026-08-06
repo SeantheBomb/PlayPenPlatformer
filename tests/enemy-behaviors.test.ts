@@ -46,6 +46,7 @@ function makeMuts(): RoomMutations {
     drops: [],
     placedItems: [],
     brazierLit: [],
+    sourceAmounts: [],
   };
 }
 
@@ -218,6 +219,40 @@ describe("chase behavior", () => {
     en.facing = 1;
     sim.step({ centerX: 13 * 16 + 8, centerY: 3 * 16 + 8, hidden: false }, 5);
     expect(en.state).toBe("patrol");
+  });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (player report, 2026-08-06, the_yard): "Spotters shouldn't be
+  // able to see or walk through doors". A closed door/trapdoor is an entity
+  // overlay, not a solid tile — room construction deliberately never carves
+  // a solid tile under a gate's own footprint (so it isn't structurally
+  // impassable once opened). Tilemap.lineOfSight and canStepAhead only ever
+  // checked the tile grid, so they had zero door awareness: a spotter could
+  // see and walk straight through a shut door, unlike the player (game.ts's
+  // explicit closed-gate collision pass) and fluid (doorBlocksFluid).
+  // -------------------------------------------------------------------------
+  it("cannot see through a closed door (but can once it's open)", () => {
+    const door: RoomEntity = { type: "door", x: 10, y: 2, gate: true } as RoomEntity;
+    const { rt } = makeRoom(rows, [spotterAt(7), door]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    en.facing = 1;
+    sim.step(playerAt(13), 5);
+    expect(en.state).toBe("patrol");
+    const inst = rt.entities.find((e) => e.kind === "door")!;
+    inst.open = true;
+    sim.step(playerAt(13));
+    expect(en.state).toBe("chase");
+  });
+
+  it("cannot walk through a closed door while patrolling", () => {
+    const door: RoomEntity = { type: "door", x: 12, y: 2, gate: true } as RoomEntity;
+    const { rt } = makeRoom(rows, [enemyEntity(9, 2, "spotter", { patrolMinX: 5, patrolMaxX: 20 }), door]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    en.facing = 1;
+    sim.run(3); // plenty of time to reach the door if nothing stopped it
+    expect(en.x + en.def.width).toBeLessThanOrEqual(12 * 16);
   });
 
   it("ignores a hidden player entirely", () => {

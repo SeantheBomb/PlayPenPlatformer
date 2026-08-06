@@ -358,9 +358,9 @@ describe("locked fluid behaviors", () => {
   it("a closed trapdoor blocks a fall; opening it lets the fall through", () => {
     const rows = [
       "#....V....#",
-      "#.........#",
-      "#.........#", // y2: trapdoor entity here at x5
-      "#.........#",
+      "#...#.#...#", // y1: contained — nothing to bypass the door through
+      "#...#.#...#", // y2: trapdoor entity here at x5
+      "#...#.#...#",
       "###########",
     ];
     const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
@@ -372,6 +372,61 @@ describe("locked fluid behaviors", () => {
     inst.open = true;
     tick(rt, 10);
     expect(charAt(rt, 5, 3)).toBe("V");
+  });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, live playtest 2026-08-06, the_vault): "the trapdoor
+  // was very much not stopping the water even after I closed it" / "even
+  // when the trapdoor starts closed, it looks like it doesn't cause the
+  // water to pool" / "when the trapdoor starts open and then gets closed,
+  // it's not cutting off the downstream waterfall". Root cause: a closed
+  // gate makes realTileBelow report `{ def: null, solid: true }` — the same
+  // shape tickFalls uses for "genuinely nothing here yet, keep waiting" — so
+  // a shut door could stop a fall from GROWING but could never trigger the
+  // pool-forming logic (that only ever ran for a real solid tile def). The
+  // dammed water just hung in limbo forever instead of pooling. Fixed by
+  // routing a closed-gate block through the same poolFallBase() the "landed
+  // on solid ground" case uses.
+  // -------------------------------------------------------------------------
+  it("a closed trapdoor pools the fall above it instead of leaving it in limbo", () => {
+    const rows = [
+      "#....V....#",
+      "#.....#...#", // y1: open at x4 (room to pool into), walled at x6
+      "#...#.#...#", // y2: trapdoor at x5, walled both sides below pool level
+      "#...#.#...#",
+      "###########",
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    tick(rt, 20);
+    // Nothing gets past the closed door — no bypassing around it either.
+    expect(fluidAt(rt, 5, 2, "water")).toBe(false);
+    expect(fluidAt(rt, 5, 3, "water")).toBe(false);
+    expect(fluidAt(rt, 4, 2, "water")).toBe(false);
+    // But it actually POOLS at the row it's dammed against, instead of the
+    // fall just sitting there as a single stuck tile forever.
+    expect(fluidAt(rt, 4, 1, "water")).toBe(true);
+  });
+
+  it("closing a trapdoor mid-flow cuts off the fall and starts a pool, instead of leaving the established flow running", () => {
+    const rows = [
+      "#....V....#",
+      "#.....#...#",
+      "#...#.#...#",
+      "#...#.#...#",
+      "###########",
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    const inst = rt.entities.find((e) => e.kind === "trapdoor")!;
+    inst.open = true; // starts open: let the fall establish all the way down
+    tick(rt, 20);
+    expect(charAt(rt, 5, 3)).toBe("V"); // confirms it actually flowed through
+    inst.open = false; // now close it mid-flow
+    tick(rt, 20);
+    // New pooling above the now-closed door, and it actually gets cut off —
+    // not "still running because it already established a path through".
+    expect(fluidAt(rt, 4, 1, "water")).toBe(true);
   });
 });
 
