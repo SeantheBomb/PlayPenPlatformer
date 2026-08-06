@@ -801,3 +801,64 @@ describe("melted water beside a solid pillar flanked by two drains", () => {
     expect(stillAtOrigin, "water is still sitting unmoved at the melt column after 5s").toBeLessThan(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSION (Sean, live playtest, the_vault report + design directive
+// 2026-08-06): "The water should put out the fire and keep expanding to the
+// right" / "Flowing water should extinguish fire tiles (or anything
+// burning), once the fire tile is extinguished it should pool into that
+// tile." Root cause: water_extinguishes_fire (rules.json) only ever fired
+// from an ACTIVE item swing (applyElementToTiles) — the passive flow tick
+// had no equivalent, and fire/burning tiles were treated exactly like a
+// solid wall (realTileBelow), so flowing water just dammed up against fire
+// instead of putting it out and continuing through. Fixed by having
+// realTileBelow extinguish fire on the water's behalf as it walks past —
+// a bare fire tile (extinguishesTo: "") clears away entirely so the very
+// same check reports the cell open, letting water pool straight into it
+// the same tick; a merely-burning flammable tile just stops burning.
+// ---------------------------------------------------------------------------
+describe("flowing water extinguishes fire and pools into it", () => {
+  it("a fall extinguishes a fire tile directly below it and pools into the now-open cell", () => {
+    const rows = [
+      "#####",
+      "#.V.#",
+      "#.f.#", // fire directly below the fall
+      "#...#",
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 10);
+    expect(charAt(rt, 2, 2)).not.toBe("f"); // the fire is gone
+    expect(fluidAt(rt, 2, 2, "water") || charAt(rt, 2, 2) === "V").toBe(true); // water/fall took its place
+  });
+
+  it("water spreading sideways extinguishes fire tiles in its path and keeps expanding past them", () => {
+    const rows = [
+      "#V.ffff...#", // fall at x1; fire at x3-6; open ledge past it
+      "###########", // solid the whole way along — forces sideways spread, not a fall-through
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 40); // plenty of time for the SOURCED frontier to reach x6
+    for (let x = 3; x <= 6; x++) {
+      expect(charAt(rt, x, 0), `expected fire at (${x},0) to be extinguished`).not.toBe("f");
+      expect(fluidAt(rt, x, 0, "water"), `expected water to have pooled into (${x},0)`).toBe(true);
+    }
+  });
+
+  it("water only stops a merely-burning flammable tile from burning — the tile itself stays exactly as solid as before", () => {
+    const rows = [
+      "#####",
+      "#.V.#",
+      "#.T.#", // toyblock: solid + flammable
+      "#...#",
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    expect(rt.igniteTile(2, 2)).toBe(true);
+    tick(rt, 10);
+    // Water dammed against it (never got past — the tile itself is unchanged
+    // and still solid), but the block itself is still there, still a toyblock.
+    expect(charAt(rt, 2, 2)).toBe("T");
+    expect(fluidAt(rt, 2, 2, "water")).toBe(false);
+  });
+});

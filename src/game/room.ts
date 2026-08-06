@@ -502,8 +502,10 @@ export class RoomRuntime {
    * is blocking (tickFalls' mid-fall/drain/quench cases) call
    * realTileBelow directly instead.
    */
-  private fluidOccupied(tx: number, ty: number): { ty: number; solid: boolean } {
-    const r = this.realTileBelow(tx, ty);
+  private fluidOccupied(
+    tx: number, ty: number, moverElement?: string, events?: ElementEvent[]
+  ): { ty: number; solid: boolean } {
+    const r = this.realTileBelow(tx, ty, moverElement, events);
     if (!r.solid) return { ty: r.ty, solid: false };
     if (r.def && this.isFluid(r.def)) {
       // Resting on fluid THROUGH a grate whose overlay is still dry: the
@@ -536,12 +538,21 @@ export class RoomRuntime {
    * Off the map reports ty === map.height, not solid, no grate fallback.
    */
   private realTileBelow(
-    tx: number, ty: number
+    tx: number, ty: number, moverElement?: string, events?: ElementEvent[]
   ): { ty: number; def: TileDef | null; solid: boolean; grateY: number } {
     let y = ty;
     let lastGrateY = -1;
     while (y < this.map.height) {
       if (this.doorBlocksFluid(tx, y)) return { ty: y, def: null, solid: true, grateY: -1 };
+      // Water reaching a fire tile (or anything merely on fire) puts it out
+      // — same "on fluidContact" spirit as quenching lava, but for fire/
+      // burning, which was never handled outside an active item swing. A
+      // bare fire tile (extinguishesTo: "") clears away entirely so this
+      // same walk sees an open cell next line down and the water pools
+      // straight into it; a flammable tile that's merely burning (the
+      // `burning` overlay) just stops burning — the tile itself (e.g. wood)
+      // stays exactly as solid as it always was.
+      if (moverElement === "water") this.extinguishFireTile(tx, y, events ?? []);
       const t = this.map.at(tx, y);
       if (t === null) return { ty: y, def: null, solid: false, grateY: -1 };
       if (t.style !== "platform") return { ty: y, def: t, solid: true, grateY: lastGrateY };
@@ -549,6 +560,24 @@ export class RoomRuntime {
       y++;
     }
     return { ty: y, def: null, solid: false, grateY: -1 };
+  }
+
+  /** See realTileBelow's water branch above — extinguishes whatever fire is
+   *  at (tx,ty), whether that's a lit fire-element tile (clears away
+   *  entirely) or just the `burning` overlay on an otherwise-ordinary
+   *  flammable tile (stops burning, tile itself unchanged). No-op, no event,
+   *  if there's nothing to put out. */
+  private extinguishFireTile(tx: number, ty: number, events: ElementEvent[]): void {
+    const idx = this.map.index(tx, ty);
+    let extinguished = this.burning.delete(idx);
+    const def = this.map.at(tx, ty);
+    if (def?.element === "fire" && def.extinguishesTo !== undefined) {
+      this.transformTile(tx, ty, def.extinguishesTo);
+      extinguished = true;
+    }
+    if (extinguished) {
+      events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
+    }
   }
 
   /**
@@ -1167,8 +1196,8 @@ export class RoomRuntime {
       // 1. Fall (as a move) — metal grates are transparent, so this skips
       // straight through any directly beneath to the first real open cell,
       // or floods a grate flush against solid ground if that's all there is.
-      const belowInfo = this.realTileBelow(tx, ty + 1);
-      const fallTarget = this.fluidOccupied(tx, ty + 1);
+      const belowInfo = this.realTileBelow(tx, ty + 1, def.element, events);
+      const fallTarget = this.fluidOccupied(tx, ty + 1, def.element, events);
       if (!fallTarget.solid) {
         moveTo(tx, fallTarget.ty, distance === SOURCED ? SOURCED : 0);
         continue;
@@ -1176,13 +1205,13 @@ export class RoomRuntime {
       const below = belowInfo.def;
       // 2. Part of a column still settling.
       if (below && this.isFluid(below)) {
-        const belowBelowInfo = this.realTileBelow(tx, belowInfo.ty + 1);
+        const belowBelowInfo = this.realTileBelow(tx, belowInfo.ty + 1, def.element, events);
         const columnGrounded = belowBelowInfo.ty >= this.map.height ||
           (belowBelowInfo.solid && !(belowBelowInfo.def && this.isFluid(belowBelowInfo.def)));
         if (columnGrounded) {
           for (const nx of this.sideXs(tx, ty)) {
             if (nx < 0 || nx >= this.map.width) continue;
-            const target = this.fluidOccupied(nx, ty);
+            const target = this.fluidOccupied(nx, ty, def.element, events);
             if (target.solid) continue;
             // "Into an open hole": there must be room below the landing spot
             // too, not just a single flat opening at ty. Land IN the hole
@@ -1191,7 +1220,7 @@ export class RoomRuntime {
             // vacate grab-chain can drag a neighbor back before the fall
             // turn ever comes, shuffling a two-tile body sideways forever
             // (the greenhouse "oscillates instead of falling" report).
-            const holeBelow = this.fluidOccupied(nx, target.ty + 1);
+            const holeBelow = this.fluidOccupied(nx, target.ty + 1, def.element, events);
             if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
             // No grab-refill here either: this tile is escaping a dead end
             // (resting beside a solid wall) sideways, not falling into open
@@ -1218,7 +1247,7 @@ export class RoomRuntime {
         // would just hand that neighbor the same squeeze-and-swap escape.
         for (const nx of this.sideXs(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
-          const target = this.fluidOccupied(nx, ty);
+          const target = this.fluidOccupied(nx, ty, def.element, events);
           if (target.solid) continue;
           moveTo(nx, target.ty, distance, false);
           break;
@@ -1232,7 +1261,7 @@ export class RoomRuntime {
         // fluidFlow's `on sourcedSpread` policy (spreadTargets).
         for (const nx of this.spreadTargets(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
-          const target = this.fluidOccupied(nx, ty);
+          const target = this.fluidOccupied(nx, ty, def.element, events);
           if (target.solid) continue;
           if (this.resolveFluidContact(nx, target.ty, def, tx, ty, events)) continue;
           const nIdx = this.map.index(nx, target.ty);
@@ -1248,11 +1277,11 @@ export class RoomRuntime {
       // whole thing slushes downhill instead of becoming an infinite source.
       for (const nx of this.sideXs(tx, ty)) {
         if (nx < 0 || nx >= this.map.width) continue;
-        const target = this.fluidOccupied(nx, ty);
+        const target = this.fluidOccupied(nx, ty, def.element, events);
         if (target.solid) continue;
         // Same "land IN the hole" rule as the diagonal slide above — see the
         // perpetual-shuffle note there.
-        const holeBelow = this.fluidOccupied(nx, target.ty + 1);
+        const holeBelow = this.fluidOccupied(nx, target.ty + 1, def.element, events);
         if (holeBelow.ty >= this.map.height || holeBelow.solid) continue;
         // No grab-refill (see case 2's note) — same dead-end-escape shape.
         moveTo(nx, holeBelow.ty, distance, false);
@@ -1285,7 +1314,7 @@ export class RoomRuntime {
       // through any directly below instead of resting on them. A closed
       // gate is the opposite: solid to fluid even where the tile itself is
       // empty, so the fall just stops and waits rather than growing past it.
-      const belowInfo = this.realTileBelow(tx, ty + 1);
+      const belowInfo = this.realTileBelow(tx, ty + 1, def.element, events);
       if (belowInfo.ty >= this.map.height) continue;
       const below = belowInfo.def;
       const belowTy = belowInfo.ty;
@@ -1364,7 +1393,7 @@ export class RoomRuntime {
       // the real floor, no gap) — resolve through it same as falling does,
       // so the pool can spread along/under a grated walkway toward a door
       // instead of being unable to find anywhere to place a single tile.
-      const target = this.fluidOccupied(nx, baseTy);
+      const target = this.fluidOccupied(nx, baseTy, fluidDef.element, events);
       if (target.solid) continue;
       if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
       this.placeFluid(nx, target.ty, fluidDef);
