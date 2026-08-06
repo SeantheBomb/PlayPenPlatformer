@@ -171,4 +171,75 @@ describe("goo climb (sticky bomb)", () => {
     player.update(0.1, { ...NO_INPUT, downHeld: true }, map, {} as RunState);
     expect(player.climbState).toBe("none");
   });
+
+  // -------------------------------------------------------------------------
+  // REQUIREMENT (Sean, 2026-08-05): "I want to be able to mount onto metal
+  // grates or surface tops if the goo lets me climb all the way up to them.
+  // Right now I seem to just get stuck at the end of the goo and jitter
+  // wildly." Also: "I look weirdly squished" while climbing.
+  // -------------------------------------------------------------------------
+  it("mounts onto a grate at the top of a climbable wall instead of hovering/jittering", () => {
+    const rows = [
+      "#........", // row0: open headroom above the grate
+      "#=.......", // row1: grate cap
+      "#G.......", // row2: goo
+      "#G.......", // row3: goo
+      "#G.......", // row4: goo
+      "##########", // row5: floor
+    ];
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 18; player.y = 4 * 16;
+    const dt = 1 / 60;
+    for (let i = 0; i < 240 && player.y > 0; i++) {
+      player.update(dt, { ...NO_INPUT, left: true, jumpDown: true }, map, {} as RunState);
+      if (player.climbState === "none" && i > 5) break; // dismounted (mounted or fell)
+    }
+    expect(player.climbState).toBe("none");
+    expect(player.onGround).toBe(true);
+    // Mounted ON TOP of the grate (row1), not fallen back to the floor.
+    expect(player.y).toBeLessThan(4 * 16);
+  });
+
+  it("does not endlessly re-engage against a dead-end (solid-capped) climbable wall", () => {
+    const rows = [
+      "##........", // row0: solid cap, no headroom to mount
+      "#G........", // row1: goo
+      "#G........", // row2: goo
+      "#G........", // row3: goo
+      "##########", // row4: floor
+    ];
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 18; player.y = 3 * 16;
+    const dt = 1 / 60;
+    let reengageCount = 0;
+    let prevState: string = player.climbState;
+    for (let i = 0; i < 600; i++) {
+      player.update(dt, { ...NO_INPUT, left: true, jumpDown: true }, map, {} as RunState);
+      if (prevState === "none" && player.climbState === "wall") reengageCount++;
+      prevState = player.climbState;
+    }
+    // Exactly one engage — timing out must not silently reset and re-grab
+    // forever while input stays held.
+    expect(reengageCount).toBe(1);
+    expect(player.climbState).toBe("none");
+  });
+
+  it("keeps easing squash back to normal while climbing (doesn't freeze mid-squash)", () => {
+    const rows = [
+      "........",
+      "#G......",
+      "#G......",
+      "#G......",
+      "########",
+    ];
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 18; player.y = 2 * 16;
+    player.squashY = 1.32; // as if a jump squash was mid-animation
+    player.update(0.1, { ...NO_INPUT, left: true }, map, {} as RunState);
+    expect(player.climbState).toBe("wall");
+    expect(player.squashY).toBeLessThan(1.32); // eased toward 1, not frozen
+  });
 });

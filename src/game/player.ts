@@ -45,6 +45,13 @@ export class Player {
   climbState: "none" | "wall" | "ceiling" = "none";
   climbFacing: -1 | 1 = 1;
   climbTimeLeft = 0;
+  /** simNow() a fresh climb can't engage before — set on any dismount that
+   *  didn't end in mounting a ledge. A dead-end climb (solid cap, no room
+   *  to mantle) leaves the player still overlapping the same goo tile with
+   *  input still held; without this the engage check refires the instant
+   *  the dismount branch finishes, silently resetting the stamina timer
+   *  forever instead of ever actually dropping the player. */
+  private climbLockedUntil = 0;
 
   swingUntil = 0; // swing-tool animation window
   private onIce = false; // standing on a slippery tile last frame
@@ -125,6 +132,38 @@ export class Player {
     return isGooCeiling(leftTx) || isGooCeiling(rightTx);
   }
 
+  /** Reached the top of a climbable wall — look for a standable surface
+   *  (solid ground or a metal-grate platform) directly above the goo column,
+   *  or one tile further away from the wall, and snap the player to stand
+   *  on top of it. A one-way platform can't be caught by physics alone (it
+   *  only blocks from above), so this checks tile identity directly instead
+   *  of nudging and hoping gravity sorts it out. */
+  private tryMountLedge(map: TileMap): boolean {
+    const ownCol = Math.floor((this.x + this.w / 2) / TILE);
+    const awayCol = ownCol + -this.climbFacing;
+    // A one-way platform only blocks DOWNWARD movement from above — it never
+    // stops the player from climbing straight up through it. So by the time
+    // stillGoo goes false, the player's own row (not one above) is already
+    // the standable surface's row; checking "one row above" here was the
+    // original bug (it looked one tile too high, past any platform cap).
+    const surfaceRow = Math.floor(this.y / TILE);
+    for (const col of [ownCol, awayCol]) {
+      const cell = map.at(col, surfaceRow);
+      const standable = !!cell && (cell.solid || cell.style === "platform");
+      if (!standable) continue;
+      const headroom = map.at(col, surfaceRow - 1);
+      if (headroom?.solid) continue;
+      this.x = col * TILE + (TILE - this.w) / 2;
+      this.y = surfaceRow * TILE - this.h;
+      this.vx = 0;
+      this.vy = 0;
+      this.onGround = true;
+      this.wasOnGround = true;
+      return true;
+    }
+    return false;
+  }
+
   get invulnerable() {
     return simNow() < this.invulnUntil || this.hiddenIn !== null;
   }
@@ -190,13 +229,19 @@ export class Player {
     // against a wall/ceiling, axis-lock movement to it, dismount on
     // movement away or timeout. ----
     const climb = cfg.climb;
-    if (this.climbState === "none" && !inDeepWater) {
+    if (this.climbState === "none" && !inDeepWater && now >= this.climbLockedUntil) {
       if (input.left && this.touchingWallGoo(map, -1)) {
         this.climbState = "wall"; this.climbFacing = -1; this.climbTimeLeft = climb.wallSeconds;
+        // Snap flush against the wall — engaging mid-stride (only a sliver
+        // of the player's leading edge inside the goo tile) otherwise left
+        // a visible gap, reading as "stuck next to" the surface, not on it.
+        this.x = Math.floor(this.x / TILE) * TILE;
       } else if (input.right && this.touchingWallGoo(map, 1)) {
         this.climbState = "wall"; this.climbFacing = 1; this.climbTimeLeft = climb.wallSeconds;
+        this.x = Math.floor((this.x + this.w - 1) / TILE) * TILE + TILE - this.w;
       } else if (this.vy < 0 && this.touchingCeilingGoo(map)) {
         this.climbState = "ceiling"; this.climbTimeLeft = climb.ceilingSeconds;
+        this.y = Math.floor(this.y / TILE) * TILE;
       }
     }
     if (this.climbState !== "none") {
@@ -208,8 +253,33 @@ export class Player {
         : (input.downHeld || input.jumpPressed);
       this.climbTimeLeft -= dt;
       if (!stillGoo || movingAway || this.climbTimeLeft <= 0) {
+        // Ran out of goo while actively climbing UP a wall (reached the top
+        // of the sticky patch, e.g. capped by a grate/ledge above) — try to
+        // mount the player onto whatever standable surface is right there.
+        const reachedTop = !stillGoo && !movingAway && this.climbState === "wall" && input.jumpDown;
+        const wasWall = this.climbState === "wall";
+        const wallFacing = this.climbFacing;
         this.climbState = "none";
-        this.vy = 0; // hang for a beat rather than snapping into a fall mid-frame
+        if (!reachedTop || !this.tryMountLedge(map)) {
+          this.vy = 0; // hang for a beat rather than snapping into a fall mid-frame
+          // Step clear of the wall/ceiling regardless of dismount cause —
+          // the player's own height (14px) isn't a whole multiple of a
+          // tile, so at a row boundary their body can straddle into the
+          // goo tile they're "leaving" via the OTHER edge of their hitbox
+          // (touchingWallGoo/touchingCeilingGoo check both edges). Left in
+          // place, that reads as still touching goo and instantly re-grabs
+          // next frame — climb, hit the top, drop, grab, hit the top...
+          // the reported jitter.
+          if (wasWall) this.x -= wallFacing * 4;
+          else this.y += 4;
+          // A dead end (solid cap, nowhere to mantle) keeps the player
+          // overlapping the SAME goo tile even after that nudge — with
+          // input still held, engaging would otherwise refire the instant
+          // this branch finishes, silently resetting the stamina timer
+          // forever instead of ever dropping the player. Lock re-engage
+          // out briefly so gravity gets a real chance to pull them clear.
+          this.climbLockedUntil = now + 300;
+        }
       } else {
         if (this.climbState === "wall") {
           const up = input.jumpDown ? 1 : (input.downHeld ? -1 : 0);
@@ -227,6 +297,10 @@ export class Player {
         this.y = res.y;
         this.onGround = res.onGround;
         this.wasOnGround = res.onGround;
+        // Still ease squash/blink even on this early return — otherwise a
+        // squash left mid-animation by the jump that triggered the climb
+        // (or a wall-climb hold) freezes for the whole climb duration.
+        this.updateSquashAndBlink(dt, now);
         return ev;
       }
     }
@@ -352,7 +426,14 @@ export class Player {
     this.onGround = res.onGround;
     this.wasOnGround = res.onGround;
 
-    // ---- Squash recovery + blink ----
+    this.updateSquashAndBlink(dt, now);
+    return ev;
+  }
+
+  /** Eases squash/stretch back to 1 and runs the idle-blink timer. Called
+   *  from every exit path of update() (including early returns, e.g. mid
+   *  goo-climb) so a squash left mid-animation never freezes for seconds. */
+  private updateSquashAndBlink(dt: number, now: number): void {
     this.squashX = lerp(this.squashX, 1, 1 - Math.pow(0.0001, dt));
     this.squashY = lerp(this.squashY, 1, 1 - Math.pow(0.0001, dt));
     if (now > this.blinkAt) {
@@ -362,8 +443,6 @@ export class Player {
         this.blinkAt = now + 1800 + Math.random() * 2600;
       }
     }
-
-    return ev;
   }
 
   /** Kick off the swing-tool visual (breaking logic lives in Game). */
