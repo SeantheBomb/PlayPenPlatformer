@@ -25,7 +25,7 @@ import { randomSeed } from "../engine/rng";
 import { itemAttachments, registerFn, type ScriptCtx } from "./behavior";
 import { recorder, type CraftOp, type Heartbeat } from "./recorder";
 import {
-  drawAir, drawFloaties, drawHearts, drawHotbar, drawPrompt,
+  drawAir, drawClimbTimer, drawFloaties, drawHearts, drawHotbar, drawPrompt,
   drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
   type Floaty, type OverlayButton,
 } from "./hud";
@@ -68,7 +68,7 @@ export class Game {
   private nextDrownAt = 0;
   private prevSwim: "none" | "surface" | "under" = "none";
   /** Thrown smoke bombs in flight (sim state — replay-safe). */
-  private bombs: { x: number; y: number; vx: number; vy: number }[] = [];
+  private bombs: { x: number; y: number; vx: number; vy: number; itemId: string }[] = [];
   /** simTime when the current throw charge began (null = not charging). */
   private throwChargeSince: number | null = null;
   input: Input;
@@ -723,7 +723,10 @@ export class Game {
     const g = this.content.game;
 
     // ---- Player physics ----
-    const ev = this.player.update(dt, this.input, this.roomRt.map, this.state);
+    const ev = this.player.update(
+      dt, this.input, this.roomRt.map, this.state,
+      (tx, ty, face) => this.roomRt.hasGooFace(tx, ty, face)
+    );
     this.pushToyblocks(dt);
     if (ev.jumped) sfx.play("jump");
     if (ev.landed) {
@@ -867,16 +870,26 @@ export class Game {
         const hit = !out && this.roomRt.map.at(tx, ty)?.solid;
         if (out) return false;
         if (!hit) return true;
-        // Impact: step back out of the wall so the veil centers in open air.
+        // Impact: step back out of the wall so the burst centers in open air.
         const cx = b.x - b.vx * dt;
         const cy = b.y - b.vy * dt;
-        this.roomRt.addSmokeCloud(cx, cy, rules.smokeBombRadius, rules.smokeCloudSeconds * 1000);
-        sfx.play("stun");
-        this.camera.shake(2, 0.2);
-        this.particles.burst({
-          x: cx, y: cy, count: 40, color: "#aab3c8",
-          speed: rules.smokeBombRadius * 0.6, life: 1.1, gravity: -25,
-        });
+        if (b.itemId === "sticky_bomb") {
+          this.roomRt.spreadGoo(cx, cy, rules.stickyBombRadius);
+          sfx.play("trap");
+          this.camera.shake(2, 0.2);
+          this.particles.burst({
+            x: cx, y: cy, count: 30, color: "#8bd44f",
+            speed: rules.stickyBombRadius * 0.7, life: 0.7, gravity: 60,
+          });
+        } else {
+          this.roomRt.addSmokeCloud(cx, cy, rules.smokeBombRadius, rules.smokeCloudSeconds * 1000);
+          sfx.play("stun");
+          this.camera.shake(2, 0.2);
+          this.particles.burst({
+            x: cx, y: cy, count: 40, color: "#aab3c8",
+            speed: rules.smokeBombRadius * 0.6, life: 1.1, gravity: -25,
+          });
+        }
         return false;
       });
     }
@@ -1491,7 +1504,9 @@ export class Game {
     this.state.remove(item.id);
     this.player.swing();
     const v = this.throwVelocityAt(t);
-    this.bombs.push({ x: this.player.centerX, y: this.player.centerY - 4, vx: v.vx, vy: v.vy });
+    this.bombs.push({
+      x: this.player.centerX, y: this.player.centerY - 4, vx: v.vx, vy: v.vy, itemId: item.id,
+    });
     sfx.play("swing");
   }
 
@@ -1844,6 +1859,11 @@ export class Game {
     drawHearts(ctx, this.state.health, this.state.maxHealth, hud, uiScale);
     if (this.player.swimState === "under" || this.air < this.content.game.rules.airBlips) {
       drawAir(ctx, this.air, this.content.game.rules.airBlips, hud, uiScale);
+    }
+    if (this.player.climbState !== "none") {
+      const climbCfg = this.content.game.player.climb;
+      const maxTime = this.player.climbState === "wall" ? climbCfg.wallSeconds : climbCfg.ceilingSeconds;
+      drawClimbTimer(ctx, this.player.climbTimeLeft, maxTime, hud, uiScale);
     }
     drawToolbelt(ctx, this.state, VIEW_W, hud, uiScale);
     const hotbarHint =

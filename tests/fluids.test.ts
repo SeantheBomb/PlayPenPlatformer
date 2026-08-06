@@ -39,6 +39,7 @@ function makeMuts(): RoomMutations {
     placedItems: [],
     brazierLit: [],
     sourceAmounts: [],
+    gooFaces: [],
   };
 }
 

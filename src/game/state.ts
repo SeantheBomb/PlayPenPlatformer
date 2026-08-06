@@ -35,6 +35,7 @@ export interface RoomMutations {
   placedItems: PlacedItem[];  // player-placed springs and traps
   brazierLit: [number, boolean][]; // entity index -> lit override (douse/relight)
   sourceAmounts: [number, number][]; // entity index -> remaining stock override
+  gooFaces: [number, string][]; // tile index -> face ("top"|"bottom"|"left"|"right"), one entry per face
 }
 
 export interface RunStats {
@@ -58,6 +59,7 @@ export interface RoomMutationsSnapshot {
   placedItems: PlacedItem[];
   brazierLit: [number, boolean][];
   sourceAmounts: [number, number][];
+  gooFaces: [number, string][];
 }
 
 /** Everything in RunState, as plain JSON — a periodic "heartbeat" ground
@@ -146,6 +148,7 @@ export class RunState {
         placedItems: m.placedItems.map((p) => ({ ...p })),
         brazierLit: [...m.brazierLit],
         sourceAmounts: [...m.sourceAmounts],
+        gooFaces: [...m.gooFaces],
       }]),
       selectedConsumable: this.selectedConsumable,
       hasDiedOnce: this.hasDiedOnce,
@@ -178,6 +181,7 @@ export class RunState {
       placedItems: m.placedItems.map((p) => ({ ...p })),
       brazierLit: [...m.brazierLit],
       sourceAmounts: [...m.sourceAmounts],
+      gooFaces: [...m.gooFaces],
     }]));
     this.selectedConsumable = snap.selectedConsumable;
     this.hasDiedOnce = snap.hasDiedOnce;
@@ -203,6 +207,7 @@ export class RunState {
         placedItems: [],
         brazierLit: [],
         sourceAmounts: [],
+        gooFaces: [],
       };
       this.roomStates.set(roomId, m);
     }

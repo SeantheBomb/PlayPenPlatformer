@@ -41,6 +41,14 @@ export interface GameConfig {
       accelFactor: number;    // horizontal accel multiplier (floaty)
       frictionFactor: number; // horizontal friction multiplier (drifty)
     };
+    /** BOTW-style stamina climb on goo-covered wall/ceiling faces (sticky
+     *  bomb). Moving into a goo face engages it; moving away, or the timer
+     *  running out, dismounts back to normal falling. */
+    climb: {
+      wallSeconds: number;    // climb duration on a wall-facing goo patch
+      ceilingSeconds: number; // climb duration on a ceiling-facing goo patch
+      speed: number;          // along-surface movement speed, px/s
+    };
   };
   camera: { lerp: number; lookaheadX: number; lookaheadY: number };
   juice: {
@@ -71,6 +79,7 @@ export interface GameConfig {
     airBlips: number;           // breath capacity while underwater
     airLossSeconds: number;     // seconds per blip lost while submerged
     drownSeconds: number;       // seconds per heart lost once air runs out
+    stickyBombRadius: number;   // goo splat radius in px, from detonation point
   };
   audio: { sfxVolume: number; muted: boolean };
   /** HUD layout — editable in the editor's "game" tab, no code changes needed. */
@@ -83,6 +92,8 @@ export interface GameConfig {
     hotbarLeftOffset: number; hotbarBottomOffset: number;
     hotbarSlotSize: number; hotbarSpacing: number; hotbarSelectedColor: string;
     bannerTopOffset: number;
+    /** Climb-timer bar (goo climbing) — shown only while climbing. */
+    climbX: number; climbY: number; climbWidth: number; climbHeight: number;
   };
 }
 
