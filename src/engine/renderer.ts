@@ -71,12 +71,20 @@ export function roundRect(
   ctx.closePath();
 }
 
+/** Which sides of a "goo" tile touch a solid neighbor — lets it render
+ *  clinging to whichever surface it's actually next to (floor/wall/ceiling)
+ *  instead of always drawing as a floor puddle. */
+export interface GooNeighbors {
+  left: boolean; right: boolean; top: boolean; bottom: boolean;
+}
+
 export function drawTile(
   ctx: CanvasRenderingContext2D,
   def: TileDef,
   px: number, py: number,
   animT = 0,
-  capped = false
+  capped = false,
+  gooNeighbors?: GooNeighbors
 ): void {
   if (drawSprite(ctx, def, px, py, TILE, TILE)) return;
   const c = def.color;
@@ -146,18 +154,69 @@ export function drawTile(
     }
     case "goo": {
       const wob = Math.sin(animT * 3 + px * 0.4) * 1.5;
-      ctx.fillStyle = c;
-      ctx.beginPath();
-      ctx.moveTo(px, py + TILE);
-      ctx.quadraticCurveTo(px + 4, py + 6 + wob, px + 8, py + 8);
-      ctx.quadraticCurveTo(px + 12, py + 10 - wob, px + TILE, py + 7);
-      ctx.lineTo(px + TILE, py + TILE);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = shade(c, 30);
-      ctx.beginPath();
-      ctx.arc(px + 5, py + 11 + wob * 0.5, 1.5, 0, Math.PI * 2);
-      ctx.fill();
+      // Cling to whichever real surface this cell actually touches — floor
+      // is the default look (also the fallback for a floating/authored puddle
+      // with no solid neighbor at all), wall/ceiling get distinct shapes so
+      // "sticky surface" reads at a glance regardless of orientation.
+      const n = gooNeighbors;
+      if (n?.top && !n.bottom) {
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.quadraticCurveTo(px + 4, py + 10 + wob, px + 8, py + 8);
+        ctx.quadraticCurveTo(px + 12, py + 6 - wob, px + TILE, py + 9);
+        ctx.lineTo(px + TILE, py);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = shade(c, 30);
+        for (let i = 0; i < 2; i++) {
+          const dx = px + 4 + i * 8;
+          const dl = 3 + Math.sin(animT * 1.5 + i * 3 + px) * 1.5;
+          ctx.fillRect(dx, py + 8, 1.5, dl);
+          ctx.beginPath();
+          ctx.arc(dx + 0.75, py + 8 + dl, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (n?.left && !n.bottom) {
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.quadraticCurveTo(px + 10 + wob, py + 4, px + 8, py + 8);
+        ctx.quadraticCurveTo(px + 6 - wob, py + 12, px + 9, py + TILE);
+        ctx.lineTo(px, py + TILE);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = shade(c, 30);
+        ctx.beginPath();
+        ctx.arc(px + 11 + wob * 0.5, py + 5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (n?.right && !n.bottom) {
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(px + TILE, py);
+        ctx.quadraticCurveTo(px + 6 - wob, py + 4, px + 8, py + 8);
+        ctx.quadraticCurveTo(px + 10 + wob, py + 12, px + 7, py + TILE);
+        ctx.lineTo(px + TILE, py + TILE);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = shade(c, 30);
+        ctx.beginPath();
+        ctx.arc(px + 5 - wob * 0.5, py + 5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = c;
+        ctx.beginPath();
+        ctx.moveTo(px, py + TILE);
+        ctx.quadraticCurveTo(px + 4, py + 6 + wob, px + 8, py + 8);
+        ctx.quadraticCurveTo(px + 12, py + 10 - wob, px + TILE, py + 7);
+        ctx.lineTo(px + TILE, py + TILE);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = shade(c, 30);
+        ctx.beginPath();
+        ctx.arc(px + 5, py + 11 + wob * 0.5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
     }
     case "wood": {
@@ -520,7 +579,11 @@ export function drawMap(
         }
         capped = !!above && (above.solid || above.style === def.style);
       }
-      drawTile(ctx, def, tx * TILE, ty * TILE, animT, capped);
+      const gooNeighbors = def.style === "goo" ? {
+        left: !!map.at(tx - 1, ty)?.solid, right: !!map.at(tx + 1, ty)?.solid,
+        top: !!map.at(tx, ty - 1)?.solid, bottom: !!map.at(tx, ty + 1)?.solid,
+      } : undefined;
+      drawTile(ctx, def, tx * TILE, ty * TILE, animT, capped, gooNeighbors);
     }
   }
 }

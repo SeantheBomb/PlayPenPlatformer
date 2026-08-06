@@ -69,6 +69,41 @@ export function drawAir(
   ctx.restore();
 }
 
+/** Prominent climb-stamina bar — shown only while goo-climbing. Ticks from
+ *  green through amber to red as time runs out, plus a numeric readout, so
+ *  "how long before you fall" reads at a glance (explicit design ask). */
+export function drawClimbTimer(
+  ctx: CanvasRenderingContext2D, timeLeft: number, maxTime: number, hud: HudLayout,
+  uiScale = 1
+): void {
+  if (maxTime <= 0) return;
+  const ratio = Math.max(0, Math.min(1, timeLeft / maxTime));
+  const x = hud.climbX * uiScale;
+  const y = hud.climbY * uiScale;
+  const w = hud.climbWidth * uiScale;
+  const h = hud.climbHeight * uiScale;
+  ctx.save();
+  ctx.fillStyle = "rgba(16,12,24,0.75)";
+  roundRect(ctx, x, y, w, h, h / 2);
+  ctx.fill();
+  const color = ratio > 0.5 ? "#8bd44f" : ratio > 0.2 ? "#ffd166" : "#ff5470";
+  ctx.fillStyle = color;
+  roundRect(ctx, x, y, Math.max(h, w * ratio), h, h / 2);
+  ctx.fill();
+  // Flash the whole bar once time is nearly up — impossible to miss.
+  if (ratio <= 0.2 && Math.floor(simNow() / 120) % 2 === 0) {
+    ctx.fillStyle = "rgba(255,84,112,0.5)";
+    roundRect(ctx, x, y, w, h, h / 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#f4ead8";
+  ctx.font = `bold ${Math.round(8 * uiScale)}px monospace`;
+  ctx.textAlign = "center";
+  ctx.fillText(timeLeft.toFixed(1) + "s", x + w / 2, y + h + 10 * uiScale);
+  ctx.textAlign = "left";
+  ctx.restore();
+}
+
 export function drawToolbelt(
   ctx: CanvasRenderingContext2D, state: RunState, viewW: number, hud: HudLayout, uiScale = 1
 ): void {

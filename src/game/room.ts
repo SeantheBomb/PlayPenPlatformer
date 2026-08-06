@@ -868,6 +868,38 @@ export class RoomRuntime {
     return !!until && until > simNow();
   }
 
+  /**
+   * Sticky bomb burst: every EMPTY open cell within radiusPx of the
+   * detonation point that borders at least one solid tile becomes a real
+   * "goo" tile — the same substance already used for floor puddles, placed
+   * via the ordinary tileOverrides mechanism (setTileById), so it's
+   * persisted, editor-authorable-alike, and subject to the existing
+   * elemental rules for free (flammable -> burns off, water -> dissolves).
+   * Only truly empty cells are converted — fire/water/lava tiles are left
+   * alone rather than overwritten.
+   */
+  spreadGoo(px: number, py: number, radiusPx: number): void {
+    const gooDef = this.tilesById.get("goo");
+    if (!gooDef) return;
+    const ctx0 = Math.floor(px / TILE);
+    const cty0 = Math.floor(py / TILE);
+    const r = Math.ceil(radiusPx / TILE) + 1;
+    for (let ty = cty0 - r; ty <= cty0 + r; ty++) {
+      for (let tx = ctx0 - r; tx <= ctx0 + r; tx++) {
+        if (tx < 0 || ty < 0 || tx >= this.map.width || ty >= this.map.height) continue;
+        if (this.map.at(tx, ty) !== null) continue; // only truly empty cells
+        const cellCx = tx * TILE + TILE / 2;
+        const cellCy = ty * TILE + TILE / 2;
+        if (Math.hypot(cellCx - px, cellCy - py) > radiusPx) continue;
+        const bordersSolid =
+          !!this.map.at(tx - 1, ty)?.solid || !!this.map.at(tx + 1, ty)?.solid ||
+          !!this.map.at(tx, ty - 1)?.solid || !!this.map.at(tx, ty + 1)?.solid;
+        if (!bordersSolid) continue;
+        this.setTileById(tx, ty, "goo");
+      }
+    }
+  }
+
   /** Is any orthogonal neighbor of (tx,ty) a drain tile? */
   private tileTouchesDrain(tx: number, ty: number): boolean {
     return (

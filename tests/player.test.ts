@@ -67,3 +67,108 @@ describe("waterStateAt treats a submerged grate as transparent, not a surface", 
     expect(player.swimState).toBe("none");
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-05): sticky-bomb goo climb — a "goo"-style tile
+// works like a water tile for engagement: standing in one (adjacent to a
+// wall/ceiling) engages a stamina climb (axis-locked to the surface, jump =
+// up on a wall / left-right along a ceiling); moving away or the timer
+// hitting zero dismounts. Durations are tunable via game.json player.climb.
+// ---------------------------------------------------------------------------
+describe("goo climb (sticky bomb)", () => {
+  const wallRows = [
+    "........",
+    "#G......",
+    "#G......",
+    "#G......",
+    "########",
+  ];
+
+  it("engages a wall climb on movement into a goo pocket against a wall, and jump climbs up", () => {
+    const map = makeMap(wallRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 32;
+    const startY = player.y;
+    player.update(0.1, { ...NO_INPUT, left: true, jumpDown: true }, map, {} as RunState);
+    expect(player.climbState).toBe("wall");
+    expect(player.climbFacing).toBe(-1);
+    expect(player.y).toBeLessThan(startY); // jump = climb up
+    expect(player.climbTimeLeft).toBeCloseTo(gameJson.player.climb.wallSeconds - 0.1, 5);
+  });
+
+  it("dismounts a wall climb on input moving away from the wall", () => {
+    const map = makeMap(wallRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 32;
+    player.update(0.1, { ...NO_INPUT, left: true }, map, {} as RunState);
+    expect(player.climbState).toBe("wall");
+    player.update(0.1, { ...NO_INPUT, right: true }, map, {} as RunState);
+    expect(player.climbState).toBe("none");
+  });
+
+  it("falls off a wall climb once the timer runs out", () => {
+    const map = makeMap(wallRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 32;
+    const wallSeconds = gameJson.player.climb.wallSeconds;
+    const dt = 0.1;
+    let elapsed = 0;
+    // Stop the instant it dismounts — holding "left" against the wall the
+    // whole time would otherwise instantly re-engage a fresh climb next tick.
+    while (elapsed < wallSeconds + dt && player.climbState === "wall") {
+      player.update(dt, { ...NO_INPUT, left: true, jumpDown: true }, map, {} as RunState);
+      elapsed += dt;
+    }
+    expect(player.climbState).toBe("none");
+  });
+
+  it("does nothing next to a plain (non-goo) wall", () => {
+    const plainRows = [
+      "........",
+      "#.......",
+      "#.......",
+      "#.......",
+      "########",
+    ];
+    const map = makeMap(plainRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 32;
+    player.update(0.1, { ...NO_INPUT, left: true }, map, {} as RunState);
+    expect(player.climbState).toBe("none");
+  });
+
+  it("engages a ceiling climb on rising into a goo pocket against a ceiling, and left/right slide along it", () => {
+    const ceilingRows = [
+      "########",
+      ".G......",
+      "........",
+      "########",
+    ];
+    const map = makeMap(ceilingRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 16;
+    player.vy = -50; // rising into the ceiling
+    const startX = player.x;
+    player.update(0.1, { ...NO_INPUT, right: true }, map, {} as RunState);
+    expect(player.climbState).toBe("ceiling");
+    expect(player.x).toBeGreaterThan(startX);
+    expect(player.vy).toBe(0); // locked to the surface, no vertical drift
+  });
+
+  it("dismounts a ceiling climb on pressing down (away from the ceiling)", () => {
+    const ceilingRows = [
+      "########",
+      ".G......",
+      "........",
+      "########",
+    ];
+    const map = makeMap(ceilingRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 16;
+    player.vy = -50;
+    player.update(0.1, NO_INPUT, map, {} as RunState);
+    expect(player.climbState).toBe("ceiling");
+    player.update(0.1, { ...NO_INPUT, downHeld: true }, map, {} as RunState);
+    expect(player.climbState).toBe("none");
+  });
+});

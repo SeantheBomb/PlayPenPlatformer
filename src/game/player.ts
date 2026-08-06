@@ -1,7 +1,7 @@
 // Player controller. All feel numbers come from content/game.json.
 import type { GameConfig } from "../data/types";
 import type { Input } from "../engine/input";
-import { TileMap, type TileHit } from "../engine/tilemap";
+import { TILE, TileMap, type TileHit } from "../engine/tilemap";
 import { clamp, lerp } from "../engine/math";
 import { drawBlob } from "../engine/renderer";
 import { simNow } from "../engine/simclock";
@@ -10,6 +10,7 @@ import type { RunState } from "./state";
 export interface PlayerSnapshot {
   x: number; y: number; vx: number; vy: number; facing: number;
   invulnUntil: number; hiddenIn: number | null; swimState: "none" | "surface" | "under";
+  climbState: "none" | "wall" | "ceiling"; climbFacing: -1 | 1; climbTimeLeft: number;
 }
 
 export interface PlayerFrameEvents {
@@ -38,6 +39,12 @@ export class Player {
   /** Deep-water (≥3 tiles) state this frame: "under" drains air, "surface"
    *  allows a full normal jump out. Shallow water never engages this. */
   swimState: "none" | "surface" | "under" = "none";
+  /** BOTW-style stamina climb: standing in a goo-style tile with a solid
+   *  neighbor on the pressed side engages it. "wall": climbFacing is which
+   *  side the wall is on (-1 = left, 1 = right). "ceiling": unused. */
+  climbState: "none" | "wall" | "ceiling" = "none";
+  climbFacing: -1 | 1 = 1;
+  climbTimeLeft = 0;
 
   swingUntil = 0; // swing-tool animation window
   private onIce = false; // standing on a slippery tile last frame
@@ -81,6 +88,7 @@ export class Player {
     return {
       x: this.x, y: this.y, vx: this.vx, vy: this.vy, facing: this.facing,
       invulnUntil: this.invulnUntil, hiddenIn: this.hiddenIn, swimState: this.swimState,
+      climbState: this.climbState, climbFacing: this.climbFacing, climbTimeLeft: this.climbTimeLeft,
     };
   }
 
@@ -90,6 +98,31 @@ export class Player {
     this.invulnUntil = snap.invulnUntil;
     this.hiddenIn = snap.hiddenIn;
     this.swimState = snap.swimState;
+    this.climbState = snap.climbState;
+    this.climbFacing = snap.climbFacing;
+    this.climbTimeLeft = snap.climbTimeLeft;
+  }
+
+  /** Is the player's own occupied cell on their `dir` edge a goo tile that
+   *  itself borders a solid wall in that direction — i.e., standing in the
+   *  sticky pocket right against a wall, the way standing in a water column
+   *  engages swim. */
+  private touchingWallGoo(map: TileMap, dir: -1 | 1): boolean {
+    const tx = dir < 0 ? Math.floor(this.x / TILE) : Math.floor((this.x + this.w - 1) / TILE);
+    const topTy = Math.floor(this.y / TILE);
+    const botTy = Math.floor((this.y + this.h - 1) / TILE);
+    const isGooWall = (ty: number) =>
+      map.at(tx, ty)?.style === "goo" && !!map.at(tx + dir, ty)?.solid;
+    return isGooWall(topTy) || isGooWall(botTy);
+  }
+
+  private touchingCeilingGoo(map: TileMap): boolean {
+    const ty = Math.floor(this.y / TILE);
+    const leftTx = Math.floor(this.x / TILE);
+    const rightTx = Math.floor((this.x + this.w - 1) / TILE);
+    const isGooCeiling = (tx: number) =>
+      map.at(tx, ty)?.style === "goo" && !!map.at(tx, ty - 1)?.solid;
+    return isGooCeiling(leftTx) || isGooCeiling(rightTx);
   }
 
   get invulnerable() {
@@ -152,6 +185,51 @@ export class Player {
     const swim = cfg.swim;
     const under = this.swimState === "under";
     const inDeepWater = this.swimState !== "none";
+
+    // ---- Goo climb (sticky bomb): engage on movement into a goo pocket
+    // against a wall/ceiling, axis-lock movement to it, dismount on
+    // movement away or timeout. ----
+    const climb = cfg.climb;
+    if (this.climbState === "none" && !inDeepWater) {
+      if (input.left && this.touchingWallGoo(map, -1)) {
+        this.climbState = "wall"; this.climbFacing = -1; this.climbTimeLeft = climb.wallSeconds;
+      } else if (input.right && this.touchingWallGoo(map, 1)) {
+        this.climbState = "wall"; this.climbFacing = 1; this.climbTimeLeft = climb.wallSeconds;
+      } else if (this.vy < 0 && this.touchingCeilingGoo(map)) {
+        this.climbState = "ceiling"; this.climbTimeLeft = climb.ceilingSeconds;
+      }
+    }
+    if (this.climbState !== "none") {
+      const stillGoo = this.climbState === "wall"
+        ? this.touchingWallGoo(map, this.climbFacing)
+        : this.touchingCeilingGoo(map);
+      const movingAway = this.climbState === "wall"
+        ? (this.climbFacing < 0 ? input.right : input.left)
+        : (input.downHeld || input.jumpPressed);
+      this.climbTimeLeft -= dt;
+      if (!stillGoo || movingAway || this.climbTimeLeft <= 0) {
+        this.climbState = "none";
+        this.vy = 0; // hang for a beat rather than snapping into a fall mid-frame
+      } else {
+        if (this.climbState === "wall") {
+          const up = input.jumpDown ? 1 : (input.downHeld ? -1 : 0);
+          this.vx = 0;
+          this.vy = -up * climb.speed;
+          this.facing = -this.climbFacing;
+        } else {
+          const lat = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+          this.vx = lat * climb.speed;
+          this.vy = 0;
+          if (lat !== 0) this.facing = lat;
+        }
+        const res = map.move(this.x, this.y, this.w, this.h, this.vx, this.vy, dt, { dropThrough: false });
+        this.x = res.x;
+        this.y = res.y;
+        this.onGround = res.onGround;
+        this.wasOnGround = res.onGround;
+        return ev;
+      }
+    }
 
     // ---- Horizontal intent (ice makes everything mushy, water floaty) ----
     const want = (input.right ? 1 : 0) - (input.left ? 1 : 0);

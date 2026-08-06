@@ -223,6 +223,17 @@
     ]
   },
   {
+    "id": "useSticky",
+    "name": "Use: throw (sticky)",
+    "host": "item",
+    "description": "F lobs the item on the same arc as a smoke bomb; it bursts into permanent goo in every open pocket near a surface in range where it lands.",
+    "script": [
+      "on use(charge) {",
+      "  throwSelf(charge);",
+      "}"
+    ]
+  },
+  {
     "id": "dousedInLiquid",
     "name": "Doused by an element",
     "host": "item",

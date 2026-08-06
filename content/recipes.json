@@ -63,6 +63,15 @@
     "flavor": "Spores in a sock. Shake well. Regret nothing."
   },
   {
+    "id": "recipe_sticky_bomb",
+    "inputs": [
+      "goo_blob",
+      "cloth"
+    ],
+    "output": "sticky_bomb",
+    "flavor": "Wrap the goo before it wraps you. Throws great. Sticks better."
+  },
+  {
     "id": "recipe_sticky_trap",
     "inputs": [
       "goo_blob",
