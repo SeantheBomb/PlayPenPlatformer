@@ -311,6 +311,15 @@ class EditorShell {
         // dying mid-test would bounce back to the room's actual start.
         this.game.player.placeFeetAt(startAt.x, startAt.y);
         this.game.state.checkpoint = { roomId, x: startAt.x, y: startAt.y };
+        // The checkpoint's authored loadout is an editor-only convenience —
+        // gear up for testing the area ahead — never a real-respawn effect
+        // (see game.ts's checkpoint-touch handler, which deliberately never
+        // carries it). Applied here explicitly instead.
+        if (startAt.loadout) {
+          this.game.state.inventory.clear();
+          this.game.state.selectedConsumable = 0;
+          for (const { item, count } of startAt.loadout) this.game.state.add(item, count);
+        }
       }
     });
   }

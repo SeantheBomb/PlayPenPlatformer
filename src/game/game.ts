@@ -994,9 +994,12 @@ export class Game {
       if (e.kind === "checkpoint" && !e.open && rectsOverlap(prect, e)) {
         e.open = true;
         this.state.mutations(this.currentRoomId).openedDoors.add(e.index);
+        // loadout is deliberately NOT carried here — it's an editor-only
+        // "start test from here" / shareable-deep-link convenience, never a
+        // real-respawn effect. A real checkpoint touch must have zero impact
+        // on what a player is carrying.
         this.state.checkpoint = {
           roomId: this.currentRoomId, x: e.x + e.w / 2, y: e.y + e.h,
-          loadout: e.def.loadout,
         };
         if (this.content.game.rules.healAtCheckpoints) {
           this.state.health = this.state.maxHealth;

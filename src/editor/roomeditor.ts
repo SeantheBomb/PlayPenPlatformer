@@ -253,7 +253,10 @@ export class RoomEditor {
 
   constructor(
     private store: ContentStore,
-    private onTestRoom: (roomId: string, startAt?: { x: number; y: number }) => void
+    private onTestRoom: (
+      roomId: string,
+      startAt?: { x: number; y: number; loadout?: { item: string; count: number }[] }
+    ) => void
   ) {}
 
   private get content(): Content {
@@ -859,7 +862,7 @@ export class RoomEditor {
             if (!room) return;
             const cx = sel.x * TILE + TILE / 2;
             const feetY = (sel.y + 1) * TILE;
-            this.onTestRoom(room.id, { x: cx, y: feetY });
+            this.onTestRoom(room.id, { x: cx, y: feetY, loadout: sel.loadout });
           },
         }, "▶ Start Test From Here"),
         el("button", {
