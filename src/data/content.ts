@@ -120,6 +120,7 @@ function assemble(files: Record<string, unknown>): Content {
     recipes: mergeArrayById(BUNDLED["recipes.json"] as Content["recipes"], files["recipes.json"]),
     enemies: mergeArrayById(BUNDLED["enemies.json"] as Content["enemies"], files["enemies.json"]),
     taunts: mergeArrayById(BUNDLED["taunts.json"] as Content["taunts"], files["taunts.json"]),
+    tracks: mergeArrayById((BUNDLED["tracks.json"] ?? []) as Content["tracks"], files["tracks.json"]),
     campaign: files["campaign.json"] as Content["campaign"],
     rooms,
   };
@@ -149,6 +150,7 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   out["recipes.json"] = c.recipes;
   out["enemies.json"] = c.enemies;
   out["taunts.json"] = c.taunts;
+  out["tracks.json"] = c.tracks;
   return out;
 }
 

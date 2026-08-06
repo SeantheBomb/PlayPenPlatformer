@@ -81,7 +81,13 @@ export interface GameConfig {
     drownSeconds: number;       // seconds per heart lost once air runs out
     stickyBombRadius: number;   // goo splat radius in px, from detonation point
   };
-  audio: { sfxVolume: number; muted: boolean };
+  audio: {
+    sfxVolume: number;
+    muted: boolean;
+    musicVolume: number;
+    /** tracks.json id used by any room that doesn't set its own `track`. */
+    defaultTrackId?: string;
+  };
   /** HUD layout — editable in the editor's "game" tab, no code changes needed. */
   hud: {
     heartsX: number; heartsY: number; heartSpacing: number;
@@ -445,12 +451,25 @@ export interface RoomDef {
   background: string;
   tiles: string[]; // char rows, indexed into tiles.json by char
   entities: RoomEntity[];
+  /** tracks.json id for this room's looping music. Unset -> falls back to
+   *  game.audio.defaultTrackId, so old saves/rooms never crash on it. */
+  track?: string;
   /** Boss mode: the Warden spawns and chases through walls. */
   wardenChase?: { speed: number; delayMs: number };
 }
 
 export interface CampaignDef {
   rooms: string[];
+}
+
+/** A looping music track. `dataUrl` is the actual audio (uploaded MP3, as a
+ *  base64 data: URI) — kept separate from `id`/`name` specifically so the
+ *  clip behind a track can be swapped later (re-upload onto the same id)
+ *  without re-pointing every room that references it. */
+export interface TrackDef {
+  id: string;
+  name: string;
+  dataUrl: string;
 }
 
 // Bundle of everything loaded
@@ -466,6 +485,7 @@ export interface Content {
   recipes: RecipeDef[];
   enemies: EnemyDef[];
   taunts: TauntDef[];
+  tracks: TrackDef[];
   campaign: CampaignDef;
   rooms: Record<string, RoomDef>;
 }

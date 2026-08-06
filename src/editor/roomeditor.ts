@@ -384,6 +384,11 @@ export class RoomEditor {
     this.propsEl.replaceChildren();
     const room = this.room;
     if (!room) return;
+    // autoForm only renders keys already present on the object — a room
+    // saved before the music feature existed has no `track` key at all, so
+    // without this the field can never appear (and never becomes settable)
+    // in the editor even though it works fine at runtime via the fallback.
+    if (!("track" in room)) room.track = "";
 
     const wInput = el("input", { type: "number", min: 10, value: room.width });
     const hInput = el("input", { type: "number", min: 8, value: room.height });
@@ -1295,6 +1300,7 @@ export class RoomEditor {
         { type: "spawn", x: 3, y: h - 5 },
         { type: "door", x: w - 3, y: h - 6, to: "next" },
       ],
+      track: this.content.game.audio.defaultTrackId ?? "",
     };
     await this.store.saveFile(`rooms/${id}.json`, room);
     this.roomId = id;

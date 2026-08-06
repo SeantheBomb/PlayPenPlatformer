@@ -78,7 +78,9 @@
   },
   "audio": {
     "sfxVolume": 0.5,
-    "muted": false
+    "muted": false,
+    "musicVolume": 0.4,
+    "defaultTrackId": "theme_placeholder"
   },
   "hud": {
     "heartsX": 12,

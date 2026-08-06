@@ -6,6 +6,7 @@ import { HitStop } from "../engine/hitstop";
 import { Camera } from "../engine/camera";
 import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
+import { music } from "../engine/music";
 import { TILE } from "../engine/tilemap";
 import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
@@ -384,6 +385,8 @@ export class Game {
         if (x >= lx && x <= lx + 200 && y >= 146 && y <= 160) {
           // "M — sound ON/OFF" — mute has no touch/gamepad key otherwise.
           sfx.muted = !sfx.muted;
+          music.muted = sfx.muted;
+          music.applyVolume();
         } else if (x >= lx && x <= lx + 200 && y >= 162 && y <= 176) {
           // "Q — quit to menu" — same gap as mute.
           this.overlay = "none";
@@ -440,6 +443,9 @@ export class Game {
     this.particles.enabled = g.juice.particles;
     sfx.volume = g.audio.sfxVolume;
     sfx.muted = g.audio.muted;
+    music.volume = g.audio.musicVolume;
+    music.muted = g.audio.muted;
+    music.applyVolume();
     this.taunts.setTaunts(this.content.taunts);
     this.craftUI.setContent(this.content);
     this.player?.setConfig(g.player);
@@ -461,11 +467,13 @@ export class Game {
   pause(): void {
     this.loop.stop();
     this.input.setPaused(true);
+    music.pause();
   }
 
   resume(): void {
     this.input.setPaused(false);
     this.loop.start();
+    music.resume();
   }
 
   /** Native-resolution viewport: logical 640x360 scaled/centered by main.ts. */
@@ -552,6 +560,9 @@ export class Game {
     );
     this.particles.clear();
     this.taunts.fire("room_enter", { roomId });
+    const trackId = this.roomRt.room.track ?? this.content.game.audio.defaultTrackId;
+    const track = this.content.tracks.find((t) => t.id === trackId);
+    music.play(track?.id, track?.dataUrl);
   }
 
   private nextRoomId(): string | null {
@@ -701,6 +712,8 @@ export class Game {
       if (this.input.pausePressed) this.overlay = "none";
       if (this.input.justPressed("KeyM")) {
         sfx.muted = !sfx.muted;
+        music.muted = sfx.muted;
+        music.applyVolume();
       }
       if (this.input.justPressed("KeyQ")) {
         this.overlay = "none";

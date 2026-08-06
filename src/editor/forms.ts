@@ -58,6 +58,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
   const enemyIds = content.enemies.map((e) => e.id);
   const tileIds = ["", ...content.tiles.map((t) => t.id)]; // "" = becomes empty/none
   const recipeIds = content.recipes.map((r) => r.id);
+  const trackIds = ["", ...content.tracks.map((t) => t.id)]; // "" = falls back to the default track
 
   const map: Record<string, string[]> = {
     // References to other content definitions
@@ -71,6 +72,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     shattersTo: tileIds, dissolvesTo: tileIds, extinguishesTo: tileIds,
     fallSpawns: tileIds, dropsItem: itemIds,
     recipe: recipeIds,
+    track: trackIds, defaultTrackId: trackIds,
     // Closed enums from the schema itself
     kind: ["material", "tool", "consumable", "curio"],
     shape: ["shard", "plank", "ring", "cloth", "ball", "mushroom", "cog",

@@ -234,8 +234,8 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 
 type TabId =
   | "rooms" | "elements" | "rules" | "behaviors" | "tiles" | "items" | "recipes"
-  | "enemies" | "entities" | "taunts" | "achievements" | "game" | "campaign" | "publish"
-  | "sessions" | "reports";
+  | "enemies" | "entities" | "taunts" | "achievements" | "music" | "game" | "campaign"
+  | "publish" | "sessions" | "reports";
 
 // Electron loads from file://, so API calls need the real origin.
 const API_BASE =
@@ -257,6 +257,10 @@ interface ListSpec {
   procedural?: (item: Record<string, unknown>, ctx: CanvasRenderingContext2D, size: number) => void;
   /** Extra panel content below the auto-form (behavior attachments etc). */
   extras?: (item: Record<string, unknown>) => HTMLElement | null;
+  /** Field keys handled entirely by `extras` (or otherwise unsuitable for a
+   *  plain text input, e.g. a multi-hundred-KB base64 data URI) — hidden
+   *  from both schemaForm and the autoForm fallback. */
+  hiddenKeys?: string[];
   /** Full field schema: renders EVERY field the type supports (schemaForm),
    *  with a plain autoForm appended for any extra keys the entry carries. */
   schema?: FieldSpec[];
@@ -319,8 +323,8 @@ class EditorShell {
     const c = this.store.content;
     const tabs: TabId[] = [
       "rooms", "elements", "rules", "behaviors", "tiles", "items", "recipes",
-      "enemies", "entities", "taunts", "achievements", "game", "campaign", "publish",
-      "sessions", "reports",
+      "enemies", "entities", "taunts", "achievements", "music", "game", "campaign",
+      "publish", "sessions", "reports",
     ];
     this.bodyEl = el("div", { className: "pp-body" });
     const shell = el(
@@ -524,6 +528,23 @@ class EditorShell {
             wardenLine: "Noted. Filed. Judged.", emotion: "smug",
           }),
           label: (t) => `${t.hidden ? "◈ " : ""}${t.id}`,
+        });
+        break;
+      case "music":
+        this.renderListTab({
+          file: "tracks.json",
+          list: () => c.tracks as unknown as Record<string, unknown>[],
+          setList: (l) => (c.tracks = l as never),
+          template: () => ({ id: `track_${Date.now()}`, name: "New Track", dataUrl: "" }),
+          label: (t) =>
+            `${c.game.audio.defaultTrackId === t.id ? "★ " : ""}${t.name}` +
+            (t.dataUrl ? "" : " (no audio yet)"),
+          schema: [
+            { key: "id", kind: "string", req: true },
+            { key: "name", kind: "string", req: true },
+          ],
+          hiddenKeys: ["dataUrl"],
+          extras: (item) => this.musicPanel(item),
         });
         break;
       case "game": {
@@ -768,7 +789,10 @@ class EditorShell {
     const item = list[this.selectedIndex];
     if (item) {
       const opts = fieldOptionsFor(this.store.content);
-      const skip = [...SPRITE_KEYS, "behaviors", ...(spec.schema?.map((s) => s.key) ?? [])];
+      const skip = [
+        ...SPRITE_KEYS, "behaviors", ...(spec.hiddenKeys ?? []),
+        ...(spec.schema?.map((s) => s.key) ?? []),
+      ];
       panel.append(
         spec.schema ? schemaForm(item, spec.schema, () => {}, opts) : el("span", {}),
         autoForm(item, () => {}, skip, undefined, opts),
@@ -1190,6 +1214,60 @@ class EditorShell {
           onChanged();
         },
       }, "Clear")
+    );
+  }
+
+  /**
+   * Upload/replace/preview panel for one music track (music tab). Uploading
+   * again on an EXISTING track overwrites its dataUrl in place, keeping the
+   * id/name (and every room that references it) untouched — that's the
+   * whole reason the clip lives separately from the id: swapping a
+   * placeholder for the real thing later never means re-pointing rooms.
+   */
+  private musicPanel(item: Record<string, unknown>): HTMLElement {
+    const c = this.store.content;
+    const hasAudio = !!item.dataUrl;
+    const isDefault = c.game.audio.defaultTrackId === item.id;
+    const preview = hasAudio
+      ? (el("audio", { controls: true, style: "width:100%;margin:6px 0" }) as HTMLAudioElement)
+      : null;
+    if (preview) preview.src = item.dataUrl as string;
+    return el(
+      "div", { className: "pp-spritepanel" },
+      preview ?? el("span", { className: "pp-hint" }, "No audio uploaded yet"),
+      el("div", { className: "pp-btnrow" },
+        el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "audio/mpeg,audio/mp3,audio/*";
+            input.onchange = () => {
+              const f = input.files?.[0];
+              if (!f) return;
+              const r = new FileReader();
+              r.onload = () => {
+                item.dataUrl = r.result as string;
+                toast(hasAudio ? "Audio replaced (remember to save)" : "Audio uploaded (remember to save)");
+                this.renderTab();
+              };
+              r.readAsDataURL(f);
+            };
+            input.click();
+          },
+        }, hasAudio ? "Replace audio" : "Upload audio"),
+        el("button", {
+          className: "pp-btn" + (isDefault ? " pp-primary" : ""),
+          disabled: isDefault,
+          onclick: async () => {
+            c.game.audio.defaultTrackId = item.id as string;
+            await this.store.saveFile("game.json", c.game);
+            this.game.setContent(this.store.content);
+            toast(`"${item.name}" is now the default track for new rooms`);
+            this.renderTab();
+          },
+        }, isDefault ? "★ Default track" : "Set as default")
+      )
     );
   }
 
