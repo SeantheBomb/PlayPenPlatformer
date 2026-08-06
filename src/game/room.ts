@@ -1846,10 +1846,16 @@ export class RoomRuntime {
       const tile = this.map.at(aheadTx, Math.floor((footY - 4) / TILE));
       if (tile?.element === "water") return false;
     }
-    // No drops it can't climb back out of (max 1 tile down).
+    // No drops it can't climb back out of (max 1 tile down). isFloorTile,
+    // not a bare `.solid` check — a one-way platform (metal grate) is real
+    // standable ground (the player and toyblocks both rest on it the same
+    // as a solid floor) but never sets `solid` itself, since it's meant to
+    // be walked through from below/dropped through, not blocked outright.
+    // Using `.solid` alone made every grate-topped floor read as a
+    // bottomless drop, so a patrolling enemy would reach one and just stop
+    // (player report: "Spotter stops walking when on metal grate").
     for (let step = 0; step < 2; step++) {
-      const def = this.map.at(aheadTx, Math.floor((footY + 4 + step * TILE) / TILE));
-      if (def?.solid) return true;
+      if (this.isFloorTile(aheadTx, Math.floor((footY + 4 + step * TILE) / TILE))) return true;
     }
     return false;
   }

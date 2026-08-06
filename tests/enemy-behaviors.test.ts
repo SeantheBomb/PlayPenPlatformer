@@ -156,6 +156,37 @@ describe("patrol behavior", () => {
     expect(en.x + en.def.width).toBeLessThan(9 * 16 + 8);
   });
 
+  // -------------------------------------------------------------------------
+  // REGRESSION (player report, 2026-08-06, exit_wing): "Spotter stops
+  // walking when on metal grate. He should keep going." canStepAhead's
+  // "no drops deeper than one tile" ground check tested raw `.solid`, but a
+  // metal grate (a walkable one-way platform) never sets `solid` itself —
+  // only isFloorTile (solid OR oneWay) recognizes it as real ground. Every
+  // grate-topped floor tile read as a bottomless drop, so a patrolling
+  // enemy would walk up to one and simply refuse to step onto it.
+  // -------------------------------------------------------------------------
+  it("crosses a metal-grate section of the floor instead of stopping at its edge", () => {
+    const rows2 = [
+      "#............................#",
+      "#............................#",
+      "#............................#",
+      "##########============########", // floor: solid, then a 12-wide grate span, then solid
+    ];
+    const { rt } = makeRoom(rows2, [enemyEntity(15, 2, "crawler", { patrolMinX: 8, patrolMaxX: 24 })]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    let minX = en.x, maxX = en.x;
+    for (let i = 0; i < 60 * 20; i++) {
+      sim.step();
+      minX = Math.min(minX, en.x);
+      maxX = Math.max(maxX, en.x);
+    }
+    // It actually reached both ends of its patrol range, crossing the grate
+    // in both directions — not stuck pacing on one side of it.
+    expect(minX).toBeLessThan(10 * 16);
+    expect(maxX).toBeGreaterThan(22 * 16);
+  });
+
   it("a patrol-only enemy never escalates to chase, even staring at the player", () => {
     const { rt } = makeRoom(rows, [enemyEntity(10, 2, "crawler", { patrolMinX: 8, patrolMaxX: 12 })]);
     const sim = new Sim(rt);
