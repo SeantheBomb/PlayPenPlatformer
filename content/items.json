@@ -219,19 +219,6 @@
     ]
   },
   {
-    "id": "sticky_bomb",
-    "name": "Sticky Bomb",
-    "kind": "consumable",
-    "shape": "bottle",
-    "color": "#8bd44f",
-    "element": "goo",
-    "useMode": "burst",
-    "description": "Thrown like a smoke bomb. Splats goo on every surface in range — floor, wall, ceiling. Climb it while you can.",
-    "behaviors": [
-      "useSticky"
-    ]
-  },
-  {
     "id": "sticky_trap",
     "name": "Sticky Trap",
     "kind": "consumable",

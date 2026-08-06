@@ -1111,7 +1111,7 @@ export class RoomEditor {
       collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
       gateTouched: new Set<number>(),
       helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), drops: [],
-      placedItems: [], brazierLit: [], sourceAmounts: [], gooFaces: [],
+      placedItems: [], brazierLit: [], sourceAmounts: [],
     };
     try {
       const rt = new RoomRuntime(room, this.content, emptyMuts);

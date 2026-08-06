@@ -25,7 +25,7 @@ function makeMuts(): RoomMutations {
   return {
     collected: new Set(), tileOverrides: [], openedDoors: new Set(),
     gateTouched: new Set(), helpedNpcs: new Set(), disabledEnemies: new Set(),
-    drops: [], placedItems: [], brazierLit: [], sourceAmounts: [], gooFaces: [],
+    drops: [], placedItems: [], brazierLit: [], sourceAmounts: [],
   };
 }
 

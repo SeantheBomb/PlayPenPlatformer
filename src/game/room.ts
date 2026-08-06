@@ -15,8 +15,6 @@ import {
   registerFn, type ScriptCtx,
 } from "./behavior";
 
-export type GooFace = "top" | "bottom" | "left" | "right";
-
 export interface EntityInstance extends Rect {
   index: number;
   def: RoomEntity;
@@ -185,11 +183,6 @@ export class RoomRuntime {
    *  ground (no gap to fall into) — an overlay, not a tile swap, so the
    *  grate stays the real tile and stays walkable. See placeFluid. */
   private grateFluid = new Map<number, TileDef>();
-  /** tile index -> set of faces carrying a permanent goo splat (sticky
-   *  bomb) — independent per face, distinct from the full-tile "goo"
-   *  substance tile. Persisted via RoomMutations.gooFaces. Removed by fire
-   *  or water/lava contact, same reactions as the goo substance itself. */
-  gooFaces = new Map<number, Set<GooFace>>();
   private waterFlowEnabled: boolean;
   private spreadClock = 0;
   /** Tile index -> chain depth for cells a lava-caused melt vacated last
@@ -265,11 +258,6 @@ export class RoomRuntime {
     }
     for (const [idx, tileId] of muts.tileOverrides) {
       this.map.overrides.set(idx, tileId ? this.tilesById.get(tileId) ?? null : null);
-    }
-    for (const [idx, face] of muts.gooFaces) {
-      let set = this.gooFaces.get(idx);
-      if (!set) { set = new Set(); this.gooFaces.set(idx, set); }
-      set.add(face as GooFace);
     }
 
     // A door/trapdoor's own footprint always wins over the tile grid — a
@@ -878,81 +866,6 @@ export class RoomRuntime {
   smokeAtPoint(x: number, y: number): boolean {
     const until = this.smoked.get(this.map.index(Math.floor(x / TILE), Math.floor(y / TILE)));
     return !!until && until > simNow();
-  }
-
-  /**
-   * Sticky bomb burst: every open (non-solid) cell within radiusPx of the
-   * detonation point paints goo onto whichever face of each solid tile it
-   * borders. That face's direction is purely "which side of the solid tile
-   * touches this open cell" — since we only visit open cells the blast
-   * actually reached, that side's normal necessarily points back out toward
-   * (roughly) the origin, which is the effect Sean asked for without needing
-   * real per-tile angle math.
-   */
-  spreadGoo(px: number, py: number, radiusPx: number): void {
-    const ctx0 = Math.floor(px / TILE);
-    const cty0 = Math.floor(py / TILE);
-    const r = Math.ceil(radiusPx / TILE) + 1;
-    for (let ty = cty0 - r; ty <= cty0 + r; ty++) {
-      for (let tx = ctx0 - r; tx <= ctx0 + r; tx++) {
-        if (tx < 0 || ty < 0 || tx >= this.map.width || ty >= this.map.height) continue;
-        if (this.map.at(tx, ty)?.solid) continue; // must be open air the blast reached
-        const cellCx = tx * TILE + TILE / 2;
-        const cellCy = ty * TILE + TILE / 2;
-        if (Math.hypot(cellCx - px, cellCy - py) > radiusPx) continue;
-        const sides: [number, number, GooFace][] = [
-          [tx, ty - 1, "bottom"], // solid tile above this open cell -> its underside is exposed
-          [tx, ty + 1, "top"],    // solid tile below -> its top is exposed (a floor)
-          [tx - 1, ty, "right"],  // solid tile to the left -> its right side is exposed
-          [tx + 1, ty, "left"],   // solid tile to the right -> its left side is exposed
-        ];
-        for (const [ntx, nty, face] of sides) {
-          if (!this.map.at(ntx, nty)?.solid) continue;
-          this.addGooFace(this.map.index(ntx, nty), face);
-        }
-      }
-    }
-  }
-
-  private addGooFace(idx: number, face: GooFace): void {
-    let set = this.gooFaces.get(idx);
-    if (!set) { set = new Set(); this.gooFaces.set(idx, set); }
-    if (set.has(face)) return;
-    set.add(face);
-    this.muts.gooFaces.push([idx, face]);
-  }
-
-  private removeGooFaces(idx: number): void {
-    if (!this.gooFaces.delete(idx)) return;
-    this.muts.gooFaces = this.muts.gooFaces.filter(([mi]) => mi !== idx);
-  }
-
-  hasGooFace(tx: number, ty: number, face: GooFace): boolean {
-    return this.gooFaces.get(this.map.index(tx, ty))?.has(face) ?? false;
-  }
-
-  gooFacesAt(tx: number, ty: number): ReadonlySet<GooFace> | undefined {
-    return this.gooFaces.get(this.map.index(tx, ty));
-  }
-
-  /** Goo is permanent unless fire or water/lava reaches it — same reactions
-   *  as the full-tile goo substance (flammable, dissolved by water). Swept
-   *  once per flow tick since face-goo isn't itself part of the fluid sim. */
-  private tickGooDurability(): void {
-    if (this.gooFaces.size === 0) return;
-    for (const idx of [...this.gooFaces.keys()]) {
-      const tx = idx % this.map.width;
-      const ty = Math.floor(idx / this.map.width);
-      const neighbors: [number, number][] = [[tx, ty - 1], [tx, ty + 1], [tx - 1, ty], [tx + 1, ty]];
-      const destroyed = neighbors.some(([nx, ny]) => {
-        const fluid = this.fluidDefAt(nx, ny);
-        if (fluid && (fluid.element === "water" || fluid.element === "lava")) return true;
-        const tile = this.map.at(nx, ny);
-        if (tile?.style === "fire") return true;
-        return this.map.at(nx, ny) && this.burning.has(this.map.index(nx, ny));
-      });
-      if (destroyed) this.removeGooFaces(idx);
-    }
   }
 
   /** Is any orthogonal neighbor of (tx,ty) a drain tile? */
@@ -1999,7 +1912,6 @@ export class RoomRuntime {
       this.waterFlowClock = 0;
       this.tickWaterFlow(events);
       this.tickToyblockFalls();
-      this.tickGooDurability();
     }
 
     for (const [idx, at] of [...this.draining]) {
@@ -2113,11 +2025,6 @@ export class RoomRuntime {
       const ty = Math.floor(idx / this.map.width);
       this.drawFlames(ctx, tx * TILE, ty * TILE, animT);
     }
-    for (const [idx, faces] of this.gooFaces) {
-      const tx = idx % this.map.width;
-      const ty = Math.floor(idx / this.map.width);
-      for (const face of faces) this.drawGooFace(ctx, tx * TILE, ty * TILE, face, animT);
-    }
     for (const [idx, until] of this.energized) {
       if (until <= now) {
         this.energized.delete(idx);
@@ -2163,58 +2070,6 @@ export class RoomRuntime {
         ctx.fill();
       }
     }
-  }
-
-  /** A sticky-bomb goo splat on one face of a tile. Drawn oriented to its
-   *  face so floor/wall/ceiling goo read as distinct: a floor puddle sits
-   *  flat with a couple of surface bumps, a ceiling splat hangs drips
-   *  downward (gravity, BOTW-slime read), a wall splat is a vertical smear
-   *  bulging off the wall. Same base green as the goo tile/item. */
-  private drawGooFace(
-    ctx: CanvasRenderingContext2D, px: number, py: number, face: GooFace, animT: number
-  ): void {
-    const wobble = Math.sin(animT * 2 + px * 0.3 + py * 0.7) * 0.6;
-    ctx.fillStyle = "#8bd44f";
-    ctx.strokeStyle = "#5f9c33";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    if (face === "top") {
-      ctx.moveTo(px, py + 3);
-      ctx.quadraticCurveTo(px + 8, py - 1 + wobble, px + TILE, py + 3);
-      ctx.lineTo(px + TILE, py + 6);
-      ctx.quadraticCurveTo(px + 8, py + 3 + wobble, px, py + 6);
-    } else if (face === "bottom") {
-      ctx.moveTo(px, py + TILE - 3);
-      ctx.quadraticCurveTo(px + 8, py + TILE + 1 + wobble, px + TILE, py + TILE - 3);
-      ctx.lineTo(px + TILE, py + TILE - 6);
-      ctx.quadraticCurveTo(px + 8, py + TILE - 3 + wobble, px, py + TILE - 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      // Hanging drips — the ceiling-slime tell.
-      for (let i = 0; i < 2; i++) {
-        const dx = px + 4 + i * 8;
-        const dl = 3 + Math.sin(animT * 1.5 + i * 3 + px) * 1.5;
-        ctx.fillRect(dx, py + TILE - 3, 1.5, dl);
-        ctx.beginPath();
-        ctx.arc(dx + 0.75, py + TILE - 3 + dl, 1.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      return;
-    } else if (face === "left") {
-      ctx.moveTo(px + 3, py);
-      ctx.quadraticCurveTo(px - 1 + wobble, py + 8, px + 3, py + TILE);
-      ctx.lineTo(px + 6, py + TILE);
-      ctx.quadraticCurveTo(px + 3 + wobble, py + 8, px + 6, py);
-    } else {
-      ctx.moveTo(px + TILE - 3, py);
-      ctx.quadraticCurveTo(px + TILE + 1 + wobble, py + 8, px + TILE - 3, py + TILE);
-      ctx.lineTo(px + TILE - 6, py + TILE);
-      ctx.quadraticCurveTo(px + TILE - 3 + wobble, py + 8, px + TILE - 6, py);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
   }
 
   /** The brazier is a safe, always-on lighting station — warm gold, rounded,
