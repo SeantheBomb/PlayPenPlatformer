@@ -133,33 +133,36 @@ export class Player {
   }
 
   /** Reached the top of a climbable wall — look for a standable surface
-   *  (solid ground or a metal-grate platform) directly above the goo column,
-   *  or one tile further away from the wall, and snap the player to stand
-   *  on top of it. A one-way platform can't be caught by physics alone (it
-   *  only blocks from above), so this checks tile identity directly instead
-   *  of nudging and hoping gravity sorts it out. */
+   *  (solid ground or a metal-grate platform) at the goo column, or one
+   *  tile further away from the wall, and snap the player to stand on top
+   *  of it. Two different rows are candidates depending on what capped the
+   *  climb: a one-way platform never blocks upward movement, so the player
+   *  has already floated up INTO its row by the time they dismount — but a
+   *  solid tile (stone, etc.) DOES block upward movement, so collision pins
+   *  them one row short and they never actually enter it. Checking only one
+   *  of these two rows is why grates mounted but solid ledges didn't. A
+   *  platform can't be caught by physics alone either way (it only blocks
+   *  from above), so this checks tile identity directly rather than nudging
+   *  and hoping gravity sorts it out. */
   private tryMountLedge(map: TileMap): boolean {
     const ownCol = Math.floor((this.x + this.w / 2) / TILE);
     const awayCol = ownCol + -this.climbFacing;
-    // A one-way platform only blocks DOWNWARD movement from above — it never
-    // stops the player from climbing straight up through it. So by the time
-    // stillGoo goes false, the player's own row (not one above) is already
-    // the standable surface's row; checking "one row above" here was the
-    // original bug (it looked one tile too high, past any platform cap).
-    const surfaceRow = Math.floor(this.y / TILE);
-    for (const col of [ownCol, awayCol]) {
-      const cell = map.at(col, surfaceRow);
-      const standable = !!cell && (cell.solid || cell.style === "platform");
-      if (!standable) continue;
-      const headroom = map.at(col, surfaceRow - 1);
-      if (headroom?.solid) continue;
-      this.x = col * TILE + (TILE - this.w) / 2;
-      this.y = surfaceRow * TILE - this.h;
-      this.vx = 0;
-      this.vy = 0;
-      this.onGround = true;
-      this.wasOnGround = true;
-      return true;
+    const currentRow = Math.floor(this.y / TILE);
+    for (const surfaceRow of [currentRow, currentRow - 1]) {
+      for (const col of [ownCol, awayCol]) {
+        const cell = map.at(col, surfaceRow);
+        const standable = !!cell && (cell.solid || cell.style === "platform");
+        if (!standable) continue;
+        const headroom = map.at(col, surfaceRow - 1);
+        if (headroom?.solid) continue;
+        this.x = col * TILE + (TILE - this.w) / 2;
+        this.y = surfaceRow * TILE - this.h;
+        this.vx = 0;
+        this.vy = 0;
+        this.onGround = true;
+        this.wasOnGround = true;
+        return true;
+      }
     }
     return false;
   }
@@ -253,10 +256,16 @@ export class Player {
         : (input.downHeld || input.jumpPressed);
       this.climbTimeLeft -= dt;
       if (!stillGoo || movingAway || this.climbTimeLeft <= 0) {
-        // Ran out of goo while actively climbing UP a wall (reached the top
-        // of the sticky patch, e.g. capped by a grate/ledge above) — try to
-        // mount the player onto whatever standable surface is right there.
-        const reachedTop = !stillGoo && !movingAway && this.climbState === "wall" && input.jumpDown;
+        // Dismounting while actively climbing UP a wall — try to mount the
+        // player onto whatever standable surface is right there (grate,
+        // ledge). This covers BOTH ways that can happen: running out of
+        // goo (a one-way platform cap doesn't block rising, so the player
+        // visibly climbs past the sticky patch), and running out of TIME
+        // while still technically touching goo (a solid stone cap DOES
+        // block rising — collision pins the player one row short, so they
+        // never actually leave the goo tile and can only ever time out).
+        // Checking stillGoo here would only ever catch the platform case.
+        const reachedTop = !movingAway && this.climbState === "wall" && input.jumpDown;
         const wasWall = this.climbState === "wall";
         const wallFacing = this.climbFacing;
         this.climbState = "none";

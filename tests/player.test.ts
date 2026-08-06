@@ -242,4 +242,39 @@ describe("goo climb (sticky bomb)", () => {
     expect(player.climbState).toBe("wall");
     expect(player.squashY).toBeLessThan(1.32); // eased toward 1, not frozen
   });
+
+  // -------------------------------------------------------------------------
+  // REQUIREMENT (Sean, 2026-08-05): "climbing seems to mount the metal
+  // grates well, but not the stone blocks." A solid tile (unlike a one-way
+  // platform) blocks upward movement entirely, so the player is pinned one
+  // row short of it and can only ever dismount via TIMEOUT (never via
+  // "ran out of goo") — tryMountLedge must fire on that path too, and must
+  // check both "the row I'm in" (platform case) and "the row just above me"
+  // (solid case), since collision never lets the player actually enter it.
+  // -------------------------------------------------------------------------
+  it("mounts onto a solid stone ledge at the top of a climbable wall, same as a grate", () => {
+    const rows = [
+      "#........", // row0: open headroom above the stone cap
+      "##.......", // row1: solid stone cap (single tile thick)
+      "#G.......", // row2: goo
+      "#G.......", // row3: goo
+      "#G.......", // row4: goo
+      "##########", // row5: floor
+    ];
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 18; player.y = 4 * 16;
+    const dt = 1 / 60;
+    const wallSeconds = gameJson.player.climb.wallSeconds;
+    // Solid stone pins the player inside the goo the whole time (never
+    // "runs out of goo"), so this only resolves once the stamina timer
+    // actually expires — hold well past that.
+    for (let i = 0; i < Math.ceil((wallSeconds + 1) / dt); i++) {
+      player.update(dt, { ...NO_INPUT, left: true, jumpDown: true }, map, {} as RunState);
+    }
+    expect(player.climbState).toBe("none");
+    expect(player.onGround).toBe(true);
+    // Mounted ON TOP of the stone cap (row1), not fallen back to the floor.
+    expect(player.y).toBeLessThan(4 * 16);
+  });
 });
