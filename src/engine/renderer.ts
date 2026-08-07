@@ -448,6 +448,27 @@ export function drawTile(
       }
       break;
     }
+    case "gutter": {
+      // A recessed metal channel with a fluid-colored slot running through
+      // it — reads as "things pass THROUGH here", distinct from drain's
+      // sealed dark pit (things collect and vanish) and platform's flush
+      // grate (things rest on top).
+      ctx.fillStyle = c;
+      ctx.fillRect(px, py, TILE, TILE);
+      ctx.fillStyle = shade(c, 20);
+      ctx.fillRect(px, py, TILE, 2);
+      ctx.fillStyle = shade(c, -30);
+      ctx.fillRect(px, py + TILE - 2, TILE, 2);
+      const slotY = py + TILE / 2 - 2.5;
+      ctx.fillStyle = "#12101c";
+      ctx.fillRect(px + 1, slotY, TILE - 2, 5);
+      ctx.fillStyle = "rgba(120,200,255,0.55)";
+      const flow = (animT * 10) % 4;
+      for (let x = -4 + flow; x < TILE; x += 4) {
+        ctx.fillRect(px + x, slotY + 1, 2, 3);
+      }
+      break;
+    }
     // ---- Decor set: the PlayPen's playtime dressing ----
     case "balloon": {
       // A balloon bobbing on its string, tied to the tile below.

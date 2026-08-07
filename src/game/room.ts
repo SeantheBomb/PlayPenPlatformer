@@ -134,6 +134,7 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
   hint: [16, 16],
   brazier: [16, 14],
   fusebox: [14, 18],
+  capacitor: [14, 18],
   source: [16, 16],
   converter: [16, 16],
 };
@@ -558,6 +559,7 @@ export class RoomRuntime {
       if (moverElement === "water") this.extinguishFireTile(tx, y, events ?? []);
       const t = this.map.at(tx, y);
       if (t === null) return { ty: y, def: null, solid: false, grateY: -1 };
+      if (t.fluidPasses) { y++; continue; } // gutter: pass straight through, never a resting spot
       if (t.style !== "platform") return { ty: y, def: t, solid: true, grateY: lastGrateY };
       lastGrateY = y;
       y++;
@@ -1494,7 +1496,56 @@ export class RoomRuntime {
       });
       stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
     }
-    if (count > 0) this.checkFuseboxes(events);
+    if (count > 0) {
+      this.checkFuseboxes(events);
+      this.checkCapacitors(events);
+    }
+  }
+
+  /** A capacitor turns on from ANY charge reaching it (no fuseId match
+   *  needed, unlike a fusebox trip) and, once on, stays on across ticks —
+   *  only tripFusebox's offFuseId check turns it back off. */
+  private checkCapacitors(events: ElementEvent[]): void {
+    const now = simNow();
+    for (const cap of this.entities) {
+      if (cap.kind !== "capacitor" || cap.open) continue;
+      const tx0 = Math.floor(cap.x / TILE) - 1;
+      const tx1 = Math.floor((cap.x + cap.w) / TILE) + 1;
+      const ty0 = Math.floor(cap.y / TILE) - 1;
+      const ty1 = Math.floor((cap.y + cap.h) / TILE) + 1;
+      let hit = false;
+      for (let ty = ty0; ty <= ty1 && !hit; ty++) {
+        for (let tx = tx0; tx <= tx1 && !hit; tx++) {
+          const until = this.energized.get(this.map.index(tx, ty));
+          if (until && until > now) hit = true;
+        }
+      }
+      if (hit) {
+        cap.open = true;
+        this.muts.openedDoors.add(cap.index);
+        events.push({ effect: "fuse", x: cap.x + cap.w / 2, y: cap.y, color: "#ffe95a" });
+      }
+    }
+  }
+
+  /** Re-energizes every conductive tile touching an "on" capacitor, every
+   *  flow tick — the continuous-shock half of the feature. Rides the same
+   *  fixed cadence as tickWaterFlow so it stays replay-deterministic. */
+  private tickCapacitors(events: ElementEvent[]): void {
+    for (const cap of this.entities) {
+      if (cap.kind !== "capacitor" || !cap.open) continue;
+      const tx0 = Math.floor(cap.x / TILE) - 1;
+      const tx1 = Math.floor((cap.x + cap.w) / TILE) + 1;
+      const ty0 = Math.floor(cap.y / TILE) - 1;
+      const ty1 = Math.floor((cap.y + cap.h) / TILE) + 1;
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          if (tx >= cap.x / TILE && tx < (cap.x + cap.w) / TILE
+            && ty >= cap.y / TILE && ty < (cap.y + cap.h) / TILE) continue;
+          this.energizeFrom(tx, ty, events);
+        }
+      }
+    }
   }
 
   /** A fusebox trips if any energized tile touches it (or its neighbors).
@@ -1538,6 +1589,14 @@ export class RoomRuntime {
         this.muts.gateTouched.add(e.index);
         events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#e8a2b4" });
         this.recedeCutOffFluid(e, events);
+      }
+    }
+    for (const cap of this.entities) {
+      if (cap.kind !== "capacitor" || !cap.open) continue;
+      if (cap.def.offFuseId && cap.def.offFuseId === fb.def.fuseId) {
+        cap.open = false;
+        this.muts.openedDoors.delete(cap.index);
+        events.push({ effect: "fuse", x: cap.x + cap.w / 2, y: cap.y + cap.h / 2, color: "#e8a2b4" });
       }
     }
   }
@@ -2060,6 +2119,7 @@ export class RoomRuntime {
       this.waterFlowClock = 0;
       this.tickWaterFlow(events);
       this.tickToyblockFalls();
+      this.tickCapacitors(events);
     }
 
     for (const [idx, at] of [...this.draining]) {
@@ -2486,6 +2546,32 @@ export class RoomRuntime {
         }
         break;
       }
+      case "capacitor": {
+        ctx.fillStyle = "#3a3550";
+        roundRect(ctx, e.x - 1, e.y - 1, e.w + 2, e.h + 2, 2);
+        ctx.fill();
+        ctx.fillStyle = e.open ? "#ffe95a" : "#59627f";
+        ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.strokeStyle = e.open ? "#4a3d0d" : "#8892a8";
+        ctx.lineWidth = 1.5;
+        // Two facing arcs — reads as a stored-charge cell, distinct from
+        // fusebox's single trigger-bolt glyph.
+        ctx.beginPath();
+        ctx.arc(e.x + e.w / 2 - 2, e.y + e.h / 2, 4, -Math.PI / 2, Math.PI / 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(e.x + e.w / 2 + 2, e.y + e.h / 2, 4, Math.PI / 2, -Math.PI / 2);
+        ctx.stroke();
+        if (e.open) {
+          // Continuous emitting halo — "still live", not a one-shot flicker.
+          const pulse = 0.18 + Math.sin(animT * 5 + e.index) * 0.08;
+          ctx.fillStyle = `rgba(255,233,90,${pulse})`;
+          ctx.beginPath();
+          ctx.arc(e.x + e.w / 2, e.y + e.h / 2, e.w + 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
       case "exit": {
         ctx.fillStyle = "#2b3a2e";
         ctx.fillRect(e.x - 3, e.y - 3, e.w + 6, e.h + 3);
@@ -2858,8 +2944,8 @@ registerFn("reactToTileHazards", (ctx, args) => {
       const tdef = rt.map.at(tx, ty);
       if (rt.isBurning(tx, ty) || tdef?.element === "fire") applied = "fire";
       else if (tdef?.element === "lava") applied = "lava";
+      else if (tdef?.element === "water") applied = rt.isEnergized(tx, ty) ? "electrifiedWater" : "water";
       else if (rt.isEnergized(tx, ty)) applied = "spark";
-      else if (tdef?.element === "water") applied = "water";
     }
   }
   if (!applied) return undefined;
@@ -2874,7 +2960,7 @@ registerFn("reactToTileHazards", (ctx, args) => {
   }
   if (r === "kill") ctx.halt = true;
   return r;
-}, "reactToTileHazards(cooldownMs?) — fire/lava/spark/water tiles under the enemy apply their element through its reactions; halts the dispatch on a kill");
+}, "reactToTileHazards(cooldownMs?) — fire/lava/spark/water tiles under the enemy apply their element through its reactions (an energized water tile applies electrifiedWater instead of plain water/spark); halts the dispatch on a kill");
 registerFn("reactFromTable", (ctx, args) => {
   const element = typeof ctx.data.element === "string" ? ctx.data.element : "";
   const table = args[0];

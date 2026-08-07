@@ -25,7 +25,7 @@ type Tool =
 
 const ENTITY_TYPES: RoomEntity["type"][] = [
   "spawn", "checkpoint", "pickup", "note", "door", "trapdoor", "locker", "enemy",
-  "npc", "exit", "hint", "brazier", "fusebox", "source", "converter",
+  "npc", "exit", "hint", "brazier", "fusebox", "source", "converter", "capacitor",
 ];
 
 const UNDO_CAP = 50;
@@ -755,6 +755,7 @@ export class RoomEditor {
       door: { to: "next", gate: false, openFuseId: "", closeFuseId: "", startOpen: false },
       trapdoor: { to: "next", gate: false, openFuseId: "", closeFuseId: "", startOpen: false },
       fusebox: { fuseId: "A" },
+      capacitor: { offFuseId: "" },
       enemy: { enemy: firstEnemy, patrolMinX: tx - 3, patrolMaxX: tx + 3 },
       npc: {
         name: "Prisoner", color: "#7fd8e8",

@@ -20,5 +20,11 @@
     "behaviors": ["brazierFlame"],
     "note": "Safe always-on ignition source; brazierFlame handles douse/relight."
   },
-  { "id": "fusebox", "width": 14, "height": 18 }
+  { "id": "fusebox", "width": 14, "height": 18 },
+  {
+    "id": "capacitor",
+    "width": 14,
+    "height": 18,
+    "note": "Turns on from any charge, re-shocks neighbors every tick while on, turns off only on offFuseId trip."
+  }
 ]

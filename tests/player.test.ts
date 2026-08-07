@@ -278,3 +278,24 @@ describe("goo climb (sticky bomb)", () => {
     expect(player.y).toBeLessThan(4 * 16);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-06): a gutter tile "allows fluid to pass
+// through it but not a player or other character" — it must block the
+// player exactly like a normal solid wall (fluid-transparency is a
+// RoomRuntime fluid-sim concern only, see tests/fluids.test.ts).
+// ---------------------------------------------------------------------------
+describe("gutter blocks the player like a solid wall", () => {
+  it("a gutter tile stops horizontal movement into it", () => {
+    const rows = [
+      "..g.",
+      "####",
+    ];
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 0; player.y = 0;
+    for (let i = 0; i < 30; i++) player.update(1 / 60, { ...NO_INPUT, right: true }, map, {} as RunState);
+    // Gutter tile sits at x=2*16=32; the player (width 12) must never cross into it.
+    expect(player.x + player.w).toBeLessThanOrEqual(32 + 0.01);
+  });
+});

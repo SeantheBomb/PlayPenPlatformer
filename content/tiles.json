@@ -147,6 +147,17 @@
     "color": "#59627f"
   },
   {
+    "id": "gutter",
+    "char": "g",
+    "name": "Gutter",
+    "style": "gutter",
+    "solid": true,
+    "fluidPasses": true,
+    "element": "metal",
+    "conductive": true,
+    "color": "#4a5268"
+  },
+  {
     "id": "lava",
     "char": "L",
     "name": "Lava",

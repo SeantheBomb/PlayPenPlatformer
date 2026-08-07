@@ -47,7 +47,8 @@
         "params": {
           "reactions": {
             "fire": "none",
-            "water": "kill",
+            "water": "stun",
+            "electrifiedWater": "kill",
             "ice": "stun",
             "spark": "stun",
             "metal": "knockback",

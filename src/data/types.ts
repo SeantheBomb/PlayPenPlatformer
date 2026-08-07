@@ -202,7 +202,7 @@ export interface EntityTypeDef {
 export type TileStyle =
   | "block" | "platform" | "spikes" | "cracked" | "spring" | "goo"
   | "wood" | "ice" | "water" | "fire" | "metal" | "waterfall" | "drain"
-  | "lava" | "lavafall"
+  | "lava" | "lavafall" | "gutter"
   // Decor set — the PlayPen's playtime dressing (non-gameplay unless solid)
   | "balloon" | "stringlight" | "crayon" | "toyblock";
 
@@ -248,6 +248,12 @@ export interface TileDef extends SpriteFields {
   // Fluid dynamics
   fluid?: boolean;      // participates in the flow sim (falls, spreads)
   fallSpawns?: string;  // a fall tile: grows downward, emits this tile id at its base
+  /** Fluid falls/flows straight through as if this tile weren't there —
+   *  never rests/pools on top of it, unlike a platform (grate). Independent
+   *  of `solid`: a gutter is meant to be BOTH solid to the player/enemies
+   *  AND transparent to fluid, the inverse combination from a grate
+   *  (walkable oneWay, fluid-transparent). See realTileBelow. */
+  fluidPasses?: boolean;
   // Loot: destructive transforms (melt/shatter/dissolve/burn) drop this item
   dropsItem?: string;
   /** Composable behavior attachments (behaviors.json ids) — reserved for
@@ -367,7 +373,7 @@ export interface TauntDef {
 export type EntityType =
   | "spawn" | "checkpoint" | "pickup" | "note" | "door" | "trapdoor"
   | "locker" | "enemy" | "npc" | "exit" | "hint"
-  | "brazier" | "fusebox" | "source" | "converter";
+  | "brazier" | "fusebox" | "source" | "converter" | "capacitor";
 
 /** The cast's procedural body styles (dialog portraits reuse them too). */
 export type NpcAvatar = "blocky" | "scribble" | "plush" | "trophy" | "windup";
@@ -395,6 +401,10 @@ export interface RoomEntity extends SpriteFields {
   openFuseId?: string;  // gate opens when a fusebox with this fuseId trips
   closeFuseId?: string; // gate closes when a fusebox with this fuseId trips
   startOpen?: boolean;  // authored initial state, before any fuse trips this run
+  // capacitor — turns on when ANY charge reaches it (no fuseId match needed),
+  // stays on emitting its own charge into neighbors every tick, and turns
+  // back off only when a fusebox with this fuseId trips (never, if unset).
+  offFuseId?: string;
   // enemy
   enemy?: string;
   patrolMinX?: number;

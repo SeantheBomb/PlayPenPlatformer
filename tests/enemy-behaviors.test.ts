@@ -13,6 +13,7 @@ import tilesJson from "../content/tiles.json";
 import gameJson from "../content/game.json";
 import behaviorsJson from "../content/behaviors.json";
 import enemiesJson from "../content/enemies.json";
+import rulesJson from "../content/rules.json";
 
 const TILES = tilesJson as TileDef[];
 const ENEMIES = enemiesJson as EnemyDef[];
@@ -397,11 +398,20 @@ describe("element reactions", () => {
     expect(en.state).toBe("patrol"); // crawler wakes to patrol
   });
 
-  it("spotter: water kills, whether splashed or stood in (short-circuits outright)", () => {
+  it("spotter: plain water only stuns (splash)", () => {
     const { rt } = makeRoom(rows, [enemyEntity(5, 2, "spotter")]);
     new Sim(rt);
     const en = rt.enemies[0];
     hit(rt, en, "water");
+    expect(en.state).toBe("stunned");
+    expect(rt.enemies.includes(en)).toBe(true);
+  });
+
+  it("spotter: electrified water kills (short-circuits outright)", () => {
+    const { rt } = makeRoom(rows, [enemyEntity(5, 2, "spotter")]);
+    new Sim(rt);
+    const en = rt.enemies[0];
+    hit(rt, en, "electrifiedWater");
     expect(en.state).toBe("trapped"); // reused for "removed from play"
     expect(rt.enemies.includes(en)).toBe(false);
   });
@@ -561,7 +571,11 @@ describe("traps and resets", () => {
 // ---------------------------------------------------------------------------
 function makeStaticContent(): Content {
   const c = makeContent();
-  return { ...c, game: { ...c.game, rules: { ...c.game.rules, waterFlowEnabled: false } } };
+  return {
+    ...c,
+    rules: rulesJson as Content["rules"], // real rules — the electrified-water test needs spark_energizes_conductive
+    game: { ...c.game, rules: { ...c.game.rules, waterFlowEnabled: false } },
+  };
 }
 function makeStaticRoom(rows: string[], entities: RoomEntity[] = []): { rt: RoomRuntime } {
   const room: RoomDef = {
@@ -571,16 +585,25 @@ function makeStaticRoom(rows: string[], entities: RoomEntity[] = []): { rt: Room
   return { rt: new RoomRuntime(room, makeStaticContent(), makeMuts()) };
 }
 
-describe("spotter: water tile contact kills, same as a splash", () => {
+describe("spotter: water tile contact stuns, electrified water tile contact kills", () => {
   const rows = [
     "#.w.#",
     "#.w.#",
     "#####",
   ];
 
-  it("standing on a water tile kills it outright", () => {
+  it("standing on a plain water tile stuns, not kills", () => {
     const { rt } = makeStaticRoom(rows, [enemyEntity(2, 1, "spotter")]);
     const sim = new Sim(rt);
+    sim.run(0.2);
+    expect(rt.enemies.length).toBe(1);
+    expect(rt.enemies[0].state).toBe("stunned");
+  });
+
+  it("standing on an electrified water tile kills it outright", () => {
+    const { rt } = makeStaticRoom(rows, [enemyEntity(2, 1, "spotter")]);
+    const sim = new Sim(rt); // sets simNow before energizing, so the charge isn't already expired
+    rt.applyElementToTiles("spark", { x: 2 * 16, y: 1 * 16, w: 16, h: 16 });
     sim.run(0.2);
     expect(rt.enemies.length).toBe(0);
   });

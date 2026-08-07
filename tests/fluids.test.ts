@@ -200,6 +200,40 @@ describe("flush grates over solid ground carry fluid as an overlay", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Gutter (fluidPasses): unlike a grate, never a resting spot for fluid at
+// all — fluid falls straight through a suspended one, and even flush
+// against solid ground it never carries an overlay (fluid pools in the
+// open tiles beside it instead). The tile itself must never be destroyed
+// or overwritten by fluid passing through — see realTileBelow's skip.
+// ---------------------------------------------------------------------------
+describe("gutter lets fluid pass straight through without ever pooling on it", () => {
+  it("a fall crosses a suspended gutter and lands on the real floor below", () => {
+    const rows = [
+      "#..J..#", // y0 fall at x3
+      "#..g..#", // y1 suspended gutter, gap below
+      "#......", // y2 open — no right wall needed for this check
+      "########", // y3 floor
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 40);
+    expect(charAt(rt, 3, 1)).toBe("g"); // gutter untouched
+    expect(fluidAt(rt, 2, 2, "lava")).toBe(true); // pool lands past it, beside the fall column
+  });
+
+  it("flush against solid ground, the gutter tile survives and carries no overlay", () => {
+    const rows = [
+      "#..J..#",
+      "#..g..#",
+      "#######",
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 40);
+    expect(charAt(rt, 3, 1)).toBe("g");
+    expect(grateFluidAt(rt, 3, 1)).toBeNull(); // never rides as an overlay, unlike a grate
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Sean's screenshot scenario, reproduced faithfully: the fall crosses a
 // SUSPENDED walkway partway down, lands on plain floor, and the pool must
 // still travel the whole floor — under the walkway — to a closed door.

@@ -79,7 +79,8 @@ Applying any element-carrier to any tile resolves through the kernel:
 | | Crawler (goo creature) | Spotter (metal drone) |
 | --- | --- | --- |
 | fire | *burns it away* (kill) | nothing (fireproof) |
-| water | nothing | *shorts out* (kill) — any contact, splashed or stepped in |
+| water | nothing | dazed (stun) — any contact, splashed or stepped in |
+| electrified water | nothing | *shorts out* (kill) — a water tile currently carrying charge (e.g. from a capacitor/spark) |
 | ice | frozen (stun) | frozen (stun) |
 | force | knockback | knockback |
 
