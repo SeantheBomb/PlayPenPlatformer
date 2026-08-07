@@ -191,6 +191,15 @@ export class RoomRuntime {
    *  overflow from a temporary obstruction, not a real base, so it doesn't
    *  get to linger as a permanent extra source once the real path resumes. */
   private dammedFallPools = new Map<number, Set<number>>();
+  /** Tile indices of SOURCED water that came from a gate-dammed pool (see
+   *  poolFallBase's requireContainment) — their own later "surface, fully
+   *  fallen" spreading (the generic case in tickWaterFlow, used by every
+   *  SOURCED tile) must keep respecting containment too, and propagate the
+   *  tag to whatever they spread into, or only the FIRST tile a gate backed
+   *  up would be leak-safe while everything it goes on to widen into is
+   *  right back to unrestricted. Cleared as tiles drain (drainDammedPool)
+   *  or otherwise stop being fluid. */
+  private gateSourcedTiles = new Set<number>();
   /** source tile index -> seconds a toyblock there has been leaned on, in
    *  the direction that would push it. Resets whenever contact breaks. */
   private toyblockPush = new Map<number, number>();
@@ -1288,15 +1297,28 @@ export class RoomRuntime {
       if (distance === SOURCED) {
         // Fall-fed fluid IS an infinite source — it replicates outward until
         // walls or a drain stop it. WHICH sides it widens into each tick is
-        // fluidFlow's `on sourcedSpread` policy (spreadTargets).
+        // fluidFlow's `on sourcedSpread` policy (spreadTargets). A tile
+        // tagged gateSourcedTiles (backed up behind a closed gate, not
+        // resting on a real designed floor — see poolFallBase) keeps
+        // requiring solid ground directly under wherever it spreads next,
+        // same as its own placement did, and passes the tag along to
+        // whatever it spreads into — otherwise only the very first tile a
+        // gate backed up was leak-safe, and everything it went on to widen
+        // into was right back to unrestricted spreading.
+        const containedOnly = this.gateSourcedTiles.has(idx);
         for (const nx of this.spreadTargets(tx, ty)) {
           if (nx < 0 || nx >= this.map.width) continue;
           const target = this.fluidOccupied(nx, ty, def.element, events);
           if (target.solid) continue;
+          if (containedOnly) {
+            const below = this.fluidOccupied(nx, target.ty + 1, def.element, events);
+            if (!below.solid) continue;
+          }
           if (this.resolveFluidContact(nx, target.ty, def, tx, ty, events)) continue;
           const nIdx = this.map.index(nx, target.ty);
           this.placeFluid(nx, target.ty, def);
           this.waterFlowDist.set(nIdx, SOURCED);
+          if (containedOnly) this.gateSourcedTiles.add(nIdx);
           events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: def.color });
         }
         continue;
@@ -1396,7 +1418,7 @@ export class RoomRuntime {
           // which drains it back out once the gate reopens.
           const fluidDef = this.tilesById.get(def.fallSpawns);
           if (fluidDef) {
-            const placed = this.poolFallBase(tx, belowInfo.ty - 1, fluidDef, events, false, true);
+            const placed = this.poolFallBase(tx, belowInfo.ty - 1, fluidDef, events, true);
             let pool = this.dammedFallPools.get(idx);
             if (!pool) { pool = new Set(); this.dammedFallPools.set(idx, pool); }
             for (const p of placed) pool.add(p);
@@ -1462,39 +1484,35 @@ export class RoomRuntime {
 
   /** A fall has hit its base (real solid ground OR a closed gate — see the
    *  call sites) at baseTy+1: start (or keep) the pool by emitting into open
-   *  side tiles at baseTy. Sourced spreading, so `on sourcedSpread` governs
-   *  which sides it widens into. Returns every tile index the pool now
-   *  occupies (placed this call, or already there and topped up) — the
-   *  closed-gate call site uses this to remember what to drain once the
-   *  gate reopens (dammedFallPools / drainDammedPool).
+   *  side tiles at baseTy, SOURCED (an eternal top-up — this genuinely is
+   *  fed by an infinite fall, whichever kind of base it hit). Sourced
+   *  spreading, so `on sourcedSpread` governs which sides it widens into.
+   *  Returns every tile index the pool now occupies (placed this call, or
+   *  already there and topped up) — the closed-gate call site uses this to
+   *  remember what to drain once the gate reopens (dammedFallPools /
+   *  drainDammedPool).
    *
-   *  Real solid ground (the default: sourced=true, requireContainment=
-   *  false) marks the placed water SOURCED, an eternal top-up, and is
-   *  allowed to spill into any gap it finds — that's how a waterfall meets
-   *  a ledge and keeps flowing elsewhere, and existing tests rely on
-   *  exactly that.
+   *  Real solid ground (the default, requireContainment=false) is allowed
+   *  to spill into any gap it finds — that's how a waterfall meets a ledge
+   *  and keeps flowing elsewhere, and existing tests rely on exactly that.
    *
-   *  A closed gate (sourced=false, requireContainment=true) is different on
-   *  BOTH axes, because unlike real ground it's a reversible obstruction:
-   *  - sourced=false: SOURCED tiles keep replicating outward via the normal
-   *    per-tick "surface, fully fallen" case (elsewhere in tickWaterFlow) —
-   *    correct and load-bearing for a genuine base, but for a gate it meant
-   *    a single placement could snowball into an unbounded flood with
-   *    nothing to stop it once it found open space, since that replication
-   *    has no containment check of its own. Finite water only ever MOVES —
-   *    conserved, never multiplies — which bounds the damage even if a
-   *    placed tile does find a way out.
-   *  - requireContainment=true: additionally refuse to place into a spot
-   *    that doesn't have solid ground directly under it, so this call site
-   *    doesn't even hand a leak-prone spot a tile to move into in the first
-   *    place. Both together: reported live (after shipping the sourced
-   *    version alone) — an entire unrelated shaft and the floor far below
-   *    it had flooded, fed by a permanent trickle through one open gap in
-   *    the pooling row that this call kept re-supplying every single tick
-   *    the gate stayed shut. */
+   *  A closed gate (requireContainment=true) is different: unlike real
+   *  ground it's a reversible obstruction sitting at whatever row the fall
+   *  happened to be blocked at, a spot the room was never designed as a
+   *  floor — so refuse to place into anything that doesn't have solid
+   *  ground directly under it. Placed tiles are also tagged into
+   *  gateSourcedTiles, which makes their OWN later spreading (the generic
+   *  "surface, fully fallen" case elsewhere in tickWaterFlow) keep applying
+   *  this same check as the pool widens, propagating the tag forward —
+   *  without it, a single open gap anywhere the pool eventually reached
+   *  (not just this call's own immediate neighbors) turned into a permanent
+   *  trickle feeding an entire second waterfall down whatever shaft it
+   *  found, reported live after containment-checking only this call's own
+   *  placement: pooling stopped leaking, but also stopped ever widening
+   *  across the room's actual floor toward open space (a real, contained
+   *  place it should have kept spreading into). */
   private poolFallBase(
-    tx: number, baseTy: number, fluidDef: TileDef, events: ElementEvent[],
-    sourced = true, requireContainment = false
+    tx: number, baseTy: number, fluidDef: TileDef, events: ElementEvent[], requireContainment = false
   ): number[] {
     const touched: number[] = [];
     for (const nx of this.spreadTargets(tx, baseTy)) {
@@ -1512,40 +1530,64 @@ export class RoomRuntime {
       if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
       this.placeFluid(nx, target.ty, fluidDef);
       const tIdx = this.map.index(nx, target.ty);
-      this.waterFlowDist.set(tIdx, sourced ? SOURCED : 0);
+      this.waterFlowDist.set(tIdx, SOURCED);
+      if (requireContainment) this.gateSourcedTiles.add(tIdx);
       touched.push(tIdx);
       events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: fluidDef.color });
     }
     return touched;
   }
 
-  /** A fall origin's gate just reopened — drain the pool it backed up
-   *  sideways while dammed (dammedFallPools), the same staggered farthest-
-   *  first way recedeCutOffFluid drains a body cut off by a gate CLOSING,
-   *  just measured from the reopened point instead. No-op if this origin
-   *  never actually dammed anything (the common case — most falls never
-   *  meet a gate at all). Doesn't require SOURCED (recedeCutOffFluid does,
-   *  since it walks ALL of waterFlowDist broadly and needs that filter to
-   *  avoid draining unrelated ordinary water it merely flooded past) —
-   *  dammedFallPools is already scoped to exactly the tiles THIS gate
-   *  backed up (finite, per poolFallBase's sourced=false for the gate
-   *  case), so there's nothing else in the set to accidentally catch. */
+  /** A fall origin's gate just reopened — drain the pool it backed up while
+   *  dammed, the same staggered farthest-first way recedeCutOffFluid drains
+   *  a body cut off by a gate CLOSING, just measured from the reopened
+   *  point instead. No-op if this origin never actually dammed anything
+   *  (the common case — most falls never meet a gate at all).
+   *
+   *  dammedFallPools only ever records what poolFallBase itself directly
+   *  placed — the pool's OWN first layer — but a gate-sourced tile goes on
+   *  to widen further on its own later ticks (case 4's SOURCED spread,
+   *  propagating the gateSourcedTiles tag as it goes), so the true extent
+   *  of what THIS gate backed up can reach well beyond that first layer.
+   *  Flood-fills outward from it through connected gateSourcedTiles
+   *  (matching element, matching the reachability walk recedeCutOffFluid
+   *  already does) to find everything, not just what was recorded as
+   *  directly placed. */
   private drainDammedPool(originIdx: number, gateX: number, gateY: number, events: ElementEvent[]): void {
-    const pool = this.dammedFallPools.get(originIdx);
-    if (!pool || pool.size === 0) { this.dammedFallPools.delete(originIdx); return; }
+    const seed = this.dammedFallPools.get(originIdx);
     this.dammedFallPools.delete(originIdx);
+    if (!seed || seed.size === 0) return;
+    const pool = new Set<number>();
+    const queue = [...seed];
+    while (queue.length > 0) {
+      const idx = queue.pop()!;
+      if (pool.has(idx) || !this.waterFlowDist.has(idx)) continue;
+      pool.add(idx);
+      const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      const def = this.map.at(tx, ty);
+      if (!def) continue;
+      for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
+        if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
+        const nIdx = this.map.index(nx, ny);
+        if (pool.has(nIdx) || !this.gateSourcedTiles.has(nIdx)) continue;
+        const ndef = this.map.at(nx, ny);
+        if (!ndef || ndef.element !== def.element) continue;
+        queue.push(nIdx);
+      }
+    }
     const now = simNow();
     const cx = gateX * TILE + TILE / 2, cy = gateY * TILE + TILE / 2;
     let maxDist = 0;
     const withDist: { idx: number; d: number }[] = [];
     for (const idx of pool) {
-      if (!this.waterFlowDist.has(idx) || this.draining.has(idx)) continue;
+      if (this.draining.has(idx)) continue;
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
       const d = Math.hypot(tx * TILE + TILE / 2 - cx, ty * TILE + TILE / 2 - cy);
       withDist.push({ idx, d });
       if (d > maxDist) maxDist = d;
     }
     for (const { idx, d } of withDist) {
+      this.gateSourcedTiles.delete(idx);
       const ratio = maxDist > 0 ? d / maxDist : 1;
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
       const data: Record<string, unknown> = { ratio };

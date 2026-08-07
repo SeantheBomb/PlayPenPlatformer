@@ -1041,4 +1041,47 @@ describe("a gate closing under an already-established fall clears it, not just n
       }
     }
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, live playtest 2026-08-07, follow-up to the leak fix):
+  // "Why did the water stop expanding to the right towards the spotters?"
+  // Fixing the leak by refusing any spread without solid ground under it
+  // was scoped too narrowly — it only guarded poolFallBase's OWN placement,
+  // not that tile's own later spreading (case 4's SOURCED "surface, fully
+  // fallen" branch, the SAME generic code every sourced tile — including
+  // legitimate solid-ground pools — uses to widen). So the pool correctly
+  // stopped leaking, but also stopped ever widening across a genuinely safe
+  // floor it should have kept filling, like any other pool would. Fixed by
+  // tagging gate-sourced tiles (gateSourcedTiles) and propagating the tag
+  // as they spread, so containment keeps being required at every step, not
+  // just the first — while a real, solid floor lets it keep widening across
+  // the whole thing, same as it always could.
+  // -------------------------------------------------------------------------
+  it("still widens across a genuinely safe floor while refusing to leak down an unrelated shaft beside it", () => {
+    const rows = [
+      "#....V.............#", // fall at x5
+      "#..................#", // y1: pooling row — x4 the leak candidate, x6-18 a real floor
+      "####..##############", // y2: trapdoor at x5 — x4 open (leak continues down), x6-18 solid
+      "####..##############",
+      "####..##############",
+      "####..##############",
+      "####..##############",
+      "####..##############",
+      "####################", // floor, seals the leak shaft at the very bottom
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    setSimTime(10_000);
+    tick(rt, 80); // plenty of time to fill the whole safe floor if it's going to
+    // Widened all the way across the real floor...
+    for (let x = 6; x <= 18; x++) {
+      expect(fluidAt(rt, x, 1, "water"), `expected (${x},1) — the safe floor — to have filled`).toBe(true);
+    }
+    // ...but never leaked down the open shaft right beside it — not even
+    // the very top of it, since that spot has no solid ground under it
+    // either.
+    for (let y = 1; y <= 7; y++) {
+      expect(fluidAt(rt, 4, y, "water"), `expected (4,${y}) to be dry — no leak`).toBe(false);
+    }
+  });
 });
