@@ -548,15 +548,16 @@ export class RoomRuntime {
     let lastGrateY = -1;
     while (y < this.map.height) {
       if (this.doorBlocksFluid(tx, y)) return { ty: y, def: null, solid: true, grateY: -1 };
-      // Water reaching a fire tile (or anything merely on fire) puts it out
-      // — same "on fluidContact" spirit as quenching lava, but for fire/
-      // burning, which was never handled outside an active item swing. A
-      // bare fire tile (extinguishesTo: "") clears away entirely so this
-      // same walk sees an open cell next line down and the water pools
-      // straight into it; a flammable tile that's merely burning (the
+      // Water reaching fire (or goo, or anything else with a water rule)
+      // reacts with it in passing — same "on fluidContact" spirit as
+      // quenching lava, but for the passive flow tick, which never
+      // consulted rules.json at all outside an active item swing. A tile
+      // that clears away entirely (extinguishesTo/dissolvesTo: "") opens up
+      // so this same walk sees an open cell next line down and the water
+      // pools straight into it; a flammable tile that's merely burning (the
       // `burning` overlay) just stops burning — the tile itself (e.g. wood)
       // stays exactly as solid as it always was.
-      if (moverElement === "water") this.extinguishFireTile(tx, y, events ?? []);
+      if (moverElement === "water") this.reactFluidWithTile(tx, y, moverElement, events ?? []);
       const t = this.map.at(tx, y);
       if (t === null) return { ty: y, def: null, solid: false, grateY: -1 };
       if (t.fluidPasses) { y++; continue; } // gutter: pass straight through, never a resting spot
@@ -567,20 +568,33 @@ export class RoomRuntime {
     return { ty: y, def: null, solid: false, grateY: -1 };
   }
 
-  /** See realTileBelow's water branch above — extinguishes whatever fire is
-   *  at (tx,ty), whether that's a lit fire-element tile (clears away
-   *  entirely) or just the `burning` overlay on an otherwise-ordinary
-   *  flammable tile (stops burning, tile itself unchanged). No-op, no event,
-   *  if there's nothing to put out. */
-  private extinguishFireTile(tx: number, ty: number, events: ElementEvent[]): void {
+  /** See realTileBelow's water branch above — reacts (tx,ty) with the
+   *  passing fluid via the SAME rules.json lookup the active item-swing path
+   *  uses (findRule), instead of a hardcoded fire-only check, so any future
+   *  "water + X -> clear-the-tile" rule (goo's dissolve today) gets this for
+   *  free. Only ever clears the tile for "extinguish"/"dissolve" — the two
+   *  effects whose *To field means "gone" — and only for non-fluid targets;
+   *  water-vs-lava contact stays resolveFluidContact's job entirely (it
+   *  hardens the OTHER side and needs to know which one is actually moving,
+   *  something a read-only lookahead here can't determine). A merely-
+   *  burning flammable tile (the `burning` overlay, e.g. ignited wood) just
+   *  stops burning — the tile itself is unchanged, not cleared. No-op, no
+   *  event, if nothing here reacts. */
+  private reactFluidWithTile(tx: number, ty: number, moverElement: string, events: ElementEvent[]): void {
     const idx = this.map.index(tx, ty);
-    let extinguished = this.burning.delete(idx);
+    let reacted = this.burning.delete(idx);
     const def = this.map.at(tx, ty);
-    if (def?.element === "fire" && def.extinguishesTo !== undefined) {
-      this.transformTile(tx, ty, def.extinguishesTo);
-      extinguished = true;
+    if (def && !this.isFluid(def)) {
+      const rule = this.findRule(moverElement, def);
+      const clearsTo = rule?.effect === "extinguish" ? def.extinguishesTo
+        : rule?.effect === "dissolve" ? def.dissolvesTo
+        : undefined;
+      if (clearsTo !== undefined) {
+        this.transformTile(tx, ty, clearsTo);
+        reacted = true;
+      }
     }
-    if (extinguished) {
+    if (reacted) {
       events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
     }
   }

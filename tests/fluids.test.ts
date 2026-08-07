@@ -8,6 +8,7 @@ import type { RoomMutations } from "../src/game/state";
 import tilesJson from "../content/tiles.json";
 import gameJson from "../content/game.json";
 import behaviorsJson from "../content/behaviors.json";
+import rulesJson from "../content/rules.json";
 
 const TILES = tilesJson as TileDef[];
 
@@ -15,7 +16,7 @@ function makeContent(): Content {
   return {
     game: gameJson as Content["game"],
     elements: [], behaviors: behaviorsJson as never,
-    rules: [],
+    rules: rulesJson,
     achievements: [],
     tiles: TILES,
     items: [],
@@ -894,5 +895,23 @@ describe("flowing water extinguishes fire and pools into it", () => {
     // and still solid), but the block itself is still there, still a toyblock.
     expect(charAt(rt, 2, 2)).toBe("T");
     expect(fluidAt(rt, 2, 2, "water")).toBe(false);
+  });
+
+  // REGRESSION (player report, 2026-08-07, exit_wing): "I thought the water
+  // was supposed to wash away the goo" — same gap, different rule
+  // (water_dissolves_goo). Proves the fix generalizes via findRule instead
+  // of being fire-specific.
+  it("a fall dissolves a goo tile directly below it and pools into the now-open cell", () => {
+    const rows = [
+      "#####",
+      "#.V.#",
+      "#.G.#", // goo directly below the fall
+      "#...#",
+      "#####",
+    ];
+    const rt = makeRoom(rows);
+    tick(rt, 10);
+    expect(charAt(rt, 2, 2)).not.toBe("G"); // the goo is washed away
+    expect(fluidAt(rt, 2, 2, "water") || charAt(rt, 2, 2) === "V").toBe(true);
   });
 });
