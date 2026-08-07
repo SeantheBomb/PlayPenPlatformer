@@ -979,26 +979,66 @@ describe("a gate closing under an already-established fall clears it, not just n
   // -------------------------------------------------------------------------
   it("drains the sideways-backed-up pool once the gate reopens, instead of leaving it as a permanent extra source", () => {
     const rows = [
-      "############",
-      ".........V#.",
-      "..........#.",
-      "############",
-      "############",
-      "############",
+      "#....V....#",
+      "#.....#...#", // y1: open at x4 (room to pool into), walled+contained at x6
+      "#...#.#...#", // y2: trapdoor at x5
+      "#...#.#...#",
+      "###########",
     ];
-    const trap: RoomEntity = { type: "trapdoor", x: 9, y: 2, gate: true } as RoomEntity;
+    const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
     const rt = makeRoom(rows, [trap]);
     const inst = rt.entities.find((e) => e.kind === "trapdoor")!;
     setSimTime(10_000);
     tick(rt, 15); // build up the sideways pool while blocked
-    const poolBefore = Array.from({ length: 9 }, (_, x) => x).filter((x) => fluidAt(rt, x, 1, "water"));
-    expect(poolBefore.length, "expected a sideways pool to have formed while blocked").toBeGreaterThan(0);
+    expect(fluidAt(rt, 4, 1, "water"), "expected a sideways pool to have formed while blocked").toBe(true);
     inst.open = true;
     rt.update(1, null, 0, () => {}); // one flow tick: detects the reopen, schedules the drain
     setSimTime(20_000); // well past RECEDE_MS
     rt.update(1, null, 0, () => {}); // the scheduled drain actually fires
-    for (const x of poolBefore) {
-      expect(fluidAt(rt, x, 1, "water"), `expected (${x},1) to have drained after the gate reopened`).toBe(false);
+    expect(fluidAt(rt, 4, 1, "water"), "expected (4,1) to have drained after the gate reopened").toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, live playtest 2026-08-07, after the above fix went
+  // out): "I just tested it and I'm seeing the same issue" — turned out
+  // pooling wasn't the leftover problem, it was a genuine LEAK: poolFallBase
+  // runs every single tick a gate stays closed, and in the real room one of
+  // its spread targets had open space below leading down an entire
+  // unrelated shaft. Every tick's placement fell straight through and got
+  // re-placed the next tick — a permanent trickle pouring an extra
+  // waterfall down that shaft and flooding the floor far below it, for as
+  // long as the gate stayed shut. requireContainment refuses to place
+  // anywhere that doesn't have solid ground directly under it — pooling
+  // beside a gate may only settle somewhere it will actually stay.
+  // -------------------------------------------------------------------------
+  it("does not leak a permanent trickle down an unrelated open shaft while backed up behind a gate", () => {
+    // Asymmetric on purpose, mirroring the real room: x4 (left of the fall)
+    // is a genuinely contained pooling spot (wall directly below it at y2);
+    // x6 (right of the fall) is open all the way down an unrelated shaft —
+    // exactly the shape that leaked live.
+    const rows = [
+      "#....V.......#",
+      "#............#", // y1: pooling row — x4 contained, x6 the leak candidate
+      "#...#........#", // y2: trapdoor at x5 — x4 walled, x6+ wide open
+      "#............#",
+      "#............#",
+      "#............#",
+      "#............#",
+      "#............#",
+      "##############",
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    setSimTime(10_000);
+    tick(rt, 40); // plenty of time for a leak to establish and cascade, if one exists
+    // The contained spot beside the gate legitimately pools...
+    expect(fluidAt(rt, 4, 1, "water")).toBe(true);
+    // ...but nothing ever leaked into the unrelated open shaft on the other
+    // side, or down into it, or onto the floor far below.
+    for (let y = 1; y <= 7; y++) {
+      for (let x = 6; x <= 12; x++) {
+        expect(fluidAt(rt, x, y, "water"), `expected (${x},${y}) to be dry — no leak`).toBe(false);
+      }
     }
   });
 });
