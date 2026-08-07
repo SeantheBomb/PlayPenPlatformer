@@ -95,10 +95,7 @@ async function boot() {
         const x = cp.x + cp.w / 2, y = cp.y + cp.h;
         game.player.placeFeetAt(x, y);
         game.state.checkpoint = { roomId: deepLinkRoom, x, y, loadout: cp.def.loadout };
-        if (cp.def.loadout) {
-          game.state.inventory.clear();
-          for (const { item, count } of cp.def.loadout) game.state.add(item, count);
-        }
+        game.state.applyLoadout(cp.def.loadout);
       }
     }
   }

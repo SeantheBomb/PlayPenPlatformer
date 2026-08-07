@@ -1615,13 +1615,7 @@ export class Game {
     this.air = this.content.game.rules.airBlips;
     this.prevSwim = "none";
     this.player.placeFeetAt(x, y);
-    if (loadout) {
-      // Preload for the area ahead — replaces whatever's left, same spirit
-      // as resetInventoryBetweenRooms (a checkpoint hands you back a fixed
-      // kit, not a merge with what you happened to be carrying).
-      this.state.inventory.clear();
-      this.state.selectedConsumable = 0;
-      for (const { item, count } of loadout) this.state.add(item, count);
+    if (this.state.applyLoadout(loadout)) {
       this.floaty("Reloaded for this area.", this.player.centerX, this.player.y - 24, "#7fd8e8");
     }
     this.player.invulnUntil = simNow() + this.content.game.rules.respawnInvulnMs;

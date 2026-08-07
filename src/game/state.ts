@@ -285,6 +285,25 @@ export class RunState {
     return out;
   }
 
+  /** Replace the current inventory with a fixed kit — what a checkpoint (or
+   *  the editor's "start test from here") hands the player back instead of
+   *  a merge with whatever they had. Returns whether it actually applied.
+   *  An empty array is treated the same as no loadout at all (no-op, false)
+   *  — NOT "hand back nothing": the editor's checkpoint-inspector loadout
+   *  list UI lazily sets `loadout: []` just from the panel being opened, so
+   *  an empty array reaching here is almost always that stray default, not
+   *  an authored "give nothing". Mistaking the two wiped a player's whole
+   *  inventory on every death at that checkpoint (player report,
+   *  exit_wing: "I had a spark rod and then I died... and the spark rod
+   *  was gone as well as the ingredients I used to craft it"). */
+  applyLoadout(loadout?: { item: string; count: number }[]): boolean {
+    if (!loadout || loadout.length === 0) return false;
+    this.inventory.clear();
+    this.selectedConsumable = 0;
+    for (const { item, count } of loadout) this.add(item, count);
+    return true;
+  }
+
   /** Death reset for equipped items: a lit torch goes back out, a full/lava
    *  bucket goes back to empty — any item whose carrier state (`dousesTo` /
    *  `emptiesTo`) can revert does, generically, no per-item special-casing.

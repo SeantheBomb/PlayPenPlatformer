@@ -315,11 +315,7 @@ class EditorShell {
         // gear up for testing the area ahead — never a real-respawn effect
         // (see game.ts's checkpoint-touch handler, which deliberately never
         // carries it). Applied here explicitly instead.
-        if (startAt.loadout) {
-          this.game.state.inventory.clear();
-          this.game.state.selectedConsumable = 0;
-          for (const { item, count } of startAt.loadout) this.game.state.add(item, count);
-        }
+        this.game.state.applyLoadout(startAt.loadout);
       }
     });
   }
