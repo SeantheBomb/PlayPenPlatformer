@@ -559,6 +559,13 @@ export class Game {
       this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
     );
     this.particles.clear();
+    sfx.stopAllLoops(); // a capacitor's hum shouldn't carry over from the last room
+    // ...but one already left ON in THIS room (persisted state) should hum
+    // immediately — otherwise it stays silent until it next toggles off/on,
+    // since checkCapacitors only announces an off->on transition.
+    for (const e of this.roomRt.entities) {
+      if (e.kind === "capacitor" && e.open) sfx.startLoop(`capacitor:${e.index}`);
+    }
     this.taunts.fire("room_enter", { roomId });
     const trackId = this.roomRt.room.track ?? this.content.game.audio.defaultTrackId;
     const track = this.content.tracks.find((t) => t.id === trackId);
@@ -1431,6 +1438,16 @@ export class Game {
           break;
         case "energize":
           this.particles.burst({ x: ev.x, y: ev.y, count: 2, color: "#ffe95a", speed: 40, life: 0.25, gravity: 0 });
+          break;
+        case "capacitorOn":
+          // A quiet ambient hum while it's live, not the fusebox's clink —
+          // keyed by entity index so each capacitor gets its own loop.
+          sfx.startLoop(`capacitor:${ev.entityIndex}`);
+          this.particles.burst({ x: ev.x, y: ev.y, count: 10, color: "#ffe95a", speed: 70, life: 0.4 });
+          break;
+        case "capacitorOff":
+          sfx.stopLoop(`capacitor:${ev.entityIndex}`);
+          this.particles.burst({ x: ev.x, y: ev.y, count: 6, color: "#8f9bb3", speed: 50, life: 0.35 });
           break;
         case "fuse":
           sfx.play("unlock");

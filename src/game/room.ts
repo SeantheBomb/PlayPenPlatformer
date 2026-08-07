@@ -1572,7 +1572,12 @@ export class RoomRuntime {
       if (hit) {
         cap.open = true;
         this.muts.openedDoors.add(cap.index);
-        events.push({ effect: "fuse", x: cap.x + cap.w / 2, y: cap.y, color: "#ffe95a" });
+        // Own effect, not "fuse" — a capacitor turning on starts a quiet
+        // ambient hum, not the fusebox's one-shot "unlock" clink.
+        events.push({
+          effect: "capacitorOn", x: cap.x + cap.w / 2, y: cap.y + cap.h / 2,
+          color: "#ffe95a", entityIndex: cap.index,
+        });
       }
     }
   }
@@ -1620,9 +1625,16 @@ export class RoomRuntime {
   }
 
   tripFusebox(fb: EntityInstance, events: ElementEvent[]): void {
+    // A capacitor left running keeps re-touching this fusebox's box every
+    // flow tick, calling this repeatedly while fb is already open — only
+    // announce (sfx/particles/CLUNK text) on an actual off->on transition,
+    // or that reads as the fusebox clinking nonstop instead of just once.
+    const wasOpen = fb.open;
     fb.open = true;
     this.muts.openedDoors.add(fb.index);
-    events.push({ effect: "fuse", x: fb.x + fb.w / 2, y: fb.y, color: "#ffe95a" });
+    if (!wasOpen) {
+      events.push({ effect: "fuse", x: fb.x + fb.w / 2, y: fb.y, color: "#ffe95a" });
+    }
     for (const e of this.entities) {
       if (e.kind !== "door" && e.kind !== "trapdoor") continue;
       const openId = e.def.openFuseId ?? e.def.fuseId;
@@ -1645,7 +1657,10 @@ export class RoomRuntime {
       if (cap.def.offFuseId && cap.def.offFuseId === fb.def.fuseId) {
         cap.open = false;
         this.muts.openedDoors.delete(cap.index);
-        events.push({ effect: "fuse", x: cap.x + cap.w / 2, y: cap.y + cap.h / 2, color: "#e8a2b4" });
+        events.push({
+          effect: "capacitorOff", x: cap.x + cap.w / 2, y: cap.y + cap.h / 2,
+          color: "#e8a2b4", entityIndex: cap.index,
+        });
       }
     }
   }

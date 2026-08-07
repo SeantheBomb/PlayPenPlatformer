@@ -9,7 +9,23 @@ type SfxName =
 export class Sfx {
   private ctx: AudioContext | null = null;
   volume = 0.5;
-  muted = false;
+  private _muted = false;
+  private loops = new Map<string, { osc: OscillatorNode; gain: GainNode; vol: number }>();
+
+  get muted(): boolean { return this._muted; }
+  set muted(v: boolean) {
+    this._muted = v;
+    // One-shot sounds already check `muted` at trigger time, but a loop
+    // keeps sounding across many ticks — toggling mute mid-hum must reach
+    // it too, or the player mutes and the capacitor hum plays right through.
+    if (!this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    for (const loop of this.loops.values()) {
+      loop.gain.gain.cancelScheduledValues(t0);
+      loop.gain.gain.setValueAtTime(loop.gain.gain.value, t0);
+      loop.gain.gain.linearRampToValueAtTime(v ? 0.0001 : loop.vol * this.volume, t0 + 0.15);
+    }
+  }
 
   private ensure(): AudioContext | null {
     if (!this.ctx) {
@@ -64,6 +80,42 @@ export class Sfx {
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(gain).connect(ctx.destination);
     src.start(t0);
+  }
+
+  /** Starts a sustained low-volume tone keyed by `id` — for ambient sources
+   *  (a live capacitor's hum) that need to persist across many ticks
+   *  without re-triggering, unlike every other sound here which is a
+   *  one-shot `play()`. A no-op if that id is already looping. */
+  startLoop(id: string, freq = 90, vol = 0.05): void {
+    if (this.loops.has(id) || this.muted) return;
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(vol * this.volume, ctx.currentTime + 0.3);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    this.loops.set(id, { osc, gain, vol });
+  }
+
+  stopLoop(id: string): void {
+    const loop = this.loops.get(id);
+    if (!loop || !this.ctx) return;
+    const t0 = this.ctx.currentTime;
+    loop.gain.gain.cancelScheduledValues(t0);
+    loop.gain.gain.setValueAtTime(loop.gain.gain.value, t0);
+    loop.gain.gain.linearRampToValueAtTime(0.0001, t0 + 0.2);
+    loop.osc.stop(t0 + 0.25);
+    this.loops.delete(id);
+  }
+
+  /** Stops every active loop — call on room transitions so a hum never
+   *  carries over from a capacitor left behind in the last room. */
+  stopAllLoops(): void {
+    for (const id of [...this.loops.keys()]) this.stopLoop(id);
   }
 
   play(name: SfxName): void {

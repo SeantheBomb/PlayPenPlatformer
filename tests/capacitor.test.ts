@@ -62,6 +62,17 @@ describe("capacitor turns on from any charge", () => {
     expect(cap.open).toBe(true);
   });
 
+  it("announces itself as capacitorOn, not the fusebox's fuse/clink effect", () => {
+    const { rt } = makeRoom([{ type: "capacitor", x: 5, y: 0 } as RoomEntity]);
+    const cap = find(rt, "capacitor");
+    setSimTime(1000);
+    rt.energized.set(rt.map.index(Math.floor(cap.x / 16), Math.floor(cap.y / 16)), 1100);
+    const events: { effect: string; entityIndex?: number }[] = [];
+    (rt as never as { checkCapacitors(ev: typeof events): void }).checkCapacitors(events);
+    expect(events.some((e) => e.effect === "fuse")).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({ effect: "capacitorOn", entityIndex: cap.index }));
+  });
+
   it("stays on across later check passes once already on (idempotent)", () => {
     const { rt } = makeRoom([{ type: "capacitor", x: 5, y: 0 } as RoomEntity]);
     const cap = find(rt, "capacitor");
@@ -136,5 +147,42 @@ describe("capacitor offFuseId wiring", () => {
     expect(cap.open).toBe(true);
     rt.tripFusebox(find(rt, "fusebox"), []);
     expect(cap.open).toBe(true); // no offFuseId — a fusebox trip never touches it
+  });
+
+  it("announces itself as capacitorOff, not the fusebox's fuse/clink effect", () => {
+    const { rt } = makeRoom([
+      { type: "capacitor", x: 5, y: 0, offFuseId: "KILL" } as RoomEntity,
+      { type: "fusebox", x: 9, y: 0, fuseId: "KILL" } as RoomEntity,
+    ]);
+    const cap = find(rt, "capacitor");
+    zap(rt, cap, 1000);
+    expect(cap.open).toBe(true);
+    const events: { effect: string; entityIndex?: number }[] = [];
+    rt.tripFusebox(find(rt, "fusebox"), events);
+    expect(cap.open).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({ effect: "capacitorOff", entityIndex: cap.index }));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-07): "the capacitor is loud and clinks very
+// often" — a capacitor's continuous re-shock keeps touching any fusebox in
+// its reach every flow tick, and tripFusebox used to unconditionally push a
+// "fuse" event (sfx "unlock" + camera shake + CLUNK text) on every call,
+// even when the fusebox was already open. That read as constant clinking.
+// ---------------------------------------------------------------------------
+describe("tripFusebox only announces a real off->on transition", () => {
+  it("does not re-emit the fuse event when the fusebox is already open", () => {
+    const { rt } = makeRoom([{ type: "fusebox", x: 5, y: 0, fuseId: "A" } as RoomEntity]);
+    const fb = find(rt, "fusebox");
+    const first: { effect: string }[] = [];
+    rt.tripFusebox(fb, first);
+    expect(first.some((e) => e.effect === "fuse")).toBe(true);
+    expect(fb.open).toBe(true);
+
+    const second: { effect: string }[] = [];
+    rt.tripFusebox(fb, second);
+    expect(second.some((e) => e.effect === "fuse")).toBe(false);
+    expect(fb.open).toBe(true); // still open — just no repeat announcement
   });
 });
