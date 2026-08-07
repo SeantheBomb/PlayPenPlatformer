@@ -72,6 +72,11 @@ export interface ElementEvent {
   color: string;
   enemyId?: string;  // for enemy_* events
   element?: string;  // the element that caused it
+  // for capacitorOn/capacitorOff: identifies WHICH capacitor, so its ambient
+  // hum loop can be started/stopped by a stable key instead of position
+  // (on/off events report different y — center vs top — so x,y alone can't
+  // reliably pair them back up).
+  entityIndex?: number;
 }
 
 const SIGHT_HALF_SLOPE = 0.55; // vertical spread of the vision cone (~29°)
@@ -1326,6 +1331,36 @@ export class RoomRuntime {
       const def = this.map.at(tx, ty);
       if (!def?.fallSpawns) {
         this.fallTiles.delete(idx);
+        continue;
+      }
+      // A gate just closed exactly where THIS segment already sits (it grew
+      // through while the gate was open, before ever getting a chance to
+      // check — the closed-gate check below only ever runs for a segment
+      // querying its OWN below, never for a segment already occupying a
+      // cell). A shut door can't have a waterfall visibly running through
+      // its own middle — that's what "the water is still falling through
+      // the trapdoor" was actually reporting (a real fall tile physically
+      // sitting on the door's cell, not water finding a way around it).
+      // Clear this segment and convert everything still hanging below it —
+      // now orphaned from the source above, since growth stopped here too —
+      // from the fall's self-perpetuating identity into ordinary finite
+      // fluid, so it settles/drains like any other water instead of
+      // sitting there forever as a frozen "still falling" glyph with
+      // nothing visibly feeding it.
+      if (this.doorBlocksFluid(tx, ty)) {
+        this.fallTiles.delete(idx);
+        this.setTileById(tx, ty, undefined);
+        const fluidDef = this.tilesById.get(def.fallSpawns);
+        if (fluidDef) {
+          for (let oy = ty + 1; oy < this.map.height; oy++) {
+            const odef = this.map.at(tx, oy);
+            if (!odef || odef.id !== def.id) break;
+            const oIdx = this.map.index(tx, oy);
+            this.fallTiles.delete(oIdx);
+            this.setTileById(tx, oy, fluidDef.id);
+            this.waterFlowDist.set(oIdx, 0); // conserved now, not an infinite source
+          }
+        }
         continue;
       }
       if (ty + 1 >= this.map.height) continue;

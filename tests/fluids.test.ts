@@ -915,3 +915,50 @@ describe("flowing water extinguishes fire and pools into it", () => {
     expect(fluidAt(rt, 2, 2, "water") || charAt(rt, 2, 2) === "V").toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSION (Sean, live playtest 2026-08-07, exit_wing): "The water is
+// still falling through the trapdoor." The earlier fix (pooling above a
+// closed gate) only covers a fall's ADVANCING EDGE — a segment querying its
+// own "below". It never covers a segment that already grew straight through
+// a cell before the gate closed there: that segment's own turn only ever
+// checks its OWN below (one row further down), never "is a gate now closed
+// on the cell I'm already sitting in". So a fall that had already reached
+// the floor before the door shut left a permanent waterfall-styled tile
+// (the fall's own self-perpetuating id, not "water") physically occupying
+// the door's cell forever — visibly still falling through a shut door, with
+// everything below it orphaned from the source but never cleaned up either.
+// Fixed by having tickFalls check its OWN position for a closed gate, not
+// just its below: clears that cell, and converts the now-orphaned chain
+// below it (same id, contiguous) from the fall's identity into ordinary
+// finite water, so it settles/drains instead of hanging there forever.
+// ---------------------------------------------------------------------------
+describe("a gate closing under an already-established fall clears it, not just new growth", () => {
+  it("stops a fall that already reached the floor before the gate shut, and cleans up what's left behind", () => {
+    const rows = [
+      "############",
+      ".........V#.",
+      "..........#.",
+      "............",
+      "............",
+      "############",
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 9, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    const inst = rt.entities.find((e) => e.kind === "trapdoor")!;
+    inst.open = true;
+    tick(rt, 10); // let it fully establish, reaching the floor
+    expect(charAt(rt, 9, 3)).toBe("V"); // confirms it actually flowed all the way down first
+    inst.open = false;
+    tick(rt, 30);
+    // The door's own cell is genuinely empty — no fall tile physically
+    // sitting on/through a closed door.
+    expect(charAt(rt, 9, 2)).toBe(".");
+    // Nothing below it is still the fall's self-perpetuating "V" identity
+    // either — it settled into ordinary (drainable/poolable) water instead
+    // of hanging there forever as a frozen, sourceless waterfall glyph.
+    for (let y = 3; y <= 4; y++) {
+      expect(charAt(rt, 9, y), `expected (9,${y}) to no longer be the fall's own tile`).not.toBe("V");
+    }
+  });
+});
