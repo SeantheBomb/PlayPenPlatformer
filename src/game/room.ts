@@ -185,6 +185,12 @@ export class RoomRuntime {
   private draining = new Map<number, number>();
   /** tile indexes of fall tiles (waterfall/lavafall) that grow + emit fluid */
   private fallTiles = new Set<number>();
+  /** fall-origin tile index -> tile indices it backed up sideways while a
+   *  closed gate blocked it (see tickFalls' closed-gate branch). Drained via
+   *  drainDammedPool the moment that gate reopens — a dammed pool is
+   *  overflow from a temporary obstruction, not a real base, so it doesn't
+   *  get to linger as a permanent extra source once the real path resumes. */
+  private dammedFallPools = new Map<number, Set<number>>();
   /** source tile index -> seconds a toyblock there has been leaned on, in
    *  the direction that would push it. Resets whenever contact breaks. */
   private toyblockPush = new Map<number, number>();
@@ -1383,9 +1389,18 @@ export class RoomRuntime {
           // instead of pooling — reported live: "the trapdoor was very much
           // not stopping the water even after I closed it." A closed gate
           // needs to behave exactly like landing on solid ground: start (or
-          // keep) pooling at the row just above it.
+          // keep) pooling at the row just above it. SOURCED like the real
+          // thing (so it keeps topping up while the gate stays shut) — but
+          // tracked in dammedFallPools, because unlike real ground this is a
+          // reversible obstruction: see the "genuinely open" branch below,
+          // which drains it back out once the gate reopens.
           const fluidDef = this.tilesById.get(def.fallSpawns);
-          if (fluidDef) this.poolFallBase(tx, belowInfo.ty - 1, fluidDef, events);
+          if (fluidDef) {
+            const placed = this.poolFallBase(tx, belowInfo.ty - 1, fluidDef, events);
+            let pool = this.dammedFallPools.get(idx);
+            if (!pool) { pool = new Set(); this.dammedFallPools.set(idx, pool); }
+            for (const p of placed) pool.add(p);
+          }
           continue;
         }
         // Genuinely open — the fall's own vertical body just keeps growing.
@@ -1393,6 +1408,15 @@ export class RoomRuntime {
         // as the base pool's landing spot, not as fall growth.)
         this.setTileById(tx, belowTy, def.id);
         events.push({ effect: "flow", x: tx * TILE + 8, y: belowTy * TILE + 8, color: def.color });
+        // The gate that was damming this fall (if any) just reopened — the
+        // backed-up pool it built up sideways is overflow, not a real base,
+        // and shouldn't get to sit there as a permanent extra source now
+        // that the real path down is flowing again (reported live: "the
+        // water that pushed left should dry up... now that the gate is
+        // open"). Drain it the same staggered farthest-first way a gate
+        // CLOSING cuts off the far side (recedeCutOffFluid) — just running
+        // in the other direction, back toward the reopened gate.
+        this.drainDammedPool(idx, tx, belowTy, events);
         continue;
       }
       // Mid-fall tiles (another fall tile below) do nothing; the base acts.
@@ -1438,9 +1462,14 @@ export class RoomRuntime {
 
   /** A fall has hit its base (real solid ground OR a closed gate — see the
    *  call sites) at baseTy+1: start (or keep) the pool by emitting into open
-   *  side tiles at baseTy. Sourced spreading, so `on sourcedSpread` governs
-   *  which sides it widens into. */
-  private poolFallBase(tx: number, baseTy: number, fluidDef: TileDef, events: ElementEvent[]): void {
+   *  side tiles at baseTy, SOURCED (topped up forever, same as any other
+   *  fall base) either way. Sourced spreading, so `on sourcedSpread` governs
+   *  which sides it widens into. Returns every tile index the pool now
+   *  occupies (placed this call, or already there and topped up) — the
+   *  closed-gate call site uses this to remember what to drain once the
+   *  gate reopens (dammedFallPools / drainDammedPool). */
+  private poolFallBase(tx: number, baseTy: number, fluidDef: TileDef, events: ElementEvent[]): number[] {
+    const touched: number[] = [];
     for (const nx of this.spreadTargets(tx, baseTy)) {
       if (nx < 0 || nx >= this.map.width) continue;
       // baseTy itself may be a grate spanning the whole walkway (flush over
@@ -1451,8 +1480,46 @@ export class RoomRuntime {
       if (target.solid) continue;
       if (this.resolveFluidContact(nx, target.ty, fluidDef, tx, baseTy, events)) continue;
       this.placeFluid(nx, target.ty, fluidDef);
-      this.waterFlowDist.set(this.map.index(nx, target.ty), SOURCED);
+      const tIdx = this.map.index(nx, target.ty);
+      this.waterFlowDist.set(tIdx, SOURCED);
+      touched.push(tIdx);
       events.push({ effect: "flow", x: nx * TILE + 8, y: target.ty * TILE + 8, color: fluidDef.color });
+    }
+    return touched;
+  }
+
+  /** A fall origin's gate just reopened — drain the pool it backed up
+   *  sideways while dammed (dammedFallPools), the same staggered farthest-
+   *  first way recedeCutOffFluid drains a body cut off by a gate CLOSING,
+   *  just measured from the reopened point instead. No-op if this origin
+   *  never actually dammed anything (the common case — most falls never
+   *  meet a gate at all). */
+  private drainDammedPool(originIdx: number, gateX: number, gateY: number, events: ElementEvent[]): void {
+    const pool = this.dammedFallPools.get(originIdx);
+    if (!pool || pool.size === 0) { this.dammedFallPools.delete(originIdx); return; }
+    this.dammedFallPools.delete(originIdx);
+    const now = simNow();
+    const cx = gateX * TILE + TILE / 2, cy = gateY * TILE + TILE / 2;
+    let maxDist = 0;
+    const withDist: { idx: number; d: number }[] = [];
+    for (const idx of pool) {
+      if (this.waterFlowDist.get(idx) !== SOURCED || this.draining.has(idx)) continue;
+      const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      const d = Math.hypot(tx * TILE + TILE / 2 - cx, ty * TILE + TILE / 2 - cy);
+      withDist.push({ idx, d });
+      if (d > maxDist) maxDist = d;
+    }
+    for (const { idx, d } of withDist) {
+      const ratio = maxDist > 0 ? d / maxDist : 1;
+      const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
+      const data: Record<string, unknown> = { ratio };
+      this.fireGlobalHook("fluidFlow", "recede", data, tx, ty);
+      const delay = typeof data.delayMs === "number"
+        ? Math.max(0, data.delayMs)
+        : this.recedeMsEff * (1 - ratio);
+      this.draining.set(idx, now + delay);
+      this.waterFlowDist.delete(idx);
+      events.push({ effect: "flow", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
     }
   }
 

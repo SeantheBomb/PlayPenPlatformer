@@ -9,6 +9,7 @@ import tilesJson from "../content/tiles.json";
 import gameJson from "../content/game.json";
 import behaviorsJson from "../content/behaviors.json";
 import rulesJson from "../content/rules.json";
+import { setSimTime } from "../src/engine/simclock";
 
 const TILES = tilesJson as TileDef[];
 
@@ -959,6 +960,45 @@ describe("a gate closing under an already-established fall clears it, not just n
     // of hanging there forever as a frozen, sourceless waterfall glyph.
     for (let y = 3; y <= 4; y++) {
       expect(charAt(rt, 9, y), `expected (9,${y}) to no longer be the fall's own tile`).not.toBe("V");
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, live playtest 2026-08-07, follow-up): "The water
+  // flowed to the left when the trapdoor was closed and couldn't flow
+  // down. Now that the gate is open, the water that pushed left should dry
+  // up since that water flow is theoretically flowing down through the
+  // gate now." A closed gate backs a fall up sideways as a SOURCED pool
+  // (matching real solid ground — it keeps topping up while blocked), but
+  // unlike real ground that's a REVERSIBLE obstruction: once the gate
+  // reopens, that sideways overflow isn't a real base anymore and shouldn't
+  // get to sit there as a permanent extra source. tickFalls now remembers
+  // what it backed up (dammedFallPools) and drains it the moment the gate
+  // reopens (drainDammedPool), the same staggered way a gate CLOSING drains
+  // a body cut off on the far side (recedeCutOffFluid).
+  // -------------------------------------------------------------------------
+  it("drains the sideways-backed-up pool once the gate reopens, instead of leaving it as a permanent extra source", () => {
+    const rows = [
+      "############",
+      ".........V#.",
+      "..........#.",
+      "############",
+      "############",
+      "############",
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 9, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    const inst = rt.entities.find((e) => e.kind === "trapdoor")!;
+    setSimTime(10_000);
+    tick(rt, 15); // build up the sideways pool while blocked
+    const poolBefore = Array.from({ length: 9 }, (_, x) => x).filter((x) => fluidAt(rt, x, 1, "water"));
+    expect(poolBefore.length, "expected a sideways pool to have formed while blocked").toBeGreaterThan(0);
+    inst.open = true;
+    rt.update(1, null, 0, () => {}); // one flow tick: detects the reopen, schedules the drain
+    setSimTime(20_000); // well past RECEDE_MS
+    rt.update(1, null, 0, () => {}); // the scheduled drain actually fires
+    for (const x of poolBefore) {
+      expect(fluidAt(rt, x, 1, "water"), `expected (${x},1) to have drained after the gate reopened`).toBe(false);
     }
   });
 });
