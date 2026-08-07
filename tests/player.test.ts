@@ -106,6 +106,41 @@ describe("goo climb (sticky bomb)", () => {
     expect(player.climbState).toBe("none");
   });
 
+  // -------------------------------------------------------------------------
+  // REQUIREMENT (Sean, 2026-08-07): pressing off-axis (away from the surface)
+  // to dismount a goo climb should launch the player in that direction with
+  // a real jump arc, not just cut them loose to drop straight down.
+  // -------------------------------------------------------------------------
+  it("off-axis wall dismount launches the player away and upward, not limp", () => {
+    const map = makeMap(wallRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 32;
+    player.update(1 / 60, { ...NO_INPUT, left: true }, map, {} as RunState);
+    expect(player.climbState).toBe("wall");
+    player.update(1 / 60, { ...NO_INPUT, right: true }, map, {} as RunState);
+    expect(player.climbState).toBe("none");
+    expect(player.vx).toBeGreaterThan(0); // pushed away from the wall (climbFacing was -1)
+    expect(player.vy).toBeLessThan(-200); // strong upward lift, not just gravity settling in
+  });
+
+  it("off-axis ceiling dismount (pressing down) drops the player with a boost, not limp", () => {
+    const ceilingRows = [
+      "########",
+      ".G......",
+      "........",
+      "########",
+    ];
+    const map = makeMap(ceilingRows);
+    const player = new Player(gameJson.player as never);
+    player.x = 16; player.y = 16;
+    player.vy = -50; // rising into the ceiling
+    player.update(1 / 60, { ...NO_INPUT, right: true }, map, {} as RunState);
+    expect(player.climbState).toBe("ceiling");
+    player.update(1 / 60, { ...NO_INPUT, downHeld: true }, map, {} as RunState);
+    expect(player.climbState).toBe("none");
+    expect(player.vy).toBeGreaterThan(gameJson.player.climb.jumpLiftSpeed * 0.5); // boosted drop, not vy=0
+  });
+
   it("falls off a wall climb once the timer runs out", () => {
     const map = makeMap(wallRows);
     const player = new Player(gameJson.player as never);
@@ -297,5 +332,37 @@ describe("gutter blocks the player like a solid wall", () => {
     for (let i = 0; i < 30; i++) player.update(1 / 60, { ...NO_INPUT, right: true }, map, {} as RunState);
     // Gutter tile sits at x=2*16=32; the player (width 12) must never cross into it.
     expect(player.x + player.w).toBeLessThanOrEqual(32 + 0.01);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-07): electrified water should knock the player
+// back like fire — a wall of shock, not a wadeable hazard — while plain
+// (non-energized) water stays freely swimmable/wadeable. The isElectrified
+// callback plugs into the same repels mechanism fire tiles already use.
+// ---------------------------------------------------------------------------
+describe("electrified water repels the player like fire", () => {
+  const rows = [
+    "........",
+    "..w.....",
+    "########",
+  ];
+
+  it("knocks the player back away from an energized water tile", () => {
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 32; player.y = 16;
+    const ev = player.update(1 / 60, NO_INPUT, map, {} as RunState, (tx, ty) => tx === 2 && ty === 1);
+    expect(ev.repelFromX).toBe(2 * 16 + 8);
+    expect(player.vx).not.toBe(0);
+  });
+
+  it("does not repel when the same water tile isn't energized", () => {
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 32; player.y = 16;
+    const ev = player.update(1 / 60, NO_INPUT, map, {} as RunState, () => false);
+    expect(ev.repelFromX).toBeUndefined();
+    expect(player.vx).toBe(0);
   });
 });

@@ -736,7 +736,10 @@ export class Game {
     const g = this.content.game;
 
     // ---- Player physics ----
-    const ev = this.player.update(dt, this.input, this.roomRt.map, this.state);
+    const ev = this.player.update(
+      dt, this.input, this.roomRt.map, this.state,
+      (tx, ty) => this.roomRt.isEnergized(tx, ty),
+    );
     this.pushToyblocks(dt);
     if (ev.jumped) sfx.play("jump");
     if (ev.landed) {

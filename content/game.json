@@ -35,7 +35,9 @@
     "climb": {
       "wallSeconds": 6,
       "ceilingSeconds": 3,
-      "speed": 90
+      "speed": 90,
+      "jumpPushSpeed": 180,
+      "jumpLiftSpeed": 320
     },
     "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAArElEQVR4AYyRARLDIAgEST/UX/VR/VVflLKMN6MY1ExO5IQNSV42Xrenp/JSswyw+/fZKjrbMgGaH+F6fyNqyTn+EkDBTksAr9MDcs5ZCWBcicJKJYCnSVUz/gTQU1eRRglA/9/lR9QExDDGJfoAlP+9rweSxXkA2Eg++qX9U/TzwZ4AfspoHs7uJ8BZZ6vaAvLI9OEh9gEgkTAPxHcKAYiNNymaYET3pxxP+gMAAP//eQf9GAAAAAZJREFUAwAhOGUYj3IQqQAAAABJRU5ErkJggg==",
     "sketch": true

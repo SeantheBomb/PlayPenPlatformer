@@ -48,6 +48,11 @@ export interface GameConfig {
       wallSeconds: number;    // climb duration against a goo-adjacent wall
       ceilingSeconds: number; // climb duration under a goo-adjacent ceiling
       speed: number;          // along-surface movement speed, px/s
+      // Pressing off-axis (away from a wall, or down/jump off a ceiling)
+      // dismounts AND launches the player in that direction, like a wall
+      // jump, instead of just cutting them loose to fall straight down.
+      jumpPushSpeed: number;  // horizontal push off a wall, px/s
+      jumpLiftSpeed: number;  // wall: upward lift; ceiling: downward drop, px/s
     };
   };
   camera: { lerp: number; lookaheadX: number; lookaheadY: number };

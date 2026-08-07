@@ -208,7 +208,10 @@ export class Player {
     this.vy = -this.cfg.knockbackY;
   }
 
-  update(dt: number, input: Input, map: TileMap, state: RunState): PlayerFrameEvents {
+  update(
+    dt: number, input: Input, map: TileMap, state: RunState,
+    isElectrified?: (tx: number, ty: number) => boolean,
+  ): PlayerFrameEvents {
     const cfg = this.cfg;
     const now = simNow();
     const ev: PlayerFrameEvents = {
@@ -270,7 +273,20 @@ export class Player {
         const wallFacing = this.climbFacing;
         this.climbState = "none";
         if (!reachedTop || !this.tryMountLedge(map)) {
-          this.vy = 0; // hang for a beat rather than snapping into a fall mid-frame
+          if (movingAway) {
+            // Pressing off-axis should launch the player off the surface in
+            // that direction, like a wall jump — not just cut them loose to
+            // drop straight down (Sean, 2026-08-07: "shouldn't just fall limp").
+            if (wasWall) {
+              this.vx = -wallFacing * climb.jumpPushSpeed;
+              this.vy = -climb.jumpLiftSpeed;
+              this.facing = -wallFacing;
+            } else {
+              this.vy = climb.jumpLiftSpeed; // ceiling: pressed down/jump — drop off with a boost
+            }
+          } else {
+            this.vy = 0; // hang for a beat rather than snapping into a fall mid-frame
+          }
           // Step clear of the wall/ceiling regardless of dismount cause —
           // the player's own height (14px) isn't a whole multiple of a
           // tile, so at a row boundary their body can straddle into the
@@ -388,7 +404,14 @@ export class Player {
       if (hit.def.damage && !this.invulnerable) {
         ev.spikeDamage = Math.max(ev.spikeDamage, hit.def.damage);
       }
-      if (hit.def.repels) repelHit = hit;
+      // Fire repels via a static tile flag; electrified water is dynamic —
+      // a plain water tile stays swimmable, but one currently carrying
+      // charge repels exactly like fire (a wall of shock, not a wadeable
+      // hazard). Checked here, not statically on the water TileDef, since
+      // whether a given water tile repels can flip tick to tick.
+      if (hit.def.repels || (hit.def.element === "water" && isElectrified?.(hit.tx, hit.ty))) {
+        repelHit = hit;
+      }
     }
 
     this.x = res.x;
