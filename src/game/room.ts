@@ -33,7 +33,7 @@ export interface EnemyInstance {
   x: number; y: number;
   vx: number; vy: number;
   facing: number;
-  state: "patrol" | "chase" | "return" | "stunned" | "trapped";
+  state: "patrol" | "chase" | "return" | "stunned" | "trapped" | "panicked";
   stunUntil: number;
   lastSawPlayerAt: number;
   lastHazardAt: number;
@@ -52,7 +52,7 @@ export interface PlacedInstance extends Rect {
 export interface EnemySnapshot {
   index: number;
   x: number; y: number; vx: number; vy: number; facing: number;
-  state: "patrol" | "chase" | "return" | "stunned" | "trapped";
+  state: "patrol" | "chase" | "return" | "stunned" | "trapped" | "panicked";
   stunUntil: number; lastSawPlayerAt: number; lastHazardAt: number;
 }
 
@@ -143,6 +143,9 @@ const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
 const SPREAD_INTERVAL = 0.7; // seconds between fire spread ticks
 const ENERGIZE_MS = 1500;
 const HAZARD_COOLDOWN_MS = 500;
+// How many tiles of clearance a panicked enemy needs (beyond the immediate
+// step) before calming back to patrol — see waterPanic's recovery check.
+const PANIC_CLEAR_TILES = 2;
 const WATER_FLOW_INTERVAL = 0.5; // seconds between fluid flow ticks
 // Fall-fed fluid spreads with no distance cap — only walls or a drain stop
 // it. Finite (melted/poured) fluid is conserved and never replicates at all.
@@ -1841,11 +1844,10 @@ export class RoomRuntime {
     if (this.gateBlocksRect({ x: aheadTx * TILE, y: tyBody0 * TILE, w: TILE, h: (tyBody1 - tyBody0 + 1) * TILE })) {
       return false;
     }
-    // Metal creatures refuse water — pools are a safe zone.
-    if (d.element === "metal") {
-      const tile = this.map.at(aheadTx, Math.floor((footY - 4) / TILE));
-      if (tile?.element === "water") return false;
-    }
+    // Metal creatures refuse water — pools are a safe zone (now a lethal
+    // one, see reactToTileHazards — so this refusal is what keeps them
+    // from ever actually stepping into it in the first place).
+    if (d.element === "metal" && this.waterBlocksStep(en, want)) return false;
     // No drops it can't climb back out of (max 1 tile down). isFloorTile,
     // not a bare `.solid` check — a one-way platform (metal grate) is real
     // standable ground (the player and toyblocks both rest on it the same
@@ -1856,6 +1858,27 @@ export class RoomRuntime {
     // (player report: "Spotter stops walking when on metal grate").
     for (let step = 0; step < 2; step++) {
       if (this.isFloorTile(aheadTx, Math.floor((footY + 4 + step * TILE) / TILE))) return true;
+    }
+    return false;
+  }
+
+  /** Is there a water tile in the step `want` would take (extraTiles=0, the
+   *  exact footprint canStepAhead's water refusal checks), or within
+   *  `extraTiles` further tiles in that direction? The wider lookahead is
+   *  for waterPanic's recovery check specifically — using extraTiles=0
+   *  there would calm an enemy back to patrol the instant it took a single
+   *  step away (water is a whole tile behind it, so "immediately ahead" is
+   *  already clear), reading as a one-frame panic flicker instead of an
+   *  actual flee. */
+  waterBlocksStep(en: EnemyInstance, want: number, extraTiles = 0): boolean {
+    if (want === 0) return false;
+    const d = en.def;
+    const footY = en.y + d.height;
+    const ty = Math.floor((footY - 4) / TILE);
+    for (let i = 0; i <= extraTiles; i++) {
+      const aheadX = want > 0 ? en.x + d.width + 3 + i * TILE : en.x - 3 - i * TILE;
+      const aheadTx = Math.floor(aheadX / TILE);
+      if (this.map.at(aheadTx, ty)?.element === "water") return true;
     }
     return false;
   }
@@ -2618,6 +2641,19 @@ export class RoomRuntime {
       ctx.fillText("zZ", en.x + d.width / 2 + wob, en.y - 4);
       return;
     }
+    if (en.state === "panicked") {
+      // Fast agitated shake + a blue "!" — distinct from chase's red "!" so
+      // "fleeing water" doesn't read as "hunting you."
+      const wob = Math.sin(animT * 22 + en.index) * 0.16;
+      drawBlob(
+        ctx, en.x, en.y, d.width, d.height, d.color, d.eyeColor, en.facing,
+        { squashX: 1 + wob, squashY: 1 - wob, eyeStyle: "wide", sprite: d }
+      );
+      ctx.fillStyle = "#7fd8ff";
+      ctx.font = "9px monospace";
+      ctx.fillText("!", en.x + d.width / 2 - 1, en.y - 4);
+      return;
+    }
     const chasing = en.state === "chase";
     // Visible sight cone for forward-looking chasers (any enemy carrying a
     // "sight"-tagged behavior; range/slope come from that behavior's params).
@@ -2805,7 +2841,15 @@ registerFn("reactToTileHazards", (ctx, args) => {
   const now = simNow();
   if (now - en.lastHazardAt <= argNum(args[0], HAZARD_COOLDOWN_MS)) return undefined;
   const tx0 = Math.floor(en.x / TILE);
-  const tx1 = Math.floor((en.x + d.width) / TILE);
+  // -1: an exclusive right edge. Without it, an enemy whose width is an
+  // exact tile multiple and sits flush against (not overlapping) a hazard —
+  // exactly what canStepAhead's water refusal presses a panicking enemy
+  // into — floors to the NEXT tile over, reading merely-adjacent as
+  // touching. Harmless for fire/lava (nothing presses an enemy flush
+  // against those), but water now has both a "stand flush at the edge"
+  // behavior (waterPanic) and this hazard-kill scan, so the two must agree
+  // on what "touching" means or standing at a safe distance is impossible.
+  const tx1 = Math.floor((en.x + d.width - 1) / TILE);
   const ty0 = Math.floor(en.y / TILE);
   const ty1 = Math.floor((en.y + d.height + 2) / TILE);
   let applied: string | null = null;
@@ -2815,6 +2859,7 @@ registerFn("reactToTileHazards", (ctx, args) => {
       if (rt.isBurning(tx, ty) || tdef?.element === "fire") applied = "fire";
       else if (tdef?.element === "lava") applied = "lava";
       else if (rt.isEnergized(tx, ty)) applied = "spark";
+      else if (tdef?.element === "water") applied = "water";
     }
   }
   if (!applied) return undefined;
@@ -2829,7 +2874,7 @@ registerFn("reactToTileHazards", (ctx, args) => {
   }
   if (r === "kill") ctx.halt = true;
   return r;
-}, "reactToTileHazards(cooldownMs?) — fire/lava/spark tiles under the enemy apply their element through its reactions; halts the dispatch on a kill");
+}, "reactToTileHazards(cooldownMs?) — fire/lava/spark/water tiles under the enemy apply their element through its reactions; halts the dispatch on a kill");
 registerFn("reactFromTable", (ctx, args) => {
   const element = typeof ctx.data.element === "string" ? ctx.data.element : "";
   const table = args[0];
@@ -2872,6 +2917,66 @@ registerFn("patrol", (ctx, args) => {
   en.vx = want * argNum(args[0], d.speed);
   return undefined;
 }, "patrol(speed?) — drift between the patrol bounds, refusing unsafe steps; blocked both ways = stand still");
+registerFn("waterPanic", (ctx, args) => {
+  // Water is lethal (reactToTileHazards), so canStepAhead already refuses
+  // to ever step a metal enemy into it — this is what makes that refusal
+  // VISIBLE and directional instead of a silent stand-still: entering
+  // "panicked" flees toward whichever patrol direction isn't water, and
+  // holds position (still panicked, not back to calm patrol) if fleeing
+  // would mean leaving the patrol zone or running into more water.
+  const { rt, en } = enemyApi(ctx);
+  const d = en.def;
+  const speed = argNum(args[0], d.speed);
+  const cx = en.x + d.width / 2;
+
+  if (en.state === "patrol") {
+    let want = en.facing;
+    if (cx <= en.patrolMin) want = 1;
+    else if (cx >= en.patrolMax) want = -1;
+    if (rt.waterBlocksStep(en, want)) {
+      en.state = "panicked";
+      en.vx = 0;
+    }
+    return undefined;
+  }
+
+  if (en.state === "panicked") {
+    // A wide lookahead here specifically — using the same immediate check
+    // the flee decision below uses would calm it back to patrol after a
+    // single step (water is already a whole tile behind by then), reading
+    // as a one-frame panic flicker instead of an actual flee to safety.
+    if (!rt.waterBlocksStep(en, 1, PANIC_CLEAR_TILES) && !rt.waterBlocksStep(en, -1, PANIC_CLEAR_TILES)) {
+      // Clear well on both sides — the threat's gone (water receded/
+      // drained), calm back down and let patrolRoute take back over.
+      en.state = "patrol";
+      return undefined;
+    }
+    // Same PANIC_CLEAR_TILES margin as the recovery check above, not the
+    // bare adjacency check canStepAhead uses — two reasons. First, the bare
+    // check's fixed lookahead is only a few px past the enemy's edge, so as
+    // it moves away one step at a time its own position crosses in and out
+    // of "adjacent" every frame at the tile boundary — "blocked" this tick,
+    // "clear" the next, "blocked" again — flipping the fled-from direction
+    // back and forth and canceling all progress. Second, it must match the
+    // recovery check's margin specifically: a narrower one here would let
+    // the enemy decide "safe to reverse toward the water" at a distance the
+    // recovery check still considers "not yet safe to calm down," stalling
+    // it in a dead zone between the two thresholds, fleeing neither way.
+    const blockedRight = rt.waterBlocksStep(en, 1, PANIC_CLEAR_TILES);
+    const away = blockedRight ? -1 : 1;
+    const atBound = away > 0 ? cx >= en.patrolMax : cx <= en.patrolMin;
+    if (!atBound && rt.canStepAhead(en, away)) {
+      en.facing = away;
+      en.vx = away * speed;
+    } else {
+      // Retreat would leave the patrol zone (or the other side is blocked
+      // too) — trapped. Stop and stay panicked rather than wander off post
+      // or calm back toward the water.
+      en.vx = 0;
+    }
+  }
+  return undefined;
+}, "waterPanic(speed?) — patrol enemies that refuse water flee the opposite direction when it blocks their path, staying within patrol bounds; trapped = stop and stay panicked");
 registerFn("moveToward", (ctx, args) => {
   const { rt, en, player } = enemyApi(ctx);
   const d = en.def;

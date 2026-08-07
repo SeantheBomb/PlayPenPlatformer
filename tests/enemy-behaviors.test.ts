@@ -397,16 +397,13 @@ describe("element reactions", () => {
     expect(en.state).toBe("patrol"); // crawler wakes to patrol
   });
 
-  it("spotter: water stuns, then wakes homeward and straight back to patrol (never having left home)", () => {
+  it("spotter: water kills, whether splashed or stood in (short-circuits outright)", () => {
     const { rt } = makeRoom(rows, [enemyEntity(5, 2, "spotter")]);
-    const sim = new Sim(rt);
+    new Sim(rt);
     const en = rt.enemies[0];
     hit(rt, en, "water");
-    expect(en.state).toBe("stunned");
-    sim.run(3.2);
-    // Wakes to "return" (stunCycle), but returnHome sees it's already at its
-    // post and hands off to patrol the same tick — never visibly stuck.
-    expect(en.state).toBe("patrol");
+    expect(en.state).toBe("trapped"); // reused for "removed from play"
+    expect(rt.enemies.includes(en)).toBe(false);
   });
 
   it("spotter: fire does nothing (fireproof)", () => {
@@ -548,5 +545,145 @@ describe("traps and resets", () => {
     rt.resetEnemies();
     expect(en.state).toBe("trapped");
     expect(en.x).toBe(999); // untouched
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-06): "If spotters enter a water tile it should
+// kill them... If Spotters stop moving because of water they should enter a
+// panicked state and flee the other way if they have patrol space, or stop
+// and stay panicked (never leaving patrol bounds) if they're trapped."
+//
+// These use a water-flow-disabled content variant: water is a live fluid in
+// this engine (spreads into open neighbor tiles over time), which would
+// otherwise flood the test rooms' open pockets during the longer sim runs
+// panic/recovery timing needs, muddying assertions about a specific tile.
+// ---------------------------------------------------------------------------
+function makeStaticContent(): Content {
+  const c = makeContent();
+  return { ...c, game: { ...c.game, rules: { ...c.game.rules, waterFlowEnabled: false } } };
+}
+function makeStaticRoom(rows: string[], entities: RoomEntity[] = []): { rt: RoomRuntime } {
+  const room: RoomDef = {
+    id: "test", name: "test", width: rows[0].length, height: rows.length,
+    background: "#000", tiles: rows, entities,
+  } as RoomDef;
+  return { rt: new RoomRuntime(room, makeStaticContent(), makeMuts()) };
+}
+
+describe("spotter: water tile contact kills, same as a splash", () => {
+  const rows = [
+    "#.w.#",
+    "#.w.#",
+    "#####",
+  ];
+
+  it("standing on a water tile kills it outright", () => {
+    const { rt } = makeStaticRoom(rows, [enemyEntity(2, 1, "spotter")]);
+    const sim = new Sim(rt);
+    sim.run(0.2);
+    expect(rt.enemies.length).toBe(0);
+  });
+});
+
+describe("spotter: panics away from water when it blocks patrol, within bounds", () => {
+  // Long floor, water at the far right; spotter's patrol range covers both
+  // the water-adjacent spot and open floor to retreat into on the left.
+  const rows = [
+    "#.........w#",
+    "############",
+  ];
+
+  it("enters panicked and flees away from the water instead of standing in place", () => {
+    const spotterEntity = enemyEntity(9, 0, "spotter", { patrolMinX: 1, patrolMaxX: 10 });
+    const { rt } = makeStaticRoom(rows, [spotterEntity]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    en.facing = 1; // walking toward the water
+    const startX = en.x;
+    sim.run(0.3); // just enough to trigger panic and a few steps of flee
+    expect(en.state).toBe("panicked");
+    expect(en.x).toBeLessThan(startX); // fled left, away from the water
+    expect(en.x).toBeGreaterThanOrEqual(1 * 16); // never left patrol bounds
+  });
+
+  it("eventually calms back to patrol once it's fled a safe distance", () => {
+    const spotterEntity = enemyEntity(9, 0, "spotter", { patrolMinX: 1, patrolMaxX: 10 });
+    const { rt } = makeStaticRoom(rows, [spotterEntity]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    en.facing = 1;
+    sim.run(0.3);
+    expect(en.state).toBe("panicked"); // still fleeing this soon
+    // It may later swing back toward the water and re-panic (patrol bounces
+    // at its edges, same as any patrol route) — assert it recovers to
+    // patrol AT LEAST once during the flee, not that it's calm at one
+    // arbitrarily-chosen instant later (which the bounce timing makes
+    // fragile to assert directly).
+    let sawPatrol = false;
+    for (let i = 0; i < 60 * 4 && !sawPatrol; i++) {
+      sim.step();
+      if (en.state === "patrol") sawPatrol = true;
+    }
+    expect(sawPatrol).toBe(true);
+  });
+
+  it("never actually enters the water tile while panicking", () => {
+    const spotterEntity = enemyEntity(9, 0, "spotter", { patrolMinX: 1, patrolMaxX: 10 });
+    const { rt } = makeStaticRoom(rows, [spotterEntity]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    en.facing = 1;
+    sim.run(2);
+    expect(en.x + en.def.width).toBeLessThanOrEqual(10 * 16); // water tile is at x=10
+    expect(rt.enemies.length).toBe(1); // still alive
+  });
+});
+
+describe("spotter: trapped between water and a wall stops and stays panicked", () => {
+  const rows = [
+    "#.w.#",
+    "#.w.#",
+    "#####",
+  ];
+  const spotterEntity = enemyEntity(1, 1, "spotter", { patrolMinX: -2, patrolMaxX: 10 });
+
+  it("settles to a genuine stop instead of endlessly retrying the water side", () => {
+    const { rt } = makeStaticRoom(rows, [spotterEntity]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    sim.run(1);
+    expect(en.state).toBe("panicked");
+    expect(en.vx).toBe(0);
+    expect(en.x).toBe(16); // never actually moved — wall one way, water the other
+  });
+
+  it("stays panicked rather than calming back to patrol while still boxed in", () => {
+    const { rt } = makeStaticRoom(rows, [spotterEntity]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    sim.run(2);
+    expect(en.state).toBe("panicked");
+  });
+});
+
+describe("spotter: calms back to patrol once the water threat clears", () => {
+  it("resumes patrol when neither side is water-blocked anymore", () => {
+    const rows = [
+      "#.w.#",
+      "#.w.#",
+      "#####",
+    ];
+    const spotterEntity = enemyEntity(1, 1, "spotter", { patrolMinX: -2, patrolMaxX: 10 });
+    const { rt } = makeStaticRoom(rows, [spotterEntity]);
+    const sim = new Sim(rt);
+    const en = rt.enemies[0];
+    sim.run(1);
+    expect(en.state).toBe("panicked"); // boxed in by the water column
+    // Water recedes (drained/evaporated) — simulate by clearing the tiles.
+    rt.map.setTile(2, 0, null);
+    rt.map.setTile(2, 1, null);
+    sim.run(1);
+    expect(en.state).toBe("patrol");
   });
 });

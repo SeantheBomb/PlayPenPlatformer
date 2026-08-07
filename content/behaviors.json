@@ -71,6 +71,19 @@
     ]
   },
   {
+    "id": "waterPanicRoute",
+    "name": "Panics away from water while patrolling",
+    "host": "enemy",
+    "description": "For enemies that refuse to step in water (metal): entering the water-refused direction while patrolling triggers a visible panic — flee the other way within patrol bounds, or stop and stay panicked if that's blocked too or would leave the patrol zone. Calms back to patrol once clear. Attach ahead of patrolRoute.",
+    "script": [
+      "var speed = host.speed;",
+      "",
+      "on tick {",
+      "  waterPanic(speed);",
+      "}"
+    ]
+  },
+  {
     "id": "patrolRoute",
     "name": "Patrols a route",
     "host": "enemy",

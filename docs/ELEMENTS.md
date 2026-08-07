@@ -79,7 +79,7 @@ Applying any element-carrier to any tile resolves through the kernel:
 | | Crawler (goo creature) | Spotter (metal drone) |
 | --- | --- | --- |
 | fire | *burns it away* (kill) | nothing (fireproof) |
-| water | nothing | short-circuit (long stun) |
+| water | nothing | *shorts out* (kill) — any contact, splashed or stepped in |
 | ice | frozen (stun) | frozen (stun) |
 | force | knockback | knockback |
 

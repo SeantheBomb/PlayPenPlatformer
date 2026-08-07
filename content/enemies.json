@@ -47,7 +47,7 @@
         "params": {
           "reactions": {
             "fire": "none",
-            "water": "stun",
+            "water": "kill",
             "ice": "stun",
             "spark": "stun",
             "metal": "knockback",
@@ -70,6 +70,7 @@
           "chaseSpeed": 128
         }
       },
+      "waterPanicRoute",
       "patrolRoute",
       "returnHome",
       "groundedMove",
@@ -83,6 +84,6 @@
     "damage": 1,
     "stunnable": true,
     "element": "metal",
-    "description": "A metal drone. Fireproof, but water and charge short it out. If it sees you, it becomes extremely awake."
+    "description": "A metal drone. Fireproof, but water kills it outright and a jolt of charge just stuns it. If it sees you, it becomes extremely awake."
   }
 ]

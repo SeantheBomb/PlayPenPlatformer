@@ -40,7 +40,7 @@ const EVENT_DOCS: Record<string, string> = {
 const BUILTIN_DOCS: Record<string, string> = {
   now: "now — simulated time in ms (replay-safe; never the wall clock)",
   host: "host.<field> — read the attached def's own fields (host.speed, host.igniteTo...)",
-  state: 'state — this enemy\'s state ("patrol" | "chase" | "return" | "stunned" | "trapped", or your own); assignable',
+  state: 'state — this enemy\'s state ("patrol" | "chase" | "return" | "stunned" | "trapped" | "panicked", or your own); assignable',
   lit: "lit — this entity's flame state (braziers); assignable",
   player: "player — moveToward target: the player's position",
   home: "home — moveToward target: this enemy's spawn post",
