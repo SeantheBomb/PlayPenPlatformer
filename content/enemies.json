@@ -68,7 +68,9 @@
           "giveUpTo": "return",
           "range": 130,
           "loseMs": 2600,
-          "chaseSpeed": 128
+          "chaseSpeed": 128,
+          "halfSlope": 0,
+          "conePad": 22
         }
       },
       "waterPanicRoute",
