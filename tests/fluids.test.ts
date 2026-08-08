@@ -1126,4 +1126,58 @@ describe("a gate closing under an already-established fall clears it, not just n
     expect(fluidAt(rt, 6, 1, "water"), "expected the ordinary tile to have drained").toBe(false);
     expect(fluidAt(rt, 7, 1, "water"), "expected the grate-carried water to have drained too").toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, live playtest 2026-08-08, Exit Wing): "Water on grate
+  // didn't dissipate after losing its source" / "the water that hit the
+  // grate didn't dissipate when it was supposed to after it lost its
+  // source." Two compounding bugs in recedeCutOffFluid:
+  //   1. It seeded its reachability flood from `fallTiles` — which stays
+  //      in sync with wherever a fallSpawns-tagged id CURRENTLY sits,
+  //      including an already-landed segment of a column that finished
+  //      growing long ago (tickFalls' own downstream-to-finite-water
+  //      cleanup only walks a CONTIGUOUS same-id chain, and a flush grate
+  //      breaks that chain — the real tile there is the grate itself, not
+  //      the fall's id — so a grate-carried landing is exactly what tends
+  //      to survive untouched). That surviving segment showed up as its
+  //      OWN entry in the seed set and flood-filled from itself,
+  //      "reachable" by definition, even with no real path back to a live
+  //      source anymore. Fixed by seeding only from fallSources — the fall
+  //      tiles authored in the room's static tile grid at load time, which
+  //      never gain new entries — so a downstream chunk can no longer
+  //      vouch for its own reachability.
+  //   2. The "is this SOURCED tile still fed" check read the raw tile via
+  //      map.at, which for a grate-carried tile returns the grate itself
+  //      (element "metal") instead of the water it's carrying — so it
+  //      could never pass as "still fed" even when it genuinely still was
+  //      (same class of bug as the earlier drainDammedPool fix). Fixed by
+  //      using fluidDefAt, grate-aware like every other fluid-identity
+  //      read in the sim.
+  // -------------------------------------------------------------------------
+  it("schedules a landed grate-carried pool to drain when a gate cuts off its only real source", () => {
+    const rows = [
+      "#....V.......#", // y0: fall source at x5
+      "#.............#", // y1: trapdoor closes here (right below the source)
+      "#.............#", // y2
+      "#....=........#", // y3: a flush grate — breaks tickFalls' own id-chain walk
+      "##############", // y4: floor directly under the grate (flush, no gap)
+    ];
+    const trap: RoomEntity = {
+      type: "trapdoor", x: 5, y: 1, gate: true, startOpen: true, closeFuseId: "A",
+    } as RoomEntity;
+    const fusebox: RoomEntity = { type: "fusebox", x: 1, y: 1, fuseId: "A" } as RoomEntity;
+    const rt = makeRoom(rows, [trap, fusebox]);
+    setSimTime(10_000);
+    tick(rt, 15); // let the fall fully establish: grow down and land on the grate
+    expect(fluidAt(rt, 5, 3, "water"), "expected the fall to have landed on the grate").toBe(true);
+    expect(fluidAt(rt, 8, 3, "water"), "expected the landed pool to have spread sideways across it").toBe(true);
+
+    const fb = rt.entities.find((e) => e.kind === "fusebox")!;
+    rt.tripFusebox(fb, []); // closes the trapdoor — the grate below is now a dead end
+    setSimTime(30_000); // well past RECEDE_MS
+    rt.update(1, null, 0, () => {}); // the scheduled drain actually fires
+
+    expect(fluidAt(rt, 5, 3, "water"), "expected the grate-carried water to have drained").toBe(false);
+    expect(fluidAt(rt, 8, 3, "water"), "expected the spread-out pool to have drained too").toBe(false);
+  });
 });

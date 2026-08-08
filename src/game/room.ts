@@ -189,6 +189,20 @@ export class RoomRuntime {
   private draining = new Map<number, number>();
   /** tile indexes of fall tiles (waterfall/lavafall) that grow + emit fluid */
   private fallTiles = new Set<number>();
+  /** Tile indices of ORIGINAL authored fall tiles only, fixed at room load —
+   *  unlike fallTiles (kept in sync with wherever a fallSpawns-tagged id
+   *  currently sits, including every grown segment of a column that has
+   *  since landed and stopped growing), this never gains new entries. Used
+   *  to seed recedeCutOffFluid's reachability flood: seeding from fallTiles
+   *  there let an already-landed, orphaned puddle (still carrying its
+   *  "waterfall" id because nothing had converted it) vouch for its OWN
+   *  reachability — a downstream pool cut off from the real source by a
+   *  newly-closed gate elsewhere never got scheduled to drain, since it
+   *  found itself in the very seed set that was supposed to test whether
+   *  it was still connected to anything (reported live: "water on grate
+   *  didn't dissipate after losing its source"). A genuine origin point
+   *  never moves, so it's the only thing safe to seed from. */
+  private fallSources = new Set<number>();
   /** fall-origin tile index -> tile indices it backed up sideways while a
    *  closed gate blocked it (see tickFalls' closed-gate branch). Drained via
    *  drainDammedPool the moment that gate reopens — a dammed pool is
@@ -319,7 +333,10 @@ export class RoomRuntime {
           if (!def) continue;
           const idx = this.map.index(tx, ty);
           if (this.isFluid(def)) this.waterFlowDist.set(idx, 0);
-          if (def.fallSpawns) this.fallTiles.add(idx);
+          if (def.fallSpawns) {
+            this.fallTiles.add(idx);
+            this.fallSources.add(idx);
+          }
         }
       }
       // A hand-authored pool touching a fall (the editor's way of pre-filling
@@ -1848,7 +1865,7 @@ export class RoomRuntime {
     // because their bodies happen to sit near each other. Each fall tile
     // seeds a flood restricted to its own spawned element the whole way.
     const reachableByElement = new Map<string, Set<number>>();
-    for (const seedIdx of this.fallTiles) {
+    for (const seedIdx of this.fallSources) {
       const seedTx = seedIdx % this.map.width;
       const seedTy = Math.floor(seedIdx / this.map.width);
       const seedDef = this.map.at(seedTx, seedTy);
@@ -1887,7 +1904,14 @@ export class RoomRuntime {
     for (const [idx, dist] of this.waterFlowDist) {
       if (dist !== SOURCED || this.draining.has(idx)) continue;
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
-      const def = this.map.at(tx, ty);
+      // fluidDefAt, not raw map.at — a SOURCED tile resting on a flush
+      // grate reads back as the grate itself (element "metal") from
+      // map.at, not the water it's carrying, which unconditionally failed
+      // this "still fed" check (a grate can never itself be "fluid") and
+      // scheduled every grate-carried tile to drain regardless of whether
+      // it was actually cut off. fluidDefAt already knows to check the
+      // grate overlay first, same as every other fluid-identity read here.
+      const def = this.fluidDefAt(tx, ty);
       const stillFed = def?.element && this.isFluid(def) && reachableByElement.get(def.element)?.has(idx);
       if (stillFed) continue;
       const d = Math.hypot(tx * TILE + TILE / 2 - cx, ty * TILE + TILE / 2 - cy);
