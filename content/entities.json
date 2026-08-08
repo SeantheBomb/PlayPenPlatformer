@@ -1,26 +1,64 @@
 [
-  { "id": "pickup", "width": 14, "height": 14 },
-  { "id": "note", "width": 12, "height": 12 },
-  { "id": "door", "width": 16, "height": 32 },
+  {
+    "id": "pickup",
+    "width": 14,
+    "height": 14
+  },
+  {
+    "id": "note",
+    "width": 12,
+    "height": 12
+  },
+  {
+    "id": "door",
+    "width": 16,
+    "height": 32
+  },
   {
     "id": "trapdoor",
     "width": 16,
     "height": 16,
     "note": "Horizontal hatch — blocks/passes vertically, not sideways."
   },
-  { "id": "locker", "width": 16, "height": 32 },
-  { "id": "npc", "width": 12, "height": 16 },
-  { "id": "checkpoint", "width": 8, "height": 24 },
-  { "id": "exit", "width": 28, "height": 44 },
-  { "id": "hint", "width": 16, "height": 16 },
+  {
+    "id": "locker",
+    "width": 16,
+    "height": 32
+  },
+  {
+    "id": "npc",
+    "width": 12,
+    "height": 16
+  },
+  {
+    "id": "checkpoint",
+    "width": 8,
+    "height": 24
+  },
+  {
+    "id": "exit",
+    "width": 28,
+    "height": 44
+  },
+  {
+    "id": "hint",
+    "width": 16,
+    "height": 16
+  },
   {
     "id": "brazier",
     "width": 16,
     "height": 14,
-    "behaviors": ["brazierFlame"],
+    "behaviors": [
+      "brazierFlame"
+    ],
     "note": "Safe always-on ignition source; brazierFlame handles douse/relight."
   },
-  { "id": "fusebox", "width": 14, "height": 18 },
+  {
+    "id": "fusebox",
+    "width": 14,
+    "height": 18
+  },
   {
     "id": "capacitor",
     "width": 14,

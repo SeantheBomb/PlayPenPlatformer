@@ -91,5 +91,6 @@
   "wardenChase": {
     "speed": 118,
     "delayMs": 3000
-  }
+  },
+  "track": ""
 }

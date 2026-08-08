@@ -45,7 +45,9 @@
     "id": "chaseOnSight",
     "name": "Chases on sight",
     "host": "enemy",
-    "tags": ["sight"],
+    "tags": [
+      "sight"
+    ],
     "description": "Forward vision cone: seeing the player escalates to chase; losing them (hidden, smoke, or loseMs without sight) gives up into giveUpTo.",
     "script": [
       "var range = 120;",
