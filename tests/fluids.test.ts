@@ -1084,4 +1084,46 @@ describe("a gate closing under an already-established fall clears it, not just n
       expect(fluidAt(rt, 4, y, "water"), `expected (4,${y}) to be dry — no leak`).toBe(false);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // REGRESSION (Sean, live playtest 2026-08-08, follow-up to the reopen-
+  // drain fix): "Why didn't the water that hit the grate dry up with the
+  // rest of the water that was coming from the same spot?" drainDammedPool's
+  // flood-fill used raw map.at() to compare elements across the walk — but
+  // a tile carrying its water as a grate overlay (a metal grate flush
+  // against solid ground, per placeFluid's grateFluid routing) reads back
+  // from map.at as the grate itself (element "metal"), not the water it's
+  // carrying. The element compare never matched there, so gateSourcedTiles
+  // membership was ignored and a grate-carried tile — despite being tagged,
+  // despite still genuinely being part of the same pool — never made it
+  // into the walk, and so never got scheduled to drain with everything
+  // else. Fixed by using fluidDefAt (grate-aware, like every other
+  // fluid-identity read in the sim) instead of the raw tile.
+  // -------------------------------------------------------------------------
+  it("drains a gate-dammed pool that rested on a metal grate, same as any other tile in it", () => {
+    // The grate at x7 is deliberately NOT directly adjacent to the fall —
+    // poolFallBase's own placement only ever reaches x6 (its immediate
+    // neighbor); x7 is only reachable by that tile's own later cascade
+    // (case 4), which is what makes it show up ONLY via drainDammedPool's
+    // flood-fill, not the initial seed — exactly the gap that let it slip
+    // through undrained.
+    const rows = [
+      "#....V.......#",
+      "#......=.....#", // y1: pooling row — x6 open+contained (seed), x7 a grate flush below
+      "#####.########", // y2: trapdoor at x5; x6 and x7 both walled directly under them
+      "##############",
+    ];
+    const trap: RoomEntity = { type: "trapdoor", x: 5, y: 2, gate: true } as RoomEntity;
+    const rt = makeRoom(rows, [trap]);
+    const inst = rt.entities.find((e) => e.kind === "trapdoor")!;
+    setSimTime(10_000);
+    tick(rt, 20); // build up the pool, then let it cascade onto the grate
+    expect(fluidAt(rt, 7, 1, "water"), "expected the pool to have cascaded onto the grate at x7").toBe(true);
+    inst.open = true;
+    rt.update(1, null, 0, () => {}); // detects the reopen, schedules the drain
+    setSimTime(20_000); // well past RECEDE_MS
+    rt.update(1, null, 0, () => {}); // the scheduled drain actually fires
+    expect(fluidAt(rt, 6, 1, "water"), "expected the ordinary tile to have drained").toBe(false);
+    expect(fluidAt(rt, 7, 1, "water"), "expected the grate-carried water to have drained too").toBe(false);
+  });
 });
