@@ -13,6 +13,7 @@
     "deploy": "npm run build && wrangler pages deploy dist --project-name=playpen --branch=master && npm run content:push -- --note \"deploy sync\"",
     "content:pull": "node tools/pull-content.mjs",
     "content:push": "node tools/publish-content.mjs",
+    "content:diff": "node tools/diff-content.mjs",
     "reports": "node tools/fetch-reports.mjs",
     "analytics": "node tools/analytics.mjs",
     "dev-receiver": "node tools/dev-receiver.mjs",

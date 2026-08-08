@@ -164,6 +164,10 @@ export class ContentStore {
   publishedInfo: { id: string; publishedAt: string; note?: string } | null = null;
   private files: Record<string, unknown> = {};
   private deletedInOverlay = new Set<string>();
+  /** Published version id the local draft diverged from — stamped when the
+   *  overlay first gets a write, sent as `baseId` with every publish so the
+   *  server can 3-way merge concurrent publishes instead of clobbering. */
+  private overlayBaseId: string | null = null;
   /** Names of files a local (browser-only) editing draft overrides — surfaced
    *  in the publish tab so a forgotten old draft doesn't silently ship stale
    *  values on every future publish (see `mergedFiles`' limits above). */
@@ -207,9 +211,11 @@ export class ContentStore {
           const overlay = JSON.parse(raw) as {
             files: Record<string, unknown>;
             deleted?: string[];
+            baseId?: string | null;
           };
           Object.assign(this.files, overlay.files);
           this.overlayFileNames = Object.keys(overlay.files ?? {});
+          this.overlayBaseId = overlay.baseId ?? null;
           for (const rel of overlay.deleted ?? []) {
             delete this.files[rel];
             this.deletedInOverlay.add(rel);
@@ -247,10 +253,33 @@ export class ContentStore {
   }
 
   private persistOverlay(): void {
+    // First write of a fresh draft: remember which published version it
+    // forked from (pre-feature drafts without a stamp keep null = wholesale).
+    if (this.overlayBaseId === null && this.overlayFileNames.length === 0) {
+      this.overlayBaseId = this.publishedInfo?.id ?? null;
+    }
+    this.overlayFileNames = Object.keys(this.files);
     localStorage.setItem(
       LS_KEY,
-      JSON.stringify({ files: this.files, deleted: [...this.deletedInOverlay] })
+      JSON.stringify({
+        files: this.files,
+        deleted: [...this.deletedInOverlay],
+        baseId: this.overlayBaseId,
+      })
     );
+  }
+
+  /** Base version id to send with a publish (draft's fork point, else the
+   *  version this session loaded — e.g. publishing with no local edits). */
+  publishBaseId(): string | null {
+    return this.overlayBaseId ?? this.publishedInfo?.id ?? null;
+  }
+
+  /** After a successful publish, the draft's new base is what we just made
+   *  live — a later publish should merge relative to it. */
+  markPublished(id: string): void {
+    this.overlayBaseId = id;
+    if (localStorage.getItem(LS_KEY)) this.persistOverlay();
   }
 
   /** Full export for sharing/backup (web builds especially). */
@@ -273,6 +302,7 @@ export class ContentStore {
   clearOverlay(): void {
     localStorage.removeItem(LS_KEY);
     this.overlayFileNames = [];
+    this.overlayBaseId = null;
   }
 }
 

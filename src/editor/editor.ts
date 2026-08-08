@@ -17,6 +17,7 @@ import { RoomEditor } from "./roomeditor";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 import { renderSessionsTab } from "./sessions";
 import { renderReportsTab } from "./reports";
+import { diffBundles, summarizeDiff, type FileMap } from "../../functions/api/_merge.js";
 
 const SPRITE_KEYS = ["sprite", "spriteFrames", "spriteFps", "portraits"];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
@@ -611,6 +612,11 @@ class EditorShell {
 
   /** Push the current content to every player (password-gated, versioned). */
   private renderPublishTab(): void {
+    const summaryLines = (lines: string[]): HTMLElement =>
+      el("div", { style: "font-family:monospace;font-size:11px;white-space:pre-wrap" },
+        ...(lines.length === 0
+          ? [el("div", { className: "pp-hint" }, "no content changes")]
+          : lines.map((l) => el("div", {}, l))));
     const panel = el("div", { className: "pp-panel" });
     const pub = this.store.publishedInfo;
     panel.append(
@@ -681,7 +687,10 @@ class EditorShell {
         }
         const data = await res.json() as {
           liveId: string | null;
-          versions: { id: string; at: string; note: string; bytes: number }[];
+          versions: {
+            id: string; at: string; note: string; bytes: number;
+            merged?: boolean; changes?: string[];
+          }[];
         };
         historyEl.replaceChildren(
           el("div", { className: "pp-sidehead" }, "Version history")
@@ -689,37 +698,71 @@ class EditorShell {
         if (data.versions.length === 0) {
           historyEl.append(el("p", { className: "pp-hint" }, "no versions published yet"));
         }
-        for (const v of data.versions) {
+        data.versions.forEach((v, vi) => {
           const isLive = v.id === data.liveId;
-          historyEl.append(
-            el("div", { className: "pp-row", style: "display:flex;gap:8px;align-items:center;margin:4px 0" },
-              el("span", { style: `font-family:monospace;${isLive ? "color:#9be8b0" : ""}` },
-                `${isLive ? "● " : ""}${v.id}`),
-              el("span", { className: "pp-hint", style: "flex:1" },
-                `${new Date(v.at).toLocaleString()}${v.note ? ` — ${v.note}` : ""} (${Math.round(v.bytes / 1024)}kb)`),
-              isLive
-                ? el("span", { className: "pp-hint" }, "live")
-                : el("button", {
-                    className: "pp-btn",
-                    onclick: async () => {
-                      if (!confirm(`Make ${v.id} live for all players?`)) return;
-                      const r = await fetch(`${API_BASE}/api/content/restore`, {
-                        method: "POST", headers: auth(),
-                        body: JSON.stringify({ id: v.id }),
-                      });
-                      toast(r.ok ? `Restored ${v.id}` : "Restore failed", r.ok);
-                      loadHistory();
-                    },
-                  }, "restore")
-            )
+          const prev = data.versions[vi + 1];
+          const detailEl = el("div", { style: "display:none;margin:2px 0 6px 18px" });
+          const row = el("div", { className: "pp-row", style: "display:flex;gap:8px;align-items:center;margin:4px 0" },
+            el("span", { style: `font-family:monospace;${isLive ? "color:#9be8b0" : ""}` },
+              `${isLive ? "● " : ""}${v.id}`),
+            el("span", { className: "pp-hint", style: "flex:1" },
+              `${new Date(v.at).toLocaleString()}${v.note ? ` — ${v.note}` : ""}` +
+              `${v.merged ? " ⇄ merged" : ""} (${Math.round(v.bytes / 1024)}kb)`),
+            isLive
+              ? el("span", { className: "pp-hint" }, "live")
+              : el("button", {
+                  className: "pp-btn",
+                  onclick: async () => {
+                    if (!confirm(`Make ${v.id} live for all players?`)) return;
+                    const r = await fetch(`${API_BASE}/api/content/restore`, {
+                      method: "POST", headers: auth(),
+                      body: JSON.stringify({ id: v.id }),
+                    });
+                    toast(r.ok ? `Restored ${v.id}` : "Restore failed", r.ok);
+                    loadHistory();
+                  },
+                }, "restore")
           );
-        }
+          // "what changed" — the compact summary stored at publish time, or
+          // (for any two adjacent versions) a full structural diff on demand.
+          if (v.changes || prev) {
+            row.append(el("button", {
+              className: "pp-btn",
+              onclick: async () => {
+                if (detailEl.style.display !== "none") {
+                  detailEl.style.display = "none";
+                  return;
+                }
+                detailEl.style.display = "block";
+                if (v.changes && detailEl.childElementCount === 0) {
+                  detailEl.append(summaryLines(v.changes));
+                }
+                if (!v.changes && prev) {
+                  // Pre-changelog version: fetch both records and diff here.
+                  detailEl.replaceChildren(el("p", { className: "pp-hint" }, "diffing…"));
+                  try {
+                    const [a, b] = await Promise.all([v.id, prev.id].map(async (id) => {
+                      const r = await fetch(`${API_BASE}/api/content/versions?id=${id}`, { headers: auth() });
+                      if (!r.ok) throw new Error();
+                      return (await r.json() as { files: FileMap }).files;
+                    }));
+                    detailEl.replaceChildren(summaryLines(summarizeDiff(diffBundles(b, a), 60)));
+                  } catch {
+                    detailEl.replaceChildren(el("p", { className: "pp-hint" }, "couldn't fetch versions to diff"));
+                  }
+                }
+              },
+            }, "what changed"));
+          }
+          historyEl.append(row, detailEl);
+        });
       } catch {
         historyEl.replaceChildren(el("p", { className: "pp-hint" },
           "couldn't reach the server (offline / local dev without functions)"));
       }
     };
 
+    const reviewEl = el("div", { style: "margin-top:8px" });
     panel.append(
       el("div", { className: "pp-btnrow" },
         el("button", {
@@ -737,18 +780,53 @@ class EditorShell {
                 body: JSON.stringify({
                   files: mergedFiles(this.store.allFiles()),
                   note: noteInput.value.trim(),
+                  // Lets the server 3-way merge if someone published since
+                  // this draft's base, instead of clobbering their work.
+                  baseId: this.store.publishBaseId(),
                 }),
               });
-              const out = await res.json() as { ok: boolean; id?: string; error?: string };
-              toast(out.ok ? `Published ${out.id}` : `Failed: ${out.error}`, out.ok);
-              if (out.ok) loadHistory();
+              const out = await res.json() as {
+                ok: boolean; id?: string; merged?: boolean; error?: string;
+              };
+              toast(
+                out.ok
+                  ? `Published ${out.id}${out.merged ? " (merged with a newer publish)" : ""}`
+                  : `Failed: ${out.error}`,
+                out.ok
+              );
+              if (out.ok && out.id) {
+                this.store.markPublished(out.id);
+                reviewEl.replaceChildren();
+                loadHistory();
+              }
             } catch {
               toast("Couldn't reach the server.", false);
             }
           },
         }, "🚀 Publish to all players"),
+        el("button", {
+          className: "pp-btn",
+          onclick: async () => {
+            // What THIS publish would change vs. what players have right now.
+            reviewEl.replaceChildren(el("p", { className: "pp-hint" }, "diffing against live…"));
+            try {
+              const res = await fetch(`${API_BASE}/api/content`, { cache: "no-store" });
+              const live = res.ok ? (await res.json() as { id: string; files: FileMap }) : null;
+              const draft = mergedFiles(this.store.allFiles()) as FileMap;
+              const lines = summarizeDiff(diffBundles(live?.files ?? {}, draft), 60);
+              reviewEl.replaceChildren(
+                el("div", { className: "pp-sidehead" },
+                  `Your draft vs live${live ? ` (${live.id})` : " (nothing published)"}`),
+                summaryLines(lines)
+              );
+            } catch {
+              reviewEl.replaceChildren(el("p", { className: "pp-hint" }, "couldn't reach the server"));
+            }
+          },
+        }, "review changes"),
         el("button", { className: "pp-btn", onclick: () => loadHistory() }, "Load history")
       ),
+      reviewEl,
       historyEl
     );
     this.bodyEl.append(panel);

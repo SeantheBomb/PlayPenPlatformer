@@ -54,6 +54,23 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `content/` back to KV as a new version; `npm run deploy` chains it automatically so
   code and content always ship together. Never edit repo `content/` and deploy code
   without pushing content — that's the "pseudo regression" class this exists to kill.
+- **Publishes 3-way merge, git-style (2026-08-08)**: every publish carries a `baseId`
+  (browser: stamped into the localStorage overlay at the draft's first write; repo:
+  `.content-base.json`). If live moved since that base, the server (and
+  `content:push` locally) merges via `functions/api/_merge.js` — per id-entry for
+  the id-keyed arrays, per nested key for game.json, atomic per file for rooms —
+  so Sean's level edits and AI behavior/object edits published concurrently BOTH
+  survive; anything both sides changed goes to the LAST publisher (Sean's call —
+  no conflict UI). `tests/content-merge.test.ts` pins these semantics. A merged
+  push writes the result back into `content/` (review with `git diff content/`).
+  `npm run content:diff` previews what a push would change vs live;
+  `npm run content:push -- --wholesale` skips the merge (recovery hatch when live
+  itself is the bad copy — used 2026-08-08 to un-clobber the spotter after a
+  stale-draft publish). Version history rows store a compact changelog
+  (`changes`), shown in the editor's publish tab ("what changed" per version,
+  "review changes" before publishing). A pre-feature browser draft has no baseId
+  stamp and still publishes wholesale — clearing the local draft once (after its
+  work is published) upgrades it.
 - Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`
   (add `-- --clear` to delete pulled reports from KV once they're fixed).
 - Anonymous gameplay telemetry (room attempts/completions/durations, deaths,
