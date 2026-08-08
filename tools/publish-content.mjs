@@ -119,7 +119,8 @@ try {
 index.unshift({ id, at: publishedAt, note: note.slice(0, 200), bytes: record.length, merged, changes });
 for (const old of index.splice(MAX_VERSIONS)) {
   try {
-    wrangler(["delete", `ver:${old.id}`, "--force"]);
+    // (no --force: wrangler 4.x kv key delete rejects it and never prompts)
+    wrangler(["delete", `ver:${old.id}`]);
   } catch { /* already gone */ }
 }
 const indexPath = join(tmp, "index.json");
