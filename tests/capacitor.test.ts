@@ -186,3 +186,43 @@ describe("tripFusebox only announces a real off->on transition", () => {
     expect(fb.open).toBe(true); // still open — just no repeat announcement
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-07): "once the capacitor is turned off, it
+// should have a cooldown for X seconds before it can be turned back on. X
+// should equal the amount of time it takes for a charged tile to discharge
+// naturally" — so whatever the capacitor was still charging when it
+// switched off can't immediately re-trigger it. X = elementEffects'
+// energizeMs (1500ms in content/behaviors.json).
+// ---------------------------------------------------------------------------
+describe("capacitor cooldown after an offFuseId trip", () => {
+  function makeKillRoom(): { rt: RoomRuntime; cap: EntityInstance; fb: EntityInstance } {
+    const { rt } = makeRoom([
+      { type: "capacitor", x: 5, y: 0, offFuseId: "KILL" } as RoomEntity,
+      { type: "fusebox", x: 9, y: 0, fuseId: "KILL" } as RoomEntity,
+    ]);
+    return { rt, cap: find(rt, "capacitor"), fb: find(rt, "fusebox") };
+  }
+
+  it("refuses to turn back on from leftover charge immediately after turning off", () => {
+    const { rt, cap, fb } = makeKillRoom();
+    zap(rt, cap, 1000);
+    expect(cap.open).toBe(true);
+    rt.tripFusebox(fb, []);
+    expect(cap.open).toBe(false);
+    // Still within the discharge window — as if the same charge that was
+    // powering it lingered on the tile and tried to re-trigger it.
+    zap(rt, cap, 1050);
+    expect(cap.open).toBe(false);
+  });
+
+  it("turns back on once the charge would have naturally discharged", () => {
+    const { rt, cap, fb } = makeKillRoom();
+    zap(rt, cap, 1000);
+    rt.tripFusebox(fb, []);
+    expect(cap.open).toBe(false);
+    const energizeMs = 1500; // must match elementEffects.energizeMs in content/behaviors.json
+    zap(rt, cap, 1000 + energizeMs + 10);
+    expect(cap.open).toBe(true);
+  });
+});

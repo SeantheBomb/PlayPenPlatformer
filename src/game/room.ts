@@ -25,6 +25,10 @@ export interface EntityInstance extends Rect {
   occupied?: boolean; // locker with player inside
   lit?: boolean;      // brazier flame state (water douses, fire relights)
   amount?: number;    // source: remaining stock (-1 = infinite); unused otherwise
+  // capacitor: simNow() it can next turn back on — set on offFuseId trip to
+  // energizeMs (how long a charged tile takes to discharge on its own), so
+  // whatever it was still charging can't immediately re-trigger it.
+  capacitorCooldownUntil?: number;
 }
 
 export interface EnemyInstance {
@@ -1564,13 +1568,23 @@ export class RoomRuntime {
       if (pool.has(idx) || !this.waterFlowDist.has(idx)) continue;
       pool.add(idx);
       const tx = idx % this.map.width, ty = Math.floor(idx / this.map.width);
-      const def = this.map.at(tx, ty);
+      // fluidDefAt, not raw map.at — a tile carrying its water as a grate
+      // overlay (a metal grate flush against solid ground) reads back as
+      // the grate itself (element "metal") from map.at, not the water it's
+      // carrying, which silently broke the walk right at any grate: the
+      // element compare below never matched, so gateSourcedTiles membership
+      // was ignored and a grate-carried tile — despite being tagged and
+      // despite still being fluid — never made it into the drain set
+      // (reported live: "why didn't the water that hit the grate dry up
+      // with the rest?"). fluidDefAt already knows to check the grate
+      // overlay first, same as every other fluid-identity read in the sim.
+      const def = this.fluidDefAt(tx, ty);
       if (!def) continue;
       for (const [nx, ny] of [[tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]] as const) {
         if (nx < 0 || nx >= this.map.width || ny < 0 || ny >= this.map.height) continue;
         const nIdx = this.map.index(nx, ny);
         if (pool.has(nIdx) || !this.gateSourcedTiles.has(nIdx)) continue;
-        const ndef = this.map.at(nx, ny);
+        const ndef = this.fluidDefAt(nx, ny);
         if (!ndef || ndef.element !== def.element) continue;
         queue.push(nIdx);
       }
@@ -1703,6 +1717,7 @@ export class RoomRuntime {
     const now = simNow();
     for (const cap of this.entities) {
       if (cap.kind !== "capacitor" || cap.open) continue;
+      if (cap.capacitorCooldownUntil && now < cap.capacitorCooldownUntil) continue;
       const tx0 = Math.floor(cap.x / TILE) - 1;
       const tx1 = Math.floor((cap.x + cap.w) / TILE) + 1;
       const ty0 = Math.floor(cap.y / TILE) - 1;
@@ -1802,6 +1817,11 @@ export class RoomRuntime {
       if (cap.def.offFuseId && cap.def.offFuseId === fb.def.fuseId) {
         cap.open = false;
         this.muts.openedDoors.delete(cap.index);
+        // Cooldown = however long a charged tile takes to discharge on its
+        // own — long enough that anything the capacitor was still charging
+        // has genuinely gone dark before it's allowed to trip back on, so
+        // it can't immediately re-trigger itself through its own leftover charge.
+        cap.capacitorCooldownUntil = simNow() + this.energizeMs;
         events.push({
           effect: "capacitorOff", x: cap.x + cap.w / 2, y: cap.y + cap.h / 2,
           color: "#e8a2b4", entityIndex: cap.index,
