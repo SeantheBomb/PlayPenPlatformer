@@ -394,7 +394,7 @@ export class Player {
 
     let repelHit: TileHit | null = null;
     for (const hit of res.overlapping) {
-      const mult = hit.def.slow ?? hit.def.wade;
+      const mult = hit.def.slow;
       if (mult) {
         ev.inLiquidOrGoo = true;
         speedCap = cfg.runSpeed * mult;

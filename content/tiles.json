@@ -96,7 +96,7 @@
     "style": "water",
     "element": "water",
     "conductive": true,
-    "wade": 0.55,
+    "slow": 0.55,
     "freezesTo": "ice",
     "color": "#4fc3f7",
     "fluid": true
@@ -120,7 +120,7 @@
     "style": "waterfall",
     "element": "water",
     "conductive": true,
-    "wade": 0.8,
+    "slow": 0.8,
     "color": "#4fc3f7",
     "fallSpawns": "water"
   },
@@ -166,7 +166,7 @@
     "element": "lava",
     "fluid": true,
     "spreads": true,
-    "wade": 0.45,
+    "slow": 0.45,
     "extinguishesTo": "cracked",
     "color": "#ff5e2b"
   },
@@ -178,7 +178,7 @@
     "damage": 1,
     "element": "lava",
     "fallSpawns": "lava",
-    "wade": 0.7,
+    "slow": 0.7,
     "extinguishesTo": "cracked",
     "color": "#ff5e2b"
   },
