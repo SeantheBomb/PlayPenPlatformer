@@ -196,12 +196,17 @@ export type BehaviorAttachment = string | BehaviorRef;
  * default behavior attachments. Serialized in content/entities.json — the
  * per-def home for entity behavior wiring, same as enemies/items have.
  */
-export interface EntityTypeDef {
+export interface EntityTypeDef extends SpriteFields {
   id: string;
   width: number;
   height: number;
   behaviors?: BehaviorAttachment[];
   note?: string;
+  /** Secondary-state art, meaning per kind: door/trapdoor = OPEN, brazier =
+   *  UNLIT, capacitor/fusebox = ON/tripped, locker = occupied. The base
+   *  sprite covers the primary state; either alone falls back to procedural
+   *  for the state it doesn't cover. */
+  spriteAlt?: string;
 }
 
 export type TileStyle =

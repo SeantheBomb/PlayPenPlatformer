@@ -8,7 +8,7 @@ import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
 import { music } from "../engine/music";
 import { TILE } from "../engine/tilemap";
-import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, roundRect } from "../engine/renderer";
+import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawSprite, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
 import { RunState, type StateSnapshot } from "./state";
 import { Player, type PlayerSnapshot } from "./player";
@@ -225,14 +225,11 @@ export class Game {
   /** Dialog portrait: custom art if set, otherwise a big blob face. */
   private npcPortrait(e: EntityInstance) {
     return (ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => {
-      if (e.def.portrait) {
-        const img = new Image();
-        img.src = e.def.portrait;
-        if (img.complete && img.naturalWidth > 0) {
-          ctx.imageSmoothingEnabled = false;
-          ctx.drawImage(img, x, y, size, size);
-          return;
-        }
+      // Through drawSprite's shared image cache — a fresh `new Image()` per
+      // draw call never had time to decode, so custom portraits silently
+      // never showed (procedural face won every frame).
+      if (e.def.portrait && drawSprite(ctx, { sprite: e.def.portrait }, x, y, size, size)) {
+        return;
       }
       const color = e.def.color ?? "#7fd8e8";
       if (e.def.avatar) {

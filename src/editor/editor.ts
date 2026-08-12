@@ -10,7 +10,7 @@ import {
 } from "../game/behavior";
 import { createScriptEditor } from "./scripteditor";
 import {
-  currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait,
+  currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait, getImage,
 } from "../engine/renderer";
 import { autoForm, el, fieldOptionsFor, schemaForm, toast, type FieldSpec } from "./forms";
 import { RoomEditor } from "./roomeditor";
@@ -507,6 +507,11 @@ class EditorShell {
           label: (t) => `${t.id} (${t.width}×${t.height})`,
           schema: ENTITY_TYPE_SCHEMA,
           extras: (item) => this.attachmentsWidget(item, "entity"),
+          sprites: true,
+          spriteSize: 16,
+          // Entities are drawn stateful in-room (see drawEntitySprite); the
+          // seed here is just an empty grid at the def's footprint aspect.
+          procedural: () => {},
         });
         break;
       case "taunts":
@@ -1272,6 +1277,21 @@ class EditorShell {
       el("button", {
         className: "pp-btn",
         onclick: () => {
+          // The pixel editor round-trips through its own size×size grid.
+          // Opening uploaded hi-res or vector art in it would silently
+          // flatten the original on save — make that destructive step an
+          // explicit choice, never a surprise (artist pipeline, 2026-08-12).
+          const isVector = frames.some((f) => f.startsWith("data:image/svg"));
+          const probe = frames[0] ? getImage(frames[0]) : null;
+          const isHiRes = !!probe && (probe.naturalWidth > size || probe.naturalHeight > size);
+          if (isVector || isHiRes) {
+            const what = isVector ? "vector (SVG) art" : `${probe!.naturalWidth}×${probe!.naturalHeight} art`;
+            if (!confirm(
+              `This slot holds ${what}, but the pixel editor works on a ${size}×${size} grid.\n\n` +
+              `Editing here will permanently flatten it to ${size}×${size} pixels when saved. ` +
+              `To keep the original, cancel and edit it in your own app instead.\n\nFlatten and edit anyway?`
+            )) return;
+          }
           // No custom art yet? Start from the procedural sprite, not a blank.
           const seed =
             frames.length === 0 && procedural

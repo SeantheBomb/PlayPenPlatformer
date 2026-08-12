@@ -10,6 +10,7 @@
 // goes to the publisher (last-writer-wins — Sean, 2026-08-08). No baseId
 // (or a pruned one) keeps the old wholesale-replace behavior.
 import { mergeBundles, diffBundles, summarizeDiff } from "./_merge.js";
+import { overlayArtBundle } from "./_artscope.js";
 
 const INDEX_KEY = "index";
 const LIVE_KEY = "live";
@@ -28,7 +29,13 @@ export async function onRequestGet({ env }) {
 }
 
 export async function onRequestPost({ request, env }) {
-  const denied = checkPassword(request, env);
+  // Two credentials, two very different publish scopes: the editor password
+  // publishes everything (with 3-way merge); the artist password publishes
+  // ART ONLY — the server overlays just sprite/portrait fields onto live,
+  // so an artist publish can never touch gameplay data or clobber a
+  // concurrent design edit. See _artscope.js.
+  const isArtist = !checkArtistPassword(request, env);
+  const denied = isArtist ? null : checkPassword(request, env);
   if (denied) return denied;
   let body;
   try {
@@ -46,7 +53,11 @@ export async function onRequestPost({ request, env }) {
 
   let files = body.files;
   let merged = false;
-  if (live && baseId && baseId !== live.id) {
+  if (isArtist) {
+    if (!live) return json({ ok: false, error: "nothing published yet" }, 409);
+    files = overlayArtBundle(live.files, body.files);
+    merged = true; // art publishes always start from live by construction
+  } else if (live && baseId && baseId !== live.id) {
     // Someone published since this draft's base — merge their work in.
     const baseRaw = await env.CONTENT.get(`ver:${baseId}`);
     if (baseRaw) {
@@ -59,10 +70,11 @@ export async function onRequestPost({ request, env }) {
   const changes = summarizeDiff(diffBundles(live?.files ?? {}, files));
 
   const id = `v${Date.now()}`;
+  const note = (isArtist ? "🎨 " : "") + String(body.note ?? "").slice(0, 200);
   const record = JSON.stringify({
     id,
     publishedAt: new Date().toISOString(),
-    note: String(body.note ?? "").slice(0, 200),
+    note,
     baseId,
     changes,
     files,
@@ -74,7 +86,7 @@ export async function onRequestPost({ request, env }) {
   index.unshift({
     id,
     at: new Date().toISOString(),
-    note: String(body.note ?? "").slice(0, 200),
+    note,
     bytes: record.length,
     merged,
     changes,
@@ -89,6 +101,15 @@ export async function onRequestPost({ request, env }) {
 export function checkPassword(request, env) {
   const given = request.headers.get("x-editor-password") ?? "";
   if (!env.EDITOR_PASSWORD || given !== env.EDITOR_PASSWORD) {
+    return json({ ok: false, error: "wrong password" }, 401);
+  }
+  return null;
+}
+
+/** The artist's own credential — grants art-scoped publishing only. */
+export function checkArtistPassword(request, env) {
+  const given = request.headers.get("x-artist-password") ?? "";
+  if (!env.ARTIST_PASSWORD || given !== env.ARTIST_PASSWORD) {
     return json({ ok: false, error: "wrong password" }, 401);
   }
   return null;

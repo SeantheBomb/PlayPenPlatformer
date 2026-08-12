@@ -5,7 +5,7 @@ import type {
   RuleDef, RuleEffect, TileDef,
 } from "../data/types";
 import { TILE, TileMap } from "../engine/tilemap";
-import { drawBlob, drawItemIcon, drawNpcAvatar, drawTile, roundRect, shade } from "../engine/renderer";
+import { drawBlob, drawItemIcon, drawNpcAvatar, drawSprite, drawTile, roundRect, shade } from "../engine/renderer";
 import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
 import { Rng } from "../engine/rng";
@@ -129,6 +129,15 @@ function ruleOf(r: RuleDef): ParsedRule | null {
   parsedRuleCache.set(r, p);
   return p;
 }
+
+/** Entity kinds whose look can be fully replaced by entities.json sprite
+ *  art (see drawEntitySprite). Source/converter are handled inside their
+ *  own draw cases instead — their item icons and stock labels are live
+ *  gameplay info that must persist over any skin. */
+const SPRITE_ENTITY_KINDS = new Set<RoomEntity["type"]>([
+  "note", "door", "trapdoor", "locker", "checkpoint",
+  "brazier", "fusebox", "capacitor", "exit",
+]);
 
 /** Fallback footprints for stale content — content/entities.json wins. */
 const ENTITY_SIZES: Partial<Record<RoomEntity["type"], [number, number]>> = {
@@ -2601,8 +2610,31 @@ export class RoomRuntime {
     ctx.restore();
   }
 
+  /** Custom art for entity kinds that are otherwise procedural-only, from
+   *  their entities.json def. Base sprite = primary state; `spriteAlt` =
+   *  secondary state (open door/trapdoor, unlit brazier, tripped fusebox,
+   *  live capacitor, active checkpoint, occupied locker). A state with no
+   *  art falls back to procedural — the state read must never lie (a
+   *  closed-door sprite drawn over an open door would read as shut). The
+   *  occupied locker is the one alt state allowed to reuse base art, since
+   *  it genuinely looks the same from outside. */
+  private drawEntitySprite(ctx: CanvasRenderingContext2D, e: EntityInstance): boolean {
+    const def = this.content.entityTypes?.find((t) => t.id === e.kind);
+    if (!def) return false;
+    const alt = e.kind === "brazier" ? e.lit === false
+      : e.kind === "locker" ? !!e.occupied
+      : !!e.open;
+    if (alt) {
+      if (def.spriteAlt) return drawSprite(ctx, { sprite: def.spriteAlt }, e.x, e.y, e.w, e.h);
+      if (e.kind === "locker") return drawSprite(ctx, def, e.x, e.y, e.w, e.h);
+      return false;
+    }
+    return drawSprite(ctx, def, e.x, e.y, e.w, e.h);
+  }
+
   private drawEntity(ctx: CanvasRenderingContext2D, e: EntityInstance, animT: number): void {
     const bob = Math.sin(animT * 2.6 + e.index) * 2;
+    if (SPRITE_ENTITY_KINDS.has(e.kind) && this.drawEntitySprite(ctx, e)) return;
     switch (e.kind) {
       case "pickup": {
         if (e.collected) return;
@@ -2844,32 +2876,37 @@ export class RoomRuntime {
         const casing = "#454e5e";
         const bx = e.x - 2, by = e.y - 2, bw = e.w + 4, bh = e.h + 4;
         const wx = e.x + e.w / 2, wy = e.y + e.h / 2 - 1 + bob * 0.4;
-        ctx.fillStyle = "rgba(0,0,0,0.25)";
-        ctx.beginPath();
-        ctx.ellipse(wx, e.y + e.h + 3, 8, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // A riveted steel hopper — reads as a dispensing MACHINE, not the
-        // item it holds. The item only appears in the recessed display.
-        ctx.fillStyle = casing;
-        roundRect(ctx, bx, by, bw, bh, 3);
-        ctx.fill();
-        ctx.fillStyle = shade(casing, -25);
-        roundRect(ctx, bx, by, bw, 3, 2);
-        ctx.fill();
-        ctx.fillStyle = shade(casing, -35);
-        for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
-          [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+        // Custom skin replaces the machine chassis; the item display and
+        // stock label below stay on top — they're live gameplay info.
+        const skinned = this.drawEntitySprite(ctx, e);
+        if (!skinned) {
+          ctx.fillStyle = "rgba(0,0,0,0.25)";
           ctx.beginPath();
-          ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+          ctx.ellipse(wx, e.y + e.h + 3, 8, 3, 0, 0, Math.PI * 2);
+          ctx.fill();
+          // A riveted steel hopper — reads as a dispensing MACHINE, not the
+          // item it holds. The item only appears in the recessed display.
+          ctx.fillStyle = casing;
+          roundRect(ctx, bx, by, bw, bh, 3);
+          ctx.fill();
+          ctx.fillStyle = shade(casing, -25);
+          roundRect(ctx, bx, by, bw, 3, 2);
+          ctx.fill();
+          ctx.fillStyle = shade(casing, -35);
+          for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
+            [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+            ctx.beginPath();
+            ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          // Dispense slot at the base.
+          ctx.fillStyle = "#0d0f14";
+          ctx.fillRect(e.x + 2, e.y + e.h, e.w - 4, 2);
+          // Recessed display window showing the real item icon.
+          ctx.fillStyle = "#181c24";
+          roundRect(ctx, wx - 6, wy - 6, 12, 12, 2);
           ctx.fill();
         }
-        // Dispense slot at the base.
-        ctx.fillStyle = "#0d0f14";
-        ctx.fillRect(e.x + 2, e.y + e.h, e.w - 4, 2);
-        // Recessed display window showing the real item icon.
-        ctx.fillStyle = "#181c24";
-        roundRect(ctx, wx - 6, wy - 6, 12, 12, 2);
-        ctx.fill();
         if (item) {
           ctx.globalAlpha = empty ? 0.35 : 1;
           drawItemIcon(ctx, item, wx, wy, 0.85);
@@ -2877,18 +2914,20 @@ export class RoomRuntime {
         }
         // Status light: lit green while stocked, dead red when empty.
         const lx = bx + bw - 4, ly = by + bh - 4;
-        if (!empty) {
-          ctx.globalAlpha = 0.4 + Math.sin(animT * 3 + e.index) * 0.3;
-          ctx.fillStyle = "#5ad18a";
+        if (!skinned) {
+          if (!empty) {
+            ctx.globalAlpha = 0.4 + Math.sin(animT * 3 + e.index) * 0.3;
+            ctx.fillStyle = "#5ad18a";
+            ctx.beginPath();
+            ctx.arc(lx, ly, 2.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+          ctx.fillStyle = empty ? "#5a3a3a" : "#8af0b8";
           ctx.beginPath();
-          ctx.arc(lx, ly, 2.6, 0, Math.PI * 2);
+          ctx.arc(lx, ly, 1.4, 0, Math.PI * 2);
           ctx.fill();
-          ctx.globalAlpha = 1;
         }
-        ctx.fillStyle = empty ? "#5a3a3a" : "#8af0b8";
-        ctx.beginPath();
-        ctx.arc(lx, ly, 1.4, 0, Math.PI * 2);
-        ctx.fill();
         // Amount/infinity badge — always visible so a source's stock is
         // clear at a glance, not just discoverable on interact.
         const label = e.amount === SOURCED ? "∞" : String(e.amount ?? 0);
@@ -2905,49 +2944,56 @@ export class RoomRuntime {
         const cy = e.y + e.h / 2 - 1 + bob * 0.4;
         const leftX = e.x - 3, rightX = e.x + e.w + 3;
         const bx = leftX - 5, by = e.y - 2, bw = rightX + 5 - bx, bh = e.h + 4;
-        ctx.fillStyle = "rgba(0,0,0,0.25)";
-        ctx.beginPath();
-        ctx.ellipse(e.x + e.w / 2, e.y + e.h + 3, bw / 2, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // A wider chassis with two hopper windows and a grinding gear
-        // core between them — reads as a converter MACHINE, not a pair
-        // of floating icons.
-        ctx.fillStyle = casing;
-        roundRect(ctx, bx, by, bw, bh, 3);
-        ctx.fill();
-        ctx.fillStyle = shade(casing, -25);
-        roundRect(ctx, bx, by, bw, 3, 2);
-        ctx.fill();
-        ctx.fillStyle = shade(casing, -35);
-        for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
-          [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+        // Custom skin replaces chassis + gear; in/out item icons and their
+        // counts stay on top — the trade offer is live gameplay info.
+        const skinned = this.drawEntitySprite(ctx, e);
+        if (!skinned) {
+          ctx.fillStyle = "rgba(0,0,0,0.25)";
           ctx.beginPath();
-          ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+          ctx.ellipse(e.x + e.w / 2, e.y + e.h + 3, bw / 2, 3, 0, 0, Math.PI * 2);
+          ctx.fill();
+          // A wider chassis with two hopper windows and a grinding gear
+          // core between them — reads as a converter MACHINE, not a pair
+          // of floating icons.
+          ctx.fillStyle = casing;
+          roundRect(ctx, bx, by, bw, bh, 3);
+          ctx.fill();
+          ctx.fillStyle = shade(casing, -25);
+          roundRect(ctx, bx, by, bw, 3, 2);
+          ctx.fill();
+          ctx.fillStyle = shade(casing, -35);
+          for (const [rx, ry] of [[bx + 2, by + 2], [bx + bw - 2, by + 2],
+            [bx + 2, by + bh - 2], [bx + bw - 2, by + bh - 2]] as [number, number][]) {
+            ctx.beginPath();
+            ctx.arc(rx, ry, 1, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = "#181c24";
+          roundRect(ctx, leftX - 6, cy - 6, 12, 12, 2);
+          ctx.fill();
+          roundRect(ctx, rightX - 6, cy - 6, 12, 12, 2);
           ctx.fill();
         }
-        ctx.fillStyle = "#181c24";
-        roundRect(ctx, leftX - 6, cy - 6, 12, 12, 2);
-        ctx.fill();
-        roundRect(ctx, rightX - 6, cy - 6, 12, 12, 2);
-        ctx.fill();
         if (inItem) drawItemIcon(ctx, inItem, leftX, cy, 0.75);
         if (outItem) drawItemIcon(ctx, outItem, rightX, cy, 0.75);
         // Slow-turning gear core — the "trade" affordance, animated so it
         // reads as active machinery rather than a static prop.
-        ctx.save();
-        ctx.translate(e.x + e.w / 2, cy);
-        ctx.rotate(animT * 1.1);
-        ctx.strokeStyle = "#c9b8e8";
-        ctx.lineWidth = 1.3;
-        ctx.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const a = (Math.PI / 3) * i;
-          ctx.moveTo(Math.cos(a) * 2.6, Math.sin(a) * 2.6);
-          ctx.lineTo(Math.cos(a) * 5, Math.sin(a) * 5);
+        if (!skinned) {
+          ctx.save();
+          ctx.translate(e.x + e.w / 2, cy);
+          ctx.rotate(animT * 1.1);
+          ctx.strokeStyle = "#c9b8e8";
+          ctx.lineWidth = 1.3;
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const a = (Math.PI / 3) * i;
+            ctx.moveTo(Math.cos(a) * 2.6, Math.sin(a) * 2.6);
+            ctx.lineTo(Math.cos(a) * 5, Math.sin(a) * 5);
+          }
+          ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
         }
-        ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
         const inCount = e.def.convertInputCount ?? 1;
         const outCount = e.def.convertOutputCount ?? 1;
         if (inCount > 1 || outCount > 1) {

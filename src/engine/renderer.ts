@@ -7,7 +7,7 @@ import { TILE, TileMap } from "./tilemap";
 
 const imgCache = new Map<string, HTMLImageElement>();
 
-function getImage(uri: string): HTMLImageElement | null {
+export function getImage(uri: string): HTMLImageElement | null {
   let img = imgCache.get(uri);
   if (!img) {
     img = new Image();
