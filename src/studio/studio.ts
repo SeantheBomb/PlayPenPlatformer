@@ -10,7 +10,7 @@
 import type { ContentStore } from "../data/content";
 import type { Game } from "../game/game";
 import { el, toast } from "../editor/forms";
-import { openPixelEditor } from "../editor/pixeleditor";
+import { openPixelEditor, rasterize } from "../editor/pixeleditor";
 import { getImage } from "../engine/renderer";
 import { buildAssets, assetStatus, GROUP_ORDER, type ArtAsset, type AssetGroup } from "./assets";
 import { importFiles, sliceStrip, imageSize } from "./importers";
@@ -607,10 +607,15 @@ class Studio {
       `This art is bigger than the pixel editor's ${size}×${size} grid — editing here will flatten it to ${size}×${size} when saved.\n\n` +
       `Your original file on your computer is untouched either way. Continue?`
     )) return;
+    // No custom art yet? Seed the grid from the current in-game look so
+    // she's tweaking, never staring at a blank canvas.
+    const seed = art.frames.length
+      ? art.frames
+      : [rasterize(size, (ctx) => a.drawCurrent(ctx, 0, 0, size))];
     openPixelEditor({
       title: `${a.label} (${size}×${size})`,
       size,
-      frames: art.frames,
+      frames: seed,
       fps: art.fps,
       multiFrame: a.animatable,
       onSave: (frames, fps) => {
@@ -628,6 +633,7 @@ class Studio {
       frames: art.frames,
       fps: art.fps,
       multiFrame: a.animatable,
+      seedDraw: (ctx, x, y, cell) => a.drawCurrent(ctx, x, y, cell),
       onSave: (frames, fps) => {
         void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
       },

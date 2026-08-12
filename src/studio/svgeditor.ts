@@ -35,6 +35,11 @@ export interface SvgEditorOptions {
   fps: number;
   multiFrame: boolean;
   onSave: (frames: string[], fps: number) => void;
+  /** Draws the asset's CURRENT in-game look into a cell×cell box. When the
+   *  existing frames can't be shape-edited (procedural art, or raster
+   *  PNGs), the editor rasterizes this and converts it into editable
+   *  colored blocks — tweaking the current look is the whole point. */
+  seedDraw?: (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => void;
 }
 
 const SHAPES_ATTR = "data-pp-shapes";
@@ -61,6 +66,17 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
     if (f) { frames.push(f.frame); droppedForeign += f.dropped; }
   }
   const loadedForeign = droppedForeign > 0 || (opts.frames.length > 0 && frames.length < opts.frames.length);
+  // Nothing shape-editable? Seed from the CURRENT in-game look, converted
+  // into editable colored blocks — so "tweak what's there" always works,
+  // never a blank canvas (Sean, 2026-08-12).
+  let seeded = false;
+  if (!frames.length && opts.seedDraw) {
+    const shapes = vectorizeCurrentLook(opts.seedDraw, W, H);
+    if (shapes.length) {
+      frames = [{ shapes }];
+      seeded = true;
+    }
+  }
   if (!frames.length) frames = [{ shapes: [] }];
 
   const shapes = () => frames[current].shapes;
@@ -88,6 +104,9 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
         "This art wasn't made in this editor — you're editing a copy. Shapes I understood were kept" +
         (droppedForeign ? `; ${droppedForeign} thing(s) I couldn't read were left out.` : ".") +
         " Your original file is untouched.") : el("span", {}),
+      seeded ? el("div", { className: "st-note" },
+        "Started from the current look, converted into colored blocks you can select, recolor, move, or delete. " +
+        "Feel free to clear it all and draw fresh instead.") : el("span", {}),
       toolRow,
       paletteRow,
       el("div", { className: "pp-pixcols" },
@@ -528,4 +547,64 @@ function loadFrameFromUri(uri: string): { frame: Frame; dropped: number } | null
 function normColor(v: string | null): string | null {
   if (!v || v === "none" || v === "transparent") return null;
   return v;
+}
+
+/** Rasterize the asset's current look at its in-game box size and convert
+ *  it into flat colored rects (greedy run + downward merge), so procedural
+ *  art and PNGs become a tweakable starting point instead of a blank
+ *  canvas. Colors are lightly quantized so anti-aliased edges don't shatter
+ *  into hundreds of one-pixel specks. */
+function vectorizeCurrentLook(
+  seedDraw: (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => void,
+  W: number,
+  H: number
+): Shape[] {
+  // Supersample small boxes: at 12×16 raw, a plush bear's ears and face
+  // melt into a blob — rasterizing finer (then scaling shape coords back
+  // down) keeps the features recognizable and individually editable.
+  const SS = Math.max(1, Math.min(4, Math.ceil(48 / Math.max(W, H))));
+  const RW = W * SS, RH = H * SS;
+  const cell = Math.max(RW, RH);
+  const cv = document.createElement("canvas");
+  cv.width = RW;
+  cv.height = RH;
+  const ctx = cv.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  // seedDraw centers the art inside a square cell; shift so the fitted art
+  // lands exactly on our canvas.
+  seedDraw(ctx, -(cell - RW) / 2, -(cell - RH) / 2, cell);
+  const data = ctx.getImageData(0, 0, RW, RH).data;
+  const q = (v: number) => Math.min(255, Math.round(v / 17) * 17); // 16-level quantize
+  const colorAt = (x: number, y: number): string | null => {
+    const i = (y * RW + x) * 4;
+    if (data[i + 3] < 96) return null; // transparent-ish: background
+    return `#${[q(data[i]), q(data[i + 1]), q(data[i + 2])]
+      .map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  };
+  const used = new Uint8Array(RW * RH);
+  const shapes: Shape[] = [];
+  for (let y = 0; y < RH; y++) {
+    for (let x = 0; x < RW; x++) {
+      if (used[y * RW + x]) continue;
+      const c = colorAt(x, y);
+      if (!c) { used[y * RW + x] = 1; continue; }
+      // Extend the run rightward…
+      let w = 1;
+      while (x + w < RW && !used[y * RW + x + w] && colorAt(x + w, y) === c) w++;
+      // …then extend the whole run downward while every pixel matches.
+      let h = 1;
+      down: while (y + h < RH) {
+        for (let dx = 0; dx < w; dx++) {
+          if (used[(y + h) * RW + x + dx] || colorAt(x + dx, y + h) !== c) break down;
+        }
+        h++;
+      }
+      for (let dy = 0; dy < h; dy++) {
+        for (let dx = 0; dx < w; dx++) used[(y + dy) * RW + x + dx] = 1;
+      }
+      // Back to logical (in-game box) coordinates.
+      shapes.push({ kind: "rect", x: x / SS, y: y / SS, w: w / SS, h: h / SS, fill: c, stroke: null, sw: 0 });
+    }
+  }
+  return shapes;
 }

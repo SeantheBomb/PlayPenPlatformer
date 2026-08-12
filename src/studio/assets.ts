@@ -179,46 +179,68 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
       },
     });
   }
-  // NPCs — every entity with a stable npcId across all rooms.
+  // NPCs — grouped by stable npcId. The SAME character appears in several
+  // rooms (priya is in three), so each npcId gets ONE card and every write
+  // fans out to every room instance — the artist skins the character, not
+  // one room's copy of them.
+  const npcInstances = new Map<string, { room: RoomDef; e: RoomEntity }[]>();
   for (const room of Object.values(c.rooms)) {
     for (const e of room.entities) {
       if (e.type !== "npc" || !e.npcId) continue;
-      const roomFile = `rooms/${room.id}.json`;
-      const name = e.name ?? e.npcId;
-      assets.push({
-        key: `npc:${e.npcId}`, group: "Characters",
-        label: `${name} — body`, sublabel: `NPC in ${room.name ?? room.id}`,
-        drawnW: 12, drawnH: 16, animatable: true,
-        read: () => spriteArt(e),
-        write: async (art) => { applySpriteArt(e, art, false); await saveRoom(store, room, roomFile); },
-        clear: async () => { applySpriteArt(e, { frames: [], fps: 6 }, false); await saveRoom(store, room, roomFile); },
-        drawCurrent: drawSpriteOr(e, (ctx, x, y, cell) => {
-          if (e.avatar) {
-            const s = (cell - 8) / 16;
-            drawNpcAvatar(ctx, e.avatar, x + (cell - 12 * s) / 2, y + 4, 12 * s, 16 * s, e.color ?? "#7fd8e8", 1, {});
-          } else placeholder(name)(ctx, x, y, cell);
-        }),
-      });
-      assets.push({
-        key: `npc-portrait:${e.npcId}`, group: "Characters",
-        label: `${name} — dialog face`, sublabel: `NPC in ${room.name ?? room.id}`,
-        drawnW: 32, drawnH: 32, animatable: false,
-        read: () => ({ frames: e.portrait ? [e.portrait] : [], fps: 6 }),
-        write: async (art) => {
+      const list = npcInstances.get(e.npcId) ?? [];
+      list.push({ room, e });
+      npcInstances.set(e.npcId, list);
+    }
+  }
+  for (const [npcId, instances] of npcInstances) {
+    const first = instances[0].e;
+    const name = first.name ?? npcId;
+    const roomNames = instances.map((i) => i.room.name ?? i.room.id).join(", ");
+    const saveAll = async () => {
+      for (const { room } of instances) await saveRoom(store, room, `rooms/${room.id}.json`);
+    };
+    const fallback = (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => {
+      if (first.avatar) {
+        const s = (cell - 8) / 16;
+        drawNpcAvatar(ctx, first.avatar, x + (cell - 12 * s) / 2, y + 4, 12 * s, 16 * s, first.color ?? "#7fd8e8", 1, {});
+      } else placeholder(name)(ctx, x, y, cell);
+    };
+    assets.push({
+      key: `npc:${npcId}`, group: "Characters",
+      label: `${name} — body`, sublabel: `NPC in ${roomNames}`,
+      drawnW: 12, drawnH: 16, animatable: true,
+      read: () => spriteArt(first),
+      write: async (art) => {
+        for (const { e } of instances) applySpriteArt(e, art, false);
+        await saveAll();
+      },
+      clear: async () => {
+        for (const { e } of instances) applySpriteArt(e, { frames: [], fps: 6 }, false);
+        await saveAll();
+      },
+      drawCurrent: drawSpriteOr(first, fallback),
+    });
+    assets.push({
+      key: `npc-portrait:${npcId}`, group: "Characters",
+      label: `${name} — dialog face`, sublabel: `NPC in ${roomNames}`,
+      drawnW: 32, drawnH: 32, animatable: false,
+      read: () => ({ frames: first.portrait ? [first.portrait] : [], fps: 6 }),
+      write: async (art) => {
+        for (const { e } of instances) {
           if (art.frames[0]) e.portrait = art.frames[0];
           else delete e.portrait;
-          await saveRoom(store, room, roomFile);
-        },
-        clear: async () => { delete e.portrait; await saveRoom(store, room, roomFile); },
-        drawCurrent: (ctx, x, y, cell) => {
-          if (e.portrait && drawUri(ctx, e.portrait, x, y, cell)) return;
-          if (e.avatar) {
-            const s = (cell - 8) / 16;
-            drawNpcAvatar(ctx, e.avatar, x + (cell - 12 * s) / 2, y + 4, 12 * s, 16 * s, e.color ?? "#7fd8e8", 1, {});
-          } else placeholder(name)(ctx, x, y, cell);
-        },
-      });
-    }
+        }
+        await saveAll();
+      },
+      clear: async () => {
+        for (const { e } of instances) delete e.portrait;
+        await saveAll();
+      },
+      drawCurrent: (ctx, x, y, cell) => {
+        if (first.portrait && drawUri(ctx, first.portrait, x, y, cell)) return;
+        fallback(ctx, x, y, cell);
+      },
+    });
   }
 
   // ---- Tiles ----
