@@ -45,8 +45,16 @@ export interface SvgEditorOptions {
 const SHAPES_ATTR = "data-pp-shapes";
 
 export function openSvgEditor(opts: SvgEditorOptions): void {
-  const W = opts.width, H = opts.height;
-  const SCALE = Math.max(8, Math.floor(340 / Math.max(W, H)));
+  // W/H start at the entity's declared box, but MAY grow when seeding from
+  // a procedural look that deliberately draws outside its own box
+  // (checkpoint's flag reaches ~2x its box width, brazier's halo ~1.9x) —
+  // vectorizeCurrentLook reports back how big a canvas it actually needed.
+  // Every W/H-derived thing below (SCALE, the grid canvas, the title) is
+  // computed AFTER seeding for exactly that reason — computing them first
+  // is what silently clipped the seed the first two times (Sean,
+  // 2026-08-12, third report: the zoom-preview fix didn't touch this
+  // completely separate rasterization path).
+  let W = opts.width, H = opts.height;
   let frames: Frame[] = [];
   let current = 0;
   let fps = opts.fps || 6;
@@ -70,14 +78,19 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
   // into editable colored blocks — so "tweak what's there" always works,
   // never a blank canvas (Sean, 2026-08-12).
   let seeded = false;
+  let grewToFitOverflow = false;
   if (!frames.length && opts.seedDraw) {
-    const shapes = vectorizeCurrentLook(opts.seedDraw, W, H);
-    if (shapes.length) {
-      frames = [{ shapes }];
+    const result = vectorizeCurrentLook(opts.seedDraw, W, H);
+    if (result.shapes.length) {
+      frames = [{ shapes: result.shapes }];
       seeded = true;
+      grewToFitOverflow = result.width > W + 0.01 || result.height > H + 0.01;
+      W = result.width;
+      H = result.height;
     }
   }
   if (!frames.length) frames = [{ shapes: [] }];
+  const SCALE = Math.max(8, Math.floor(340 / Math.max(W, H)));
 
   const shapes = () => frames[current].shapes;
   const pushUndo = () => {
@@ -106,6 +119,9 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
         " Your original file is untouched.") : el("span", {}),
       seeded ? el("div", { className: "st-note" },
         "Started from the current look, converted into colored blocks you can select, recolor, move, or delete. " +
+        (grewToFitOverflow
+          ? `This one draws a little outside its own box (like a flag or a glow), so the canvas here is ${W}×${H} to fit all of it — it'll still fill exactly the game's ${opts.width}×${opts.height} box either way. `
+          : "") +
         "Feel free to clear it all and draw fresh instead.") : el("span", {}),
       toolRow,
       paletteRow,
@@ -549,38 +565,48 @@ function normColor(v: string | null): string | null {
   return v;
 }
 
-/** Rasterize the asset's current look at its in-game box size and convert
- *  it into flat colored rects (greedy run + downward merge), so procedural
- *  art and PNGs become a tweakable starting point instead of a blank
- *  canvas. Colors are lightly quantized so anti-aliased edges don't shatter
- *  into hundreds of one-pixel specks. */
+/** Rasterize the asset's current look and convert it into flat colored
+ *  rects (greedy run + downward merge), so procedural art and PNGs become
+ *  a tweakable starting point instead of a blank canvas. Colors are
+ *  lightly quantized so anti-aliased edges don't shatter into hundreds of
+ *  one-pixel specks.
+ *
+ *  Rasterizes into a generously OVERSCANNED canvas (not just W×H) and
+ *  reports back the tight content bounding box as `width`/`height` — some
+ *  procedural looks deliberately draw outside their own declared box
+ *  (checkpoint's flag reaches ~2x its box width, brazier's halo ~1.9x),
+ *  and a raster sized to exactly W×H just clips that overflow at the edge
+ *  (Sean, 2026-08-12, third report — two earlier fixes touched the zoom
+ *  preview and gallery thumbnail, both DIFFERENT code paths from this
+ *  one). The returned width/height only ever grow to fit real content;
+ *  self-contained art gets back exactly W×H, unchanged. Callers use them
+ *  as the editor's actual working canvas size — safe to be larger than
+ *  the true in-game box, since custom art always gets fit/stretched to
+ *  that box at draw time regardless of its own declared size. */
 function vectorizeCurrentLook(
   seedDraw: (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => void,
   W: number,
   H: number
-): Shape[] {
-  // This has to produce a HANDFUL of big, grabbable blocks, not a
-  // per-pixel mosaic — the whole point of the shape editor is that you can
-  // click a shape and drag it. A first version rasterized close to true
-  // resolution and it just reproduced the source image as hundreds of
-  // 1-2px rects with jagged anti-aliased edges (Sean, 2026-08-12: "giving
-  // me the rasterized image, not the actual generated svg"). Fixed by
-  // capping the working resolution low, snapping alpha hard instead of
-  // keeping half-transparent edge pixels, and reducing to a SMALL color
-  // palette (nearest-of-8 instead of round-to-nearest) so anti-aliased
-  // gradients collapse into a few flat regions instead of a rainbow of
-  // near-duplicate shades.
+): { shapes: Shape[]; width: number; height: number } {
   const SS = Math.max(1, Math.min(2, Math.round(22 / Math.max(W, H))));
-  const RW = Math.max(1, Math.round(W * SS)), RH = Math.max(1, Math.round(H * SS));
-  const cell = Math.max(RW, RH);
+  // One box-size of margin on every side — comfortably covers every
+  // overflow case in this game (checkpoint needs ~0.9x, brazier ~0.9x on
+  // each side) with room to spare.
+  const PAD = Math.max(W, H);
+  const padRW = Math.round(PAD * SS);
+  const nomRW = Math.max(1, Math.round(W * SS)), nomRH = Math.max(1, Math.round(H * SS));
+  const RW = nomRW + padRW * 2, RH = nomRH + padRW * 2;
   const cv = document.createElement("canvas");
   cv.width = RW;
   cv.height = RH;
   const ctx = cv.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
-  // seedDraw centers the art inside a square cell; shift so the fitted art
-  // lands exactly on our canvas.
-  seedDraw(ctx, -(cell - RW) / 2, -(cell - RH) / 2, cell);
+  // Exact same fit/center math the unpadded version always used (so
+  // content draws at its normal size/position) — just shifted by the
+  // margin so it lands in the middle of the bigger raster instead of
+  // flush against the edges.
+  const nomCell = Math.max(nomRW, nomRH);
+  seedDraw(ctx, padRW - (nomCell - nomRW) / 2, padRW - (nomCell - nomRH) / 2, nomCell);
   const data = ctx.getImageData(0, 0, RW, RH).data;
 
   // Build a small palette from the pixels that are actually there, then
@@ -618,7 +644,10 @@ function vectorizeCurrentLook(
   };
 
   const used = new Uint8Array(RW * RH);
-  const shapes: Shape[] = [];
+  // Raw rects in OVERSCAN-raster pixel space (origin = overscan canvas
+  // top-left) — re-based to the final working canvas below, once we know
+  // how big that needs to be.
+  const raw: { x: number; y: number; w: number; h: number; fill: string }[] = [];
   for (let y = 0; y < RH; y++) {
     for (let x = 0; x < RW; x++) {
       if (used[y * RW + x]) continue;
@@ -641,9 +670,28 @@ function vectorizeCurrentLook(
       // Drop lone single-cell specks (stray anti-aliasing survivors) —
       // they add clutter without being worth clicking on individually.
       if (w * h <= 1 && RW * RH > 4) continue;
-      // Back to logical (in-game box) coordinates.
-      shapes.push({ kind: "rect", x: x / SS, y: y / SS, w: w / SS, h: h / SS, fill: c, stroke: null, sw: 0 });
+      raw.push({ x, y, w, h, fill: c });
     }
   }
-  return shapes;
+  if (!raw.length) return { shapes: [], width: W, height: H };
+
+  // The nominal (un-overflowed) box, in the same overscan-raster space —
+  // the final canvas always includes at least this, even if content
+  // happens to be smaller (e.g. a mostly-empty icon).
+  const nomX0 = padRW, nomY0 = padRW, nomX1 = padRW + nomRW, nomY1 = padRW + nomRH;
+  const contentX0 = Math.min(nomX0, ...raw.map((r) => r.x));
+  const contentY0 = Math.min(nomY0, ...raw.map((r) => r.y));
+  const contentX1 = Math.max(nomX1, ...raw.map((r) => r.x + r.w));
+  const contentY1 = Math.max(nomY1, ...raw.map((r) => r.y + r.h));
+
+  const shapes: Shape[] = raw.map((r) => ({
+    kind: "rect", fill: r.fill, stroke: null, sw: 0,
+    x: (r.x - contentX0) / SS, y: (r.y - contentY0) / SS,
+    w: r.w / SS, h: r.h / SS,
+  }));
+  return {
+    shapes,
+    width: (contentX1 - contentX0) / SS,
+    height: (contentY1 - contentY0) / SS,
+  };
 }
