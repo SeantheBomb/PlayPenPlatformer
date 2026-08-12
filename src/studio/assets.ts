@@ -281,8 +281,19 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
           // and room.ts's drawEntity, which calls the live version of the
           // same cases) instead of a generic placeholder box.
           ? (ctx, x, y, cell) => {
+            // drawEntityPreview's internal geometry uses hardcoded pixel
+            // offsets (matching room.ts's real draw code, which only ever
+            // runs at native 1:1 scale) — passing it an ENLARGED w/h
+            // scaled only the outer box while those offsets stayed tiny,
+            // scattering flames/bolts/coals off in a corner. Scale the
+            // canvas transform uniformly instead (same trick drawTile's
+            // thumbnail already uses) so every offset scales together.
             const s = (cell - 8) / Math.max(et.width, et.height);
-            drawEntityPreview(ctx, et.id, x + (cell - et.width * s) / 2, y + (cell - et.height * s) / 2, et.width * s, et.height * s);
+            ctx.save();
+            ctx.translate(x + cell / 2 - (et.width * s) / 2, y + cell / 2 - (et.height * s) / 2);
+            ctx.scale(s, s);
+            drawEntityPreview(ctx, et.id, 0, 0, et.width, et.height);
+            ctx.restore();
           }
           : placeholder(et.id)
       ),
