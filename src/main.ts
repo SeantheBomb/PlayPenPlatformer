@@ -75,6 +75,47 @@ async function boot() {
   });
   if (new URLSearchParams(location.search).has("editor")) toggleEditor();
 
+  // ---- Art Studio (?art) — the artist's home, see src/studio/ ----
+  // Unlike the editor there's no hotkey: the artist gets a link, and while
+  // she's in art mode a persistent 🎨 button toggles studio <-> game so
+  // "try it, tweak it, try again" never needs any keyboard knowledge.
+  if (new URLSearchParams(location.search).has("art")) {
+    let studioOpen = false;
+    let studioModule: typeof import("./studio/studio") | null = null;
+    const studioRoot = document.createElement("div");
+    studioRoot.id = "studio-root";
+    studioRoot.style.cssText = "position:absolute;inset:0;z-index:20;display:none";
+    document.body.append(studioRoot);
+    const studioBtn = document.createElement("button");
+    studioBtn.textContent = "🎨 Back to studio";
+    studioBtn.style.cssText =
+      "position:fixed;top:10px;right:10px;z-index:30;display:none;" +
+      "background:#1c1730;color:#ffd166;border:1px solid #4a4070;border-radius:8px;" +
+      "padding:8px 14px;font:14px system-ui;cursor:pointer";
+    document.body.append(studioBtn);
+    const toggleStudio = async () => {
+      if (!studioModule) studioModule = await import("./studio/studio");
+      studioOpen = !studioOpen;
+      if (studioOpen) {
+        recorder.devFlag = true; // artist iteration, not organic play
+        game.pause();
+        studioRoot.style.display = "block";
+        studioBtn.style.display = "none";
+        studioModule.openStudio(studioRoot, store, game);
+      } else {
+        studioModule.closeStudio(studioRoot);
+        studioRoot.style.display = "none";
+        studioBtn.style.display = "block";
+        game.setContent(store.content); // her draft art, live in the game
+        game.resume();
+        canvas.focus();
+      }
+    };
+    studioBtn.onclick = () => void toggleStudio();
+    window.addEventListener("pp-studio-close", () => { if (studioOpen) void toggleStudio(); });
+    void toggleStudio();
+  }
+
   // ---- Shareable deep links: ?room=<id> or ?room=<id>&checkpoint=<id> ----
   // Jumps straight into a room (or a specific checkpoint within it),
   // bypassing the main menu and normal campaign order — for handing

@@ -44,6 +44,20 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   GET `/api/content` on boot (precedence bundled < published < local draft). Publish /
   history / restore via the editor's **publish** tab, gated by the `EDITOR_PASSWORD`
   Pages secret (never hardcode it — the repo is public; ask Sean for the value).
+- **Art Studio (`?art`, 2026-08-12)**: the artist-facing surface (`src/studio/`),
+  gated by the separate `ARTIST_PASSWORD` Pages secret. Publishing with that
+  password goes through `functions/api/_artscope.js` — the server overlays ONLY
+  sprite/portrait fields (per id-entry; rooms by `npcId`; game.json player/
+  antagonist art) onto live, so an artist publish structurally can't touch
+  gameplay data or clobber concurrent design edits (`tests/artist-publish.test.ts`
+  pins this). Entity types (entities.json) carry SpriteFields + `spriteAlt`
+  (secondary state: open door, unlit brazier, live capacitor, active checkpoint,
+  occupied locker) drawn sprite-first in room.ts `drawEntitySprite`;
+  source/converter skins keep live item icons/stock labels on top. SVG imports
+  are sanitized in `src/studio/importers.ts` (viewBox→width/height injection,
+  `foreignObject` hard-rejected — it would taint the canvas and break bug-report
+  screenshots). The studio's shape editor round-trips its own SVGs via a
+  `data-pp-shapes` attribute; foreign SVGs get best-effort primitive import.
 - **Published content is the primary source of truth** (Sean's standing directive —
   the published bundle wholesale-wins over bundled per array entry via
   `mergeArrayById`, so a stale published copy silently masks any repo change to the
