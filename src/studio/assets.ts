@@ -9,7 +9,8 @@ import type {
   SpriteFields, TileDef, WardenEmotion,
 } from "../data/types";
 import {
-  currentFrame, drawBlob, drawItemIcon, drawNpcAvatar, drawTile, getImage,
+  currentFrame, drawBlob, drawEntityPreview, drawItemIcon, drawNpcAvatar,
+  drawTile, getImage, PREVIEWABLE_ENTITY_KINDS,
 } from "../engine/renderer";
 
 export type AssetGroup = "Tiles" | "Items" | "Enemies" | "Characters" | "Objects";
@@ -272,7 +273,19 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
       read: () => spriteArt(et),
       write: async (art) => { applySpriteArt(et, art, true); await saveArr("entities.json", c.entityTypes); },
       clear: async () => { applySpriteArt(et, { frames: [], fps: 6 }, true); await saveArr("entities.json", c.entityTypes); },
-      drawCurrent: drawSpriteOr(et, placeholder(et.id)),
+      drawCurrent: drawSpriteOr(
+        et,
+        PREVIEWABLE_ENTITY_KINDS.has(et.id)
+          // The real procedural look (same drawing code the game itself
+          // uses for these kinds — see engine/renderer.ts drawEntityPreview
+          // and room.ts's drawEntity, which calls the live version of the
+          // same cases) instead of a generic placeholder box.
+          ? (ctx, x, y, cell) => {
+            const s = (cell - 8) / Math.max(et.width, et.height);
+            drawEntityPreview(ctx, et.id, x + (cell - et.width * s) / 2, y + (cell - et.height * s) / 2, et.width * s, et.height * s);
+          }
+          : placeholder(et.id)
+      ),
     });
   }
 

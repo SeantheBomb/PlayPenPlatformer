@@ -50,6 +50,170 @@ export function drawSprite(
   return true;
 }
 
+/** Entity kinds drawEntityPreview knows how to draw — kept in sync with
+ *  SPRITE_ENTITY_KINDS in room.ts (the sprite-skinnable procedural set). */
+export const PREVIEWABLE_ENTITY_KINDS = new Set([
+  "note", "door", "trapdoor", "locker", "checkpoint", "brazier", "fusebox", "capacitor", "exit",
+]);
+
+/**
+ * A static rendering of an entity kind's DEFAULT procedural look (closed
+ * door, lit brazier, untripped fusebox, empty locker, inactive checkpoint)
+ * — the same drawing code room.ts's live drawEntity switch uses for these
+ * kinds, factored out so the Art Studio gallery can show real thumbnails
+ * instead of a generic placeholder box. `animT` defaults to a fixed phase
+ * (a still frame of the idle animation), not wall-clock time, so a gallery
+ * grid of many cards doesn't have to keep re-rendering every one every
+ * frame just to look alive.
+ */
+export function drawEntityPreview(
+  ctx: CanvasRenderingContext2D, kind: string,
+  x: number, y: number, w: number, h: number, animT = 0.4
+): void {
+  switch (kind) {
+    case "note": {
+      const cy = y + h / 2;
+      ctx.fillStyle = "#f4ead8";
+      ctx.fillRect(x, cy - 6, 11, 12);
+      ctx.fillStyle = "#a99f8a";
+      ctx.fillRect(x + 2, cy - 3, 7, 1);
+      ctx.fillRect(x + 2, cy, 7, 1);
+      ctx.fillRect(x + 2, cy + 3, 5, 1);
+      break;
+    }
+    case "door": {
+      const c = "#6e5c8a"; // closed, unpowered — the base sprite's own state
+      ctx.fillStyle = shade(c, -25);
+      ctx.fillRect(x - 2, y - 2, w + 4, h + 2);
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = shade(c, 25);
+      ctx.beginPath();
+      ctx.arc(x + w - 5, y + h / 2, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "trapdoor": {
+      const c = "#6e5c8a";
+      ctx.fillStyle = shade(c, -25);
+      ctx.fillRect(x - 2, y - 1, w + 4, h + 3);
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = shade(c, -40);
+      ctx.fillRect(x, y + h / 2 - 0.75, w, 1.5);
+      ctx.fillStyle = shade(c, 25);
+      ctx.beginPath();
+      ctx.arc(x + w / 2, y + 3, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "locker": {
+      ctx.fillStyle = "#48506b";
+      ctx.fillRect(x - 1, y - 1, w + 2, h + 1);
+      ctx.fillStyle = "#59627f";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#39415c";
+      for (let i = 0; i < 3; i++) ctx.fillRect(x + 3, y + 4 + i * 3, w - 6, 1.4);
+      ctx.fillRect(x + w - 5, y + h / 2, 2, 5);
+      break;
+    }
+    case "checkpoint": {
+      ctx.fillStyle = "#5a5470";
+      ctx.fillRect(x + w / 2 - 1, y, 2, h);
+      ctx.fillStyle = "#3a3550";
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2 + 1, y + 2);
+      ctx.lineTo(x + w / 2 + 11, y + 6);
+      ctx.lineTo(x + w / 2 + 1, y + 10);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    case "brazier": {
+      ctx.fillStyle = "#4a4258";
+      roundRect(ctx, x, y + 8, w, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "#332d40";
+      ctx.fillRect(x + w / 2 - 2, y + 13, 4, 3);
+      ctx.fillStyle = "rgba(255,200,120,0.14)";
+      ctx.beginPath();
+      ctx.arc(x + w / 2, y + 4, 15, 0, Math.PI * 2);
+      ctx.fill();
+      drawBrazierFlamesPreview(ctx, x, y - 6, animT);
+      break;
+    }
+    case "fusebox": {
+      ctx.fillStyle = "#3a3550";
+      roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 2);
+      ctx.fill();
+      ctx.fillStyle = "#59627f";
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "#ffe95a";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 8, y + 4);
+      ctx.lineTo(x + 5, y + 9);
+      ctx.lineTo(x + 8, y + 9);
+      ctx.lineTo(x + 5, y + 14);
+      ctx.stroke();
+      break;
+    }
+    case "capacitor": {
+      ctx.fillStyle = "#3a3550";
+      roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 2);
+      ctx.fill();
+      ctx.fillStyle = "#59627f";
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "#8892a8";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x + w / 2 - 2, y + h / 2, 4, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + w / 2 + 2, y + h / 2, 4, Math.PI / 2, -Math.PI / 2);
+      ctx.stroke();
+      break;
+    }
+    case "exit": {
+      ctx.fillStyle = "#2b3a2e";
+      ctx.fillRect(x - 3, y - 3, w + 6, h + 3);
+      ctx.fillStyle = "#3e5c46";
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "#89f0b1";
+      ctx.font = "7px monospace";
+      ctx.fillText("EXIT", x + 4, y + 10);
+      ctx.fillStyle = "rgba(137,240,177,0.12)";
+      ctx.fillRect(x - 6, y - 6, w + 12, h + 6);
+      break;
+    }
+  }
+}
+
+function drawBrazierFlamesPreview(ctx: CanvasRenderingContext2D, px: number, py: number, animT: number): void {
+  for (let i = 0; i < 3; i++) {
+    const fx = px + 3 + i * 5;
+    const hgt = 6 + Math.sin(animT * 3 + i * 1.7) * 1.6;
+    ctx.fillStyle = i % 2 ? "#f4a531" : "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(fx - 3, py + 14);
+    ctx.quadraticCurveTo(fx - 2.4, py + 14 - hgt * 0.9, fx, py + 14 - hgt * 1.5);
+    ctx.quadraticCurveTo(fx + 2.4, py + 14 - hgt * 0.9, fx + 3, py + 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#ffe9a8";
+    ctx.beginPath();
+    ctx.arc(fx, py + 14 - hgt * 0.55, 1.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "rgba(255,120,60,0.6)";
+  for (let i = 0; i < 3; i++) {
+    const ex = px + 3 + i * 5;
+    ctx.beginPath();
+    ctx.arc(ex, py + 14.5, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 export function shade(hex: string, amt: number): string {
   const n = parseInt(hex.slice(1), 16);
   const r = Math.min(255, Math.max(0, ((n >> 16) & 255) + amt));

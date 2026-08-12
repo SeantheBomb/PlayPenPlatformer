@@ -559,11 +559,19 @@ function vectorizeCurrentLook(
   W: number,
   H: number
 ): Shape[] {
-  // Supersample small boxes: at 12×16 raw, a plush bear's ears and face
-  // melt into a blob — rasterizing finer (then scaling shape coords back
-  // down) keeps the features recognizable and individually editable.
-  const SS = Math.max(1, Math.min(4, Math.ceil(48 / Math.max(W, H))));
-  const RW = W * SS, RH = H * SS;
+  // This has to produce a HANDFUL of big, grabbable blocks, not a
+  // per-pixel mosaic — the whole point of the shape editor is that you can
+  // click a shape and drag it. A first version rasterized close to true
+  // resolution and it just reproduced the source image as hundreds of
+  // 1-2px rects with jagged anti-aliased edges (Sean, 2026-08-12: "giving
+  // me the rasterized image, not the actual generated svg"). Fixed by
+  // capping the working resolution low, snapping alpha hard instead of
+  // keeping half-transparent edge pixels, and reducing to a SMALL color
+  // palette (nearest-of-8 instead of round-to-nearest) so anti-aliased
+  // gradients collapse into a few flat regions instead of a rainbow of
+  // near-duplicate shades.
+  const SS = Math.max(1, Math.min(2, Math.round(22 / Math.max(W, H))));
+  const RW = Math.max(1, Math.round(W * SS)), RH = Math.max(1, Math.round(H * SS));
   const cell = Math.max(RW, RH);
   const cv = document.createElement("canvas");
   cv.width = RW;
@@ -574,13 +582,41 @@ function vectorizeCurrentLook(
   // lands exactly on our canvas.
   seedDraw(ctx, -(cell - RW) / 2, -(cell - RH) / 2, cell);
   const data = ctx.getImageData(0, 0, RW, RH).data;
-  const q = (v: number) => Math.min(255, Math.round(v / 17) * 17); // 16-level quantize
+
+  // Build a small palette from the pixels that are actually there, then
+  // snap every opaque pixel to its nearest palette color — this is what
+  // turns "every anti-aliased edge pixel is its own shade" into "a few
+  // flat color regions", which is what makes runs merge into big rects.
+  const MAX_COLORS = 8;
+  const counts = new Map<string, { n: number; r: number; g: number; b: number }>();
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 160) continue; // soft/glow edges: drop rather than smear a weird color
+    const key = `${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`; // coarse bucket to count
+    const e = counts.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+    e.n++; e.r += data[i]; e.g += data[i + 1]; e.b += data[i + 2];
+    counts.set(key, e);
+  }
+  const palette = [...counts.values()]
+    .sort((a, b) => b.n - a.n)
+    .slice(0, MAX_COLORS)
+    .map((e) => [e.r / e.n, e.g / e.n, e.b / e.n] as const);
+  const toHex = (rgb: readonly [number, number, number]) =>
+    `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+  const nearest = (r: number, g: number, b: number): string => {
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < palette.length; i++) {
+      const [pr, pg, pb] = palette[i];
+      const d = (pr - r) ** 2 + (pg - g) ** 2 + (pb - b) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return toHex(palette[best]);
+  };
   const colorAt = (x: number, y: number): string | null => {
     const i = (y * RW + x) * 4;
-    if (data[i + 3] < 96) return null; // transparent-ish: background
-    return `#${[q(data[i]), q(data[i + 1]), q(data[i + 2])]
-      .map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+    if (data[i + 3] < 160 || palette.length === 0) return null;
+    return nearest(data[i], data[i + 1], data[i + 2]);
   };
+
   const used = new Uint8Array(RW * RH);
   const shapes: Shape[] = [];
   for (let y = 0; y < RH; y++) {
@@ -602,6 +638,9 @@ function vectorizeCurrentLook(
       for (let dy = 0; dy < h; dy++) {
         for (let dx = 0; dx < w; dx++) used[(y + dy) * RW + x + dx] = 1;
       }
+      // Drop lone single-cell specks (stray anti-aliasing survivors) —
+      // they add clutter without being worth clicking on individually.
+      if (w * h <= 1 && RW * RH > 4) continue;
       // Back to logical (in-game box) coordinates.
       shapes.push({ kind: "rect", x: x / SS, y: y / SS, w: w / SS, h: h / SS, fill: c, stroke: null, sw: 0 });
     }
