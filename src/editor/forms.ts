@@ -76,7 +76,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     // Closed enums from the schema itself
     kind: ["material", "tool", "consumable", "curio"],
     shape: ["shard", "plank", "ring", "cloth", "ball", "mushroom", "cog",
-      "spring", "coil", "tool", "bottle", "torch", "bucket", "rod"],
+      "spring", "coil", "springbox", "tool", "bottle", "torch", "bucket", "rod"],
     useMode: ["swing", "splash", "place", "burst"],
     placeType: ["spring", "trap"],
     effect: ["ignite", "melt", "extinguish", "dissolve", "freeze", "shatter",

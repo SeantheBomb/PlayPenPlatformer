@@ -64,12 +64,12 @@
   },
   {
     "id": "spring_coil",
-    "name": "Spring Coil",
+    "name": "Coil",
     "kind": "material",
-    "shape": "spring",
-    "color": "#5ad1a5",
+    "shape": "coil",
+    "color": "#b9c0cc",
     "element": "metal",
-    "description": "Boing potential: considerable."
+    "description": "Raw wound wire. Boing potential: considerable, but not yet realized."
   },
   {
     "id": "hammer",
@@ -194,14 +194,14 @@
   },
   {
     "id": "spring",
-    "name": "Spring",
+    "name": "Spring Box",
     "kind": "consumable",
-    "shape": "spring",
+    "shape": "springbox",
     "color": "#5ad1a5",
     "element": "metal",
     "useMode": "place",
     "placeType": "spring",
-    "description": "F places it, anything that lands on it launches. E picks it back up. Bring your own architecture.",
+    "description": "A crate with a launch problem. F places it, anything that lands on it flies. E packs it back up.",
     "behaviors": [
       "usePlace"
     ]

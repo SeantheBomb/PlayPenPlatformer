@@ -1159,6 +1159,41 @@ export function drawItemIcon(
       ctx.stroke();
       break;
     }
+    case "springbox": {
+      // Jack-in-the-box read: a wooden crate with the spring caught mid-pop
+      // and its lid flipped open — unmistakably a deployable gadget, nothing
+      // like the coil's inert stacked-wire rings.
+      const wood = "#a5713f";
+      ctx.fillStyle = wood;
+      ctx.fillRect(-5, 0, 10, 6);
+      ctx.strokeStyle = shade(wood, -45);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-5, 0, 10, 6);
+      ctx.beginPath(); // crate slats
+      ctx.moveTo(-5, 3); ctx.lineTo(5, 3);
+      ctx.stroke();
+      // Spring bursting out the open top — one continuous zigzag, capped
+      // with a little pad so it reads "launcher", not loose wires.
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-2.4, 0.5);
+      for (let i = 0; i < 3; i++) {
+        ctx.lineTo(2.4, -0.8 - i * 2.2);
+        ctx.lineTo(-2.4, -1.9 - i * 2.2);
+      }
+      ctx.stroke();
+      ctx.fillStyle = c;
+      ctx.fillRect(-3.4, -7.6, 6.8, 1.8);
+      // Lid flopped fully open against the box's left side, still on its hinge.
+      ctx.fillStyle = shade(wood, 25);
+      ctx.save();
+      ctx.translate(-5, 0);
+      ctx.rotate(-2.1);
+      ctx.fillRect(-0.5, -2, 8, 2);
+      ctx.restore();
+      break;
+    }
     case "tool":
       ctx.fillStyle = shade(c, -40);
       ctx.fillRect(-1, -1, 2.4, 7);

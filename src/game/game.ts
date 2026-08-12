@@ -27,7 +27,8 @@ import { itemAttachments, registerFn, type ScriptCtx } from "./behavior";
 import { recorder, type CraftOp, type Heartbeat } from "./recorder";
 import {
   drawAir, drawClimbTimer, drawFloaties, drawHearts, drawHotbar, drawPrompt,
-  drawTauntBanner, drawTextOverlay, drawToolbelt, hotbarSlotRect,
+  drawTauntBanner, drawTextOverlay, drawToast, drawToolbelt, hotbarSlotRect, TOAST_MS,
+  type Toast,
   type Floaty, type OverlayButton,
 } from "./hud";
 
@@ -104,6 +105,11 @@ export class Game {
   private tipText = "";
   private tipUntil = 0;
   private floaties: Floaty[] = [];
+  /** Queued fanfare cards (pickup / craft-ready) — drawn one at a time. */
+  private toasts: Toast[] = [];
+  /** Which known-and-never-crafted recipes were craftable last step — the
+   *  false→true edge is what fires a CRAFT READY toast. */
+  private wasCraftable = new Set<string>();
   private overlayEntity: EntityInstance | null = null;
   private overlayText = "";
   private overlayTitle = "";
@@ -502,6 +508,8 @@ export class Game {
     this.taunts.reset();
     this.particles.clear();
     this.floaties = [];
+    this.toasts = [];
+    this.wasCraftable.clear();
     this.scene = "play";
     this.overlay = "none";
     this.menuMode = "main";
@@ -581,6 +589,62 @@ export class Game {
   private floaty(text: string, x: number, y: number, color = "#ffd166"): void {
     this.floaties.push({ text, x, y, bornAt: simNow(), color });
     if (this.floaties.length > 12) this.floaties.shift();
+  }
+
+  /** Queue a fanfare card. Cards show one at a time, so a later card's
+   *  bornAt starts after the queue ahead of it finishes. A card identical
+   *  to one still pending/showing is dropped — hoovering up a pile of
+   *  death-scattered scrap should read as one GOT card, not five. */
+  private pushToast(itemId: string, title: string, subtitle: string, accent: string): void {
+    if (this.toasts.some((t) => t.itemId === itemId && t.title === title)) return;
+    const last = this.toasts[this.toasts.length - 1];
+    const bornAt = Math.max(simNow(), last ? last.bornAt + TOAST_MS : 0);
+    this.toasts.push({ itemId, title, subtitle, accent, bornAt });
+    if (this.toasts.length > 6) this.toasts.shift();
+  }
+
+  /** Walk-over pickup fanfare: toast + a louder burst than the old one —
+   *  playtesters were grabbing items without ever noticing (Sean, 8/11). */
+  private pickupFanfare(item: ItemDef, count: number, x: number, y: number): void {
+    const kindLabel: Record<string, string> = {
+      material: "crafting material", tool: "tool", consumable: "gadget", curio: "curio",
+    };
+    const name = count > 1 ? `${item.name} ×${count}` : item.name;
+    this.pushToast(item.id, `GOT: ${name.toUpperCase()}`, kindLabel[item.kind] ?? item.kind, item.color);
+    this.particles.burst({
+      x, y, count: 16, color: item.color, speed: 110, upBias: 60, life: 0.55, gravity: 100,
+    });
+  }
+
+  /** Fire a CRAFT READY toast on the false→true edge of "this known,
+   *  never-yet-crafted recipe's ingredients are all on hand". Runs every
+   *  sim step so it catches every gain path (pickups, drops, converters,
+   *  NPC rewards, learning a recipe while already holding the parts).
+   *  craftedRecipes gates repeat-spam: once you've built one, regathering
+   *  its materials is routine, not news. */
+  private checkCraftReady(): void {
+    for (const r of this.content.recipes) {
+      if (!this.state.knownRecipes.has(r.id) || this.state.craftedRecipes.has(r.id)) {
+        this.wasCraftable.delete(r.id);
+        continue;
+      }
+      const need = new Map<string, number>();
+      for (const id of r.inputs) need.set(id, (need.get(id) ?? 0) + 1);
+      let ok = true;
+      for (const [id, n] of need) if (!this.state.has(id, n)) { ok = false; break; }
+      if (ok && !this.wasCraftable.has(r.id)) {
+        const out = this.state.item(r.output);
+        this.pushToast(
+          r.output,
+          "CRAFT READY",
+          `${out?.name ?? r.output} — press ${this.input.label("craft")}`,
+          "#ffd166"
+        );
+        sfx.play("discover");
+      }
+      if (ok) this.wasCraftable.add(r.id);
+      else this.wasCraftable.delete(r.id);
+    }
   }
 
   // ================= UPDATE =================
@@ -678,6 +742,10 @@ export class Game {
   private updatePlay(dt: number): void {
     this.taunts.update();
     this.emitTorchEmbers(dt);
+    this.checkCraftReady();
+    while (this.toasts.length && simNow() - this.toasts[0].bornAt > TOAST_MS) {
+      this.toasts.shift();
+    }
 
     // ---- Overlays swallow input ----
     if (this.overlay !== "none") this.throwChargeSince = null; // no surprise lobs
@@ -996,10 +1064,7 @@ export class Game {
         if (!this.replay) telemetry.collect(this.currentRoomId, item.id);
         sfx.play("pickup");
         this.floaty(`+${e.def.count ?? 1} ${item.name}`, e.x + e.w / 2, e.y);
-        this.particles.burst({
-          x: e.x + e.w / 2, y: e.y + e.h / 2,
-          count: 8, color: item.color, speed: 70, upBias: 40, life: 0.4, gravity: 120,
-        });
+        this.pickupFanfare(item, e.def.count ?? 1, e.x + e.w / 2, e.y + e.h / 2);
       }
       if (e.kind === "checkpoint" && !e.open && rectsOverlap(prect, e)) {
         e.open = true;
@@ -1028,6 +1093,7 @@ export class Game {
         const item = this.state.item(d.itemId);
         if (item?.useMode) this.switchHotbarSelection(item.id);
         this.floaty(`+${d.count} ${item?.name ?? d.itemId}`, d.x + 7, d.y);
+        if (item) this.pickupFanfare(item, d.count, d.x + 7, d.y + 7);
         this.roomRt.removePickupDrop(d);
         sfx.play("pickup");
       }
@@ -1899,6 +1965,15 @@ export class Game {
       "Q cycle · F use";
     drawHotbar(ctx, this.state, VIEW_H, hud, hotbarHint, uiScale);
     drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W, hud.bannerTopOffset);
+    if (this.toasts.length > 0) {
+      // Below the taunt banner when one's up, else in its spot.
+      const toastY = this.taunts.active ? hud.bannerTopOffset + 50 : hud.bannerTopOffset;
+      const toast = this.toasts[0];
+      const item = this.state.item(toast.itemId);
+      drawToast(ctx, toast, VIEW_W, toastY, (c, cx, cy, s) => {
+        if (item) drawItemIcon(c, item, cx, cy, s);
+      });
+    }
     if (this.warden.active) {
       this.warden.drawVignette(
         ctx, VIEW_W, VIEW_H,

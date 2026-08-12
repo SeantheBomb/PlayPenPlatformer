@@ -198,6 +198,68 @@ export function drawTauntBanner(
   wrapText(ctx, text, x + 46, y + 27, w - 58, 11);
 }
 
+/** One queued fanfare card (pickup or craft-ready) — state lives in Game,
+ *  this module only draws. `bornAt` is sim time, like floaties. */
+export interface Toast {
+  itemId: string;
+  title: string;
+  subtitle: string;
+  accent: string;   // border/title color: item color for pickups, gold for craft-ready
+  bornAt: number;
+}
+
+export const TOAST_MS = 2400;
+const TOAST_SLIDE_MS = 220;
+
+/** Slide-in card front and center: big item icon + GOT/CRAFT READY text.
+ *  Draws only the head of the queue; Game pops expired ones. */
+export function drawToast(
+  ctx: CanvasRenderingContext2D,
+  toast: Toast,
+  viewW: number,
+  yTop: number,
+  drawIcon: (ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number) => void
+): void {
+  const age = simNow() - toast.bornAt;
+  if (age < 0 || age > TOAST_MS) return;
+  // Slide down on entry, lift + fade on exit.
+  const tIn = Math.min(1, age / TOAST_SLIDE_MS);
+  const tOut = Math.max(0, (age - (TOAST_MS - TOAST_SLIDE_MS)) / TOAST_SLIDE_MS);
+  const ease = 1 - (1 - tIn) * (1 - tIn);
+  const y = yTop - 30 + ease * 30 - tOut * 12;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, tIn * 1.5) * (1 - tOut);
+
+  ctx.font = "bold 10px monospace";
+  const titleW = ctx.measureText(toast.title).width;
+  ctx.font = "8px monospace";
+  const subW = ctx.measureText(toast.subtitle).width;
+  const w = Math.max(titleW, subW) + 52;
+  const x = (viewW - w) / 2;
+
+  ctx.fillStyle = "rgba(16,12,24,0.92)";
+  roundRect(ctx, x, y, w, 34, 6);
+  ctx.fill();
+  ctx.strokeStyle = toast.accent;
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+
+  // Big icon in a subtle well, with a brief entry "pop" scale.
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  roundRect(ctx, x + 5, y + 5, 24, 24, 4);
+  ctx.fill();
+  const pop = 1 + Math.max(0, 1 - age / 350) * 0.35;
+  drawIcon(ctx, x + 17, y + 17, 1.7 * pop);
+
+  ctx.fillStyle = toast.accent;
+  ctx.font = "bold 10px monospace";
+  ctx.fillText(toast.title, x + 36, y + 14);
+  ctx.fillStyle = "#e8e2f4";
+  ctx.font = "8px monospace";
+  ctx.fillText(toast.subtitle, x + 36, y + 26);
+  ctx.restore();
+}
+
 export function drawFloaties(ctx: CanvasRenderingContext2D, floaties: Floaty[]): void {
   const now = simNow();
   for (const f of floaties) {
