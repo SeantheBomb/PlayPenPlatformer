@@ -10,7 +10,7 @@ import type {
 } from "../data/types";
 import {
   currentFrame, drawBlob, drawEntityPreview, drawItemIcon, drawNpcAvatar,
-  drawTile, getImage, PREVIEWABLE_ENTITY_KINDS,
+  drawTile, getImage, PREVIEWABLE_ALT_ENTITY_KINDS, PREVIEWABLE_ENTITY_KINDS,
 } from "../engine/renderer";
 
 export type AssetGroup = "Tiles" | "Items" | "Enemies" | "Characters" | "Objects";
@@ -41,6 +41,11 @@ export interface ArtAsset {
   /** Draw the CURRENT look (custom art, else procedural, else placeholder)
    *  into a cell×cell box. */
   drawCurrent(ctx: CanvasRenderingContext2D, x: number, y: number, cell: number): void;
+  /** Same, but for the SECOND state (open door, tripped fusebox, …) —
+   *  only present when altLabel is. Falls back to the procedural alt look
+   *  when no custom alt art is set yet, so the second-look slot is never
+   *  just a blank swatch. */
+  drawAlt?(ctx: CanvasRenderingContext2D, x: number, y: number, cell: number): void;
 }
 
 export function assetStatus(a: ArtAsset): "needs-art" | "custom" | "animated" {
@@ -263,6 +268,20 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   }
 
   // ---- Objects (entity types) ----
+  // drawEntityPreview's internal geometry uses hardcoded pixel offsets
+  // (matching room.ts's real draw code, which only ever runs at native 1:1
+  // scale) — passing it an ENLARGED w/h scales only the outer box while
+  // those offsets stay tiny, scattering flames/bolts/coals off in a
+  // corner. Scale the canvas transform uniformly instead (same trick
+  // drawTile's thumbnail already uses) so every offset scales together.
+  const drawEntityPreviewScaled = (ctx: CanvasRenderingContext2D, kind: string, w: number, h: number, x: number, y: number, cell: number, alt: boolean) => {
+    const s = (cell - 8) / Math.max(w, h);
+    ctx.save();
+    ctx.translate(x + cell / 2 - (w * s) / 2, y + cell / 2 - (h * s) / 2);
+    ctx.scale(s, s);
+    drawEntityPreview(ctx, kind, 0, 0, w, h, undefined, alt);
+    ctx.restore();
+  };
   for (const et of c.entityTypes) {
     if (SKIP_ENTITY_IDS.has(et.id)) continue;
     const meta = ENTITY_META[et.id] ?? { label: et.id };
@@ -273,30 +292,25 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
       read: () => spriteArt(et),
       write: async (art) => { applySpriteArt(et, art, true); await saveArr("entities.json", c.entityTypes); },
       clear: async () => { applySpriteArt(et, { frames: [], fps: 6 }, true); await saveArr("entities.json", c.entityTypes); },
+      // The real procedural look (same drawing code the game itself uses
+      // for these kinds — see engine/renderer.ts drawEntityPreview and
+      // room.ts's drawEntity, which calls the live version of the same
+      // cases) instead of a generic placeholder box.
       drawCurrent: drawSpriteOr(
         et,
         PREVIEWABLE_ENTITY_KINDS.has(et.id)
-          // The real procedural look (same drawing code the game itself
-          // uses for these kinds — see engine/renderer.ts drawEntityPreview
-          // and room.ts's drawEntity, which calls the live version of the
-          // same cases) instead of a generic placeholder box.
-          ? (ctx, x, y, cell) => {
-            // drawEntityPreview's internal geometry uses hardcoded pixel
-            // offsets (matching room.ts's real draw code, which only ever
-            // runs at native 1:1 scale) — passing it an ENLARGED w/h
-            // scaled only the outer box while those offsets stayed tiny,
-            // scattering flames/bolts/coals off in a corner. Scale the
-            // canvas transform uniformly instead (same trick drawTile's
-            // thumbnail already uses) so every offset scales together.
-            const s = (cell - 8) / Math.max(et.width, et.height);
-            ctx.save();
-            ctx.translate(x + cell / 2 - (et.width * s) / 2, y + cell / 2 - (et.height * s) / 2);
-            ctx.scale(s, s);
-            drawEntityPreview(ctx, et.id, 0, 0, et.width, et.height);
-            ctx.restore();
-          }
+          ? (ctx, x, y, cell) => drawEntityPreviewScaled(ctx, et.id, et.width, et.height, x, y, cell, false)
           : placeholder(et.id)
       ),
+      drawAlt: meta.alt ? (ctx, x, y, cell) => {
+        const art = spriteArt(et);
+        if (art.alt && drawUri(ctx, art.alt, x, y, cell)) return;
+        if (PREVIEWABLE_ALT_ENTITY_KINDS.has(et.id)) {
+          drawEntityPreviewScaled(ctx, et.id, et.width, et.height, x, y, cell, true);
+        } else {
+          placeholder(et.id)(ctx, x, y, cell);
+        }
+      } : undefined,
     });
   }
 

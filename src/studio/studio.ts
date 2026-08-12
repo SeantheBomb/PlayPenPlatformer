@@ -144,6 +144,11 @@ class Studio {
   private online = true;
   private timer: number | undefined;
   private dirty = false;
+  /** Per-asset pixel-editor resolution choice (1×/2×/4× the drawn box) —
+   *  in-memory only, defaults to 1×. This is what "adjust the resolution"
+   *  means for the BUILT-IN pixel editor; importing an already-sized file
+   *  from Aseprite/Photoshop is the other route and needs no control here. */
+  private pixelResMult = new Map<string, number>();
   /** Import feedback that must survive the post-import re-render. */
   private pendingNotes: { key: string; notes: string[]; errors: string[] } | null = null;
 
@@ -404,7 +409,18 @@ class Studio {
             return;
           }
         }
-        a.drawCurrent(ctx, 0, 0, Math.min(cv.width, cv.height));
+        // drawCurrent's contract is "fit, centered, in a cell×cell SQUARE" —
+        // fine for square gallery thumbs, but this canvas is the asset's
+        // true (often non-square, e.g. checkpoint 8×24) aspect. Using
+        // cell=min(w,h) only ever fills a square corner of it, leaving the
+        // rest blank (Sean, 2026-08-12). Using cell=max(w,h) instead and
+        // centering that square ON the true canvas works out exactly right:
+        // drawCurrent centers its content at the cell's midpoint regardless
+        // of cell size, and that midpoint is (canvas width/2, height/2) by
+        // construction — so content lands centered and correctly scaled to
+        // fill the true box, square or not.
+        const cell = Math.max(cv.width, cv.height);
+        a.drawCurrent(ctx, (cv.width - cell) / 2, (cv.height - cell) / 2, cell);
       };
       zoomRow.append(el("div", {}, cv, el("div", { className: "st-hint", style: "text-align:center" }, `${z}×`)));
     }
@@ -511,13 +527,26 @@ class Studio {
     wrap.append(drop, notes);
 
     // Built-in editors + downloads + revert
+    const mult = this.pixelResMult.get(a.key) ?? 1;
+    const resSelect = el(
+      "select", {
+        className: "st-chip",
+        title: "Draw at higher resolution for extra detail — the game fits it into the box either way, so a higher resolution just looks crisper on screen",
+        onchange: (ev: Event) => this.pixelResMult.set(a.key, Number((ev.target as HTMLSelectElement).value)),
+      },
+      ...[1, 2, 4].map((m) => el(
+        "option", { value: m, selected: mult === m },
+        `${m}× (${a.drawnW * m}×${a.drawnH * m}px)`
+      ))
+    );
     wrap.append(el("div", { className: "st-row", style: "margin-top:12px" },
+      resSelect,
       el("button", {
-        className: "st-btn", title: "Quick pixel art, right here",
+        className: "st-btn", title: "Quick pixel art, right here, at the resolution picked to the left",
         onclick: () => this.openPixelFor(a),
       }, "✏️ Pixel editor"),
       el("button", {
-        className: "st-btn", title: "Quick vector shapes, right here",
+        className: "st-btn", title: "Quick vector shapes, right here — always crisp at any size, no resolution to pick",
         onclick: () => this.openShapesFor(a),
       }, "△ Shape editor"),
       el("span", { className: "st-spacer" }),
@@ -542,50 +571,55 @@ class Studio {
 
   private altSlot(a: ArtAsset): HTMLElement {
     const card = el("div", { className: "st-card" });
+    const notes = el("div", {});
     const render = () => {
       const art = a.read();
+      const swatch = el("canvas", { className: "st-frame", width: 44, height: 44 }) as HTMLCanvasElement;
+      const sctx = swatch.getContext("2d")!;
+      a.drawAlt?.(sctx, 0, 0, 44);
+      const drop = el("div", { className: "st-drop", style: "padding:12px" },
+        el("div", {}, `⬇ Drop ${a.altLabel!.toLowerCase()} art here — or click`),
+        el("div", { className: "st-hint" }, "PNG or SVG — a single still image, no animation"));
+      const handleAltFiles = async (files: File[]) => {
+        const result = await importFiles(files);
+        notes.replaceChildren(
+          ...result.errors.map((m) => el("div", { className: "st-note st-err" }, `⚠ ${m}`)),
+          ...result.notes.map((m) => el("div", { className: "st-note" }, m))
+        );
+        if (!result.frames[0]) return;
+        await a.write({ ...a.read(), alt: result.frames[0] });
+        this.dirty = true;
+        toast("Second-look art saved to your draft.");
+        this.refresh();
+      };
+      drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("st-over"); });
+      drop.addEventListener("dragleave", () => drop.classList.remove("st-over"));
+      drop.addEventListener("drop", (e) => {
+        e.preventDefault();
+        drop.classList.remove("st-over");
+        void handleAltFiles([...(e.dataTransfer?.files ?? [])]);
+      });
+      drop.addEventListener("click", () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/png,image/webp,image/svg+xml,.svg";
+        input.onchange = () => void handleAltFiles([...(input.files ?? [])]);
+        input.click();
+      });
       card.replaceChildren(
         el("b", {}, `Second look — ${a.altLabel}`),
         el("p", { className: "st-hint" },
-          `This object changes state in-game. The main art above is its normal look; this optional one shows when it's “${a.altLabel!.toLowerCase()}”. Without it, the game falls back to its built-in drawing for that state so players are never misled.`),
+          `This object changes state in-game. The main art above is its normal look; this shows when it's “${a.altLabel!.toLowerCase()}”. Shown below: ${art.alt ? "your custom art for this state" : "the game's built-in look for this state (no custom art yet)"}. Without custom art, the game falls back to its own drawing for that state so players are never misled.`),
+        el("div", { className: "st-row" }, swatch),
+        drop,
+        notes,
         el("div", { className: "st-row" },
-          (() => {
-            const cv = el("canvas", { className: "st-frame", width: 44, height: 44 }) as HTMLCanvasElement;
-            if (art.alt) {
-              const img = getImage(art.alt);
-              if (img) {
-                const ctx = cv.getContext("2d")!;
-                ctx.imageSmoothingEnabled = false;
-                const s = Math.min(44 / img.naturalWidth, 44 / img.naturalHeight);
-                ctx.drawImage(img, (44 - img.naturalWidth * s) / 2, (44 - img.naturalHeight * s) / 2,
-                  img.naturalWidth * s, img.naturalHeight * s);
-              }
-            }
-            return cv;
-          })(),
-          el("button", {
-            className: "st-btn",
-            onclick: () => {
-              const input = document.createElement("input");
-              input.type = "file";
-              input.accept = "image/png,image/webp,image/svg+xml,.svg";
-              input.onchange = async () => {
-                const files = [...(input.files ?? [])];
-                if (!files.length) return;
-                const result = await importFiles(files);
-                if (result.frames[0]) {
-                  await a.write({ ...a.read(), alt: result.frames[0] });
-                  this.dirty = true;
-                  this.refresh();
-                } else if (result.errors.length) toast(result.errors[0], false);
-              };
-              input.click();
-            },
-          }, art.alt ? "Replace" : "Add art"),
+          el("button", { className: "st-btn", onclick: () => this.openPixelForAlt(a) }, "✏️ Pixel editor"),
+          el("button", { className: "st-btn", onclick: () => this.openShapesForAlt(a) }, "△ Shape editor"),
           art.alt ? el("button", {
             className: "st-btn st-danger",
             onclick: async () => { await a.write({ ...a.read(), alt: undefined }); this.dirty = true; this.refresh(); },
-          }, "Remove") : null
+          }, "Revert to built-in look") : el("span", {})
         )
       );
     };
@@ -593,11 +627,53 @@ class Studio {
     return card;
   }
 
+  private openPixelForAlt(a: ArtAsset): void {
+    const art = a.read();
+    const mult = this.pixelResMult.get(`${a.key}:alt`) ?? 1;
+    const size = Math.max(a.drawnW, a.drawnH, 16) * mult;
+    const existing = art.alt;
+    const hiRes = !!existing && (existing.startsWith("data:image/svg") || (() => {
+      const img = getImage(existing);
+      return !!img && (img.naturalWidth > size || img.naturalHeight > size);
+    })());
+    if (hiRes && !confirm(
+      `This art is bigger than the pixel editor's ${size}×${size} grid — editing here will flatten it to ${size}×${size} when saved.\n\n` +
+      `Your original file on your computer is untouched either way. Continue?`
+    )) return;
+    const seed = existing ? [existing] : (a.drawAlt ? [rasterize(size, (ctx) => a.drawAlt!(ctx, 0, 0, size))] : []);
+    openPixelEditor({
+      title: `${a.label} — ${a.altLabel} (${size}×${size})`,
+      size,
+      frames: seed,
+      fps: 6,
+      multiFrame: false,
+      onSave: (frames) => {
+        void a.write({ ...a.read(), alt: frames[0] }).then(() => { this.dirty = true; this.refresh(); });
+      },
+    });
+  }
+
+  private openShapesForAlt(a: ArtAsset): void {
+    const art = a.read();
+    openSvgEditor({
+      title: `${a.label} — ${a.altLabel}`,
+      width: a.drawnW,
+      height: a.drawnH,
+      frames: art.alt ? [art.alt] : [],
+      fps: 6,
+      multiFrame: false,
+      seedDraw: a.drawAlt,
+      onSave: (frames) => {
+        void a.write({ ...a.read(), alt: frames[0] }).then(() => { this.dirty = true; this.refresh(); });
+      },
+    });
+  }
+
   // ---- Built-in editors ----
 
   private openPixelFor(a: ArtAsset): void {
     const art = a.read();
-    const size = Math.max(a.drawnW, a.drawnH, 16);
+    const size = Math.max(a.drawnW, a.drawnH, 16) * (this.pixelResMult.get(a.key) ?? 1);
     const hiRes = art.frames.some((f) => {
       if (f.startsWith("data:image/svg")) return true;
       const img = getImage(f);

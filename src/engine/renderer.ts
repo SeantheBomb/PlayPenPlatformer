@@ -56,19 +56,29 @@ export const PREVIEWABLE_ENTITY_KINDS = new Set([
   "note", "door", "trapdoor", "locker", "checkpoint", "brazier", "fusebox", "capacitor", "exit",
 ]);
 
+/** Entity kinds that have a distinct SECOND procedural look (open door,
+ *  tripped fusebox, ...) drawEntityPreview can render via `alt: true` —
+ *  kept in sync with ENTITY_META's altLabel entries in studio/assets.ts.
+ *  note/exit have no second state, so they're excluded. */
+export const PREVIEWABLE_ALT_ENTITY_KINDS = new Set([
+  "door", "trapdoor", "locker", "checkpoint", "brazier", "fusebox", "capacitor",
+]);
+
 /**
- * A static rendering of an entity kind's DEFAULT procedural look (closed
- * door, lit brazier, untripped fusebox, empty locker, inactive checkpoint)
- * — the same drawing code room.ts's live drawEntity switch uses for these
- * kinds, factored out so the Art Studio gallery can show real thumbnails
- * instead of a generic placeholder box. `animT` defaults to a fixed phase
- * (a still frame of the idle animation), not wall-clock time, so a gallery
- * grid of many cards doesn't have to keep re-rendering every one every
- * frame just to look alive.
+ * A static rendering of an entity kind's procedural look — the same
+ * drawing code room.ts's live drawEntity switch uses for these kinds,
+ * factored out so the Art Studio gallery can show real thumbnails instead
+ * of a generic placeholder box. `alt` selects the SECOND state (open
+ * door/trapdoor, occupied locker, active checkpoint, unlit brazier,
+ * tripped fusebox, powered capacitor) where PREVIEWABLE_ALT_ENTITY_KINDS
+ * has one — ignored for kinds that don't. `animT` defaults to a fixed
+ * phase (a still frame of the idle animation), not wall-clock time, so a
+ * gallery grid of many cards doesn't have to keep re-rendering every one
+ * every frame just to look alive.
  */
 export function drawEntityPreview(
   ctx: CanvasRenderingContext2D, kind: string,
-  x: number, y: number, w: number, h: number, animT = 0.4
+  x: number, y: number, w: number, h: number, animT = 0.4, alt = false
 ): void {
   switch (kind) {
     case "note": {
@@ -82,48 +92,67 @@ export function drawEntityPreview(
       break;
     }
     case "door": {
-      const c = "#6e5c8a"; // closed, unpowered — the base sprite's own state
+      const c = alt ? "#4f8a5e" : "#6e5c8a"; // open (green) vs closed, unpowered
       ctx.fillStyle = shade(c, -25);
       ctx.fillRect(x - 2, y - 2, w + 4, h + 2);
       ctx.fillStyle = c;
       ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = shade(c, 25);
-      ctx.beginPath();
-      ctx.arc(x + w - 5, y + h / 2, 1.8, 0, Math.PI * 2);
-      ctx.fill();
+      if (alt) {
+        ctx.fillStyle = "#0d0b14";
+        ctx.fillRect(x + 3, y + 3, w - 6, h - 3);
+      } else {
+        ctx.fillStyle = shade(c, 25);
+        ctx.beginPath();
+        ctx.arc(x + w - 5, y + h / 2, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
     }
     case "trapdoor": {
-      const c = "#6e5c8a";
+      const c = alt ? "#4f8a5e" : "#6e5c8a";
       ctx.fillStyle = shade(c, -25);
       ctx.fillRect(x - 2, y - 1, w + 4, h + 3);
-      ctx.fillStyle = c;
-      ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = shade(c, -40);
-      ctx.fillRect(x, y + h / 2 - 0.75, w, 1.5);
-      ctx.fillStyle = shade(c, 25);
-      ctx.beginPath();
-      ctx.arc(x + w / 2, y + 3, 1.6, 0, Math.PI * 2);
-      ctx.fill();
+      if (alt) {
+        ctx.fillStyle = "#0d0b14";
+        ctx.fillRect(x + 1, y + 3, w - 2, h - 4);
+        ctx.fillStyle = c;
+        ctx.fillRect(x - 2, y + h - 2, w / 2, 2.5);
+        ctx.fillRect(x + w / 2, y + h - 2, w / 2 + 2, 2.5);
+      } else {
+        ctx.fillStyle = c;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = shade(c, -40);
+        ctx.fillRect(x, y + h / 2 - 0.75, w, 1.5);
+        ctx.fillStyle = shade(c, 25);
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + 3, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
     }
     case "locker": {
       ctx.fillStyle = "#48506b";
       ctx.fillRect(x - 1, y - 1, w + 2, h + 1);
-      ctx.fillStyle = "#59627f";
+      ctx.fillStyle = alt ? "#39415c" : "#59627f";
       ctx.fillRect(x, y, w, h);
       ctx.fillStyle = "#39415c";
       for (let i = 0; i < 3; i++) ctx.fillRect(x + 3, y + 4 + i * 3, w - 6, 1.4);
       ctx.fillRect(x + w - 5, y + h / 2, 2, 5);
+      if (alt) {
+        ctx.fillStyle = "#ffd166";
+        ctx.fillRect(x + 4, y + 6, 2, 2);
+        ctx.fillRect(x + 9, y + 6, 2, 2);
+      }
       break;
     }
     case "checkpoint": {
+      const active = alt;
       ctx.fillStyle = "#5a5470";
       ctx.fillRect(x + w / 2 - 1, y, 2, h);
-      ctx.fillStyle = "#3a3550";
+      ctx.fillStyle = active ? "#5ad1a5" : "#3a3550";
       ctx.beginPath();
       ctx.moveTo(x + w / 2 + 1, y + 2);
-      ctx.lineTo(x + w / 2 + 11, y + 6);
+      ctx.lineTo(x + w / 2 + 11, y + 6 + (active ? Math.sin(animT * 4) : 0));
       ctx.lineTo(x + w / 2 + 1, y + 10);
       ctx.closePath();
       ctx.fill();
@@ -135,6 +164,19 @@ export function drawEntityPreview(
       ctx.fill();
       ctx.fillStyle = "#332d40";
       ctx.fillRect(x + w / 2 - 2, y + 13, 4, 3);
+      if (alt) {
+        // Cold: dark coals, no halo, no flame.
+        ctx.fillStyle = "#2a2536";
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + 7, 5.5, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#3d3750";
+        ctx.beginPath();
+        ctx.arc(x + w / 2 - 2.5, y + 6.5, 1.6, 0, Math.PI * 2);
+        ctx.arc(x + w / 2 + 2, y + 6, 1.9, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
       ctx.fillStyle = "rgba(255,200,120,0.14)";
       ctx.beginPath();
       ctx.arc(x + w / 2, y + 4, 15, 0, Math.PI * 2);
@@ -146,9 +188,9 @@ export function drawEntityPreview(
       ctx.fillStyle = "#3a3550";
       roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 2);
       ctx.fill();
-      ctx.fillStyle = "#59627f";
+      ctx.fillStyle = alt ? "#5ad1a5" : "#59627f";
       ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = "#ffe95a";
+      ctx.strokeStyle = alt ? "#0d2b1c" : "#ffe95a";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(x + 8, y + 4);
@@ -162,9 +204,9 @@ export function drawEntityPreview(
       ctx.fillStyle = "#3a3550";
       roundRect(ctx, x - 1, y - 1, w + 2, h + 2, 2);
       ctx.fill();
-      ctx.fillStyle = "#59627f";
+      ctx.fillStyle = alt ? "#ffe95a" : "#59627f";
       ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = "#8892a8";
+      ctx.strokeStyle = alt ? "#4a3d0d" : "#8892a8";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(x + w / 2 - 2, y + h / 2, 4, -Math.PI / 2, Math.PI / 2);
@@ -172,6 +214,12 @@ export function drawEntityPreview(
       ctx.beginPath();
       ctx.arc(x + w / 2 + 2, y + h / 2, 4, Math.PI / 2, -Math.PI / 2);
       ctx.stroke();
+      if (alt) {
+        ctx.fillStyle = "rgba(255,233,90,0.25)";
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h / 2, w + 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
       break;
     }
     case "exit": {
