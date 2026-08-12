@@ -392,8 +392,28 @@ class Studio {
     // detail are obvious before she ever hits play.
     const zoomRow = el("div", { className: "st-zoomrow" });
     for (const z of [2, 4, 8]) {
+      // Two earlier attempts at this both broke on assets whose procedural
+      // look deliberately draws OUTSIDE its nominal box — checkpoint's
+      // flag reaches ~2x its own declared width, brazier's halo extends
+      // a 15px-radius glow around a 16px box (Sean, 2026-08-12, twice).
+      // cell=min(w,h) only filled a square corner; a plain cell=max(w,h)
+      // SQUARE canvas centered correctly but still clipped brazier's
+      // halo, because making the canvas bigger alongside cell scales
+      // both together and the extra room cancels out.
+      //
+      // The fix has to DECOUPLE the two: `cell` sets the content's scale
+      // (kept at the box's own larger dimension × z, same "1 logical
+      // unit = z screen px" a plain zoom implies) while the CANVAS is
+      // made bigger than that and the (cell×cell) square is centered
+      // inside it — so extra canvas room actually becomes extra headroom
+      // around the content instead of just re-scaling it back down.
+      // PAD=2 covers the worst case seen (brazier's halo needs ~1.9x).
+      const cell = Math.max(a.drawnW, a.drawnH) * z;
+      const PAD = 2;
+      const side = cell * PAD;
       const cv = el("canvas", {
-        className: "st-previewbig", width: a.drawnW * z, height: a.drawnH * z,
+        className: "st-previewbig", width: side, height: side,
+        style: "max-width:200px;max-height:200px",
         title: `${z}× zoom of the in-game ${a.drawnW}×${a.drawnH} box`,
       }) as HTMLCanvasElement;
       (cv as unknown as { ppDraw: () => void }).ppDraw = () => {
@@ -404,22 +424,16 @@ class Studio {
         if (uri) {
           const img = getImage(uri);
           if (img) {
+            // Custom art still previews at its TRUE stretched box aspect
+            // (matching real in-game rendering exactly, distortion and
+            // all), just centered within the padded canvas instead of
+            // filling it — the canvas is a viewport, not the box.
+            const bw = a.drawnW * z, bh = a.drawnH * z;
             ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(img, 0, 0, cv.width, cv.height);
+            ctx.drawImage(img, (cv.width - bw) / 2, (cv.height - bh) / 2, bw, bh);
             return;
           }
         }
-        // drawCurrent's contract is "fit, centered, in a cell×cell SQUARE" —
-        // fine for square gallery thumbs, but this canvas is the asset's
-        // true (often non-square, e.g. checkpoint 8×24) aspect. Using
-        // cell=min(w,h) only ever fills a square corner of it, leaving the
-        // rest blank (Sean, 2026-08-12). Using cell=max(w,h) instead and
-        // centering that square ON the true canvas works out exactly right:
-        // drawCurrent centers its content at the cell's midpoint regardless
-        // of cell size, and that midpoint is (canvas width/2, height/2) by
-        // construction — so content lands centered and correctly scaled to
-        // fill the true box, square or not.
-        const cell = Math.max(cv.width, cv.height);
         a.drawCurrent(ctx, (cv.width - cell) / 2, (cv.height - cell) / 2, cell);
       };
       zoomRow.append(el("div", {}, cv, el("div", { className: "st-hint", style: "text-align:center" }, `${z}×`)));
