@@ -10,12 +10,12 @@
 import type { ContentStore } from "../data/content";
 import type { Game } from "../game/game";
 import { el, toast } from "../editor/forms";
-import { openPixelEditor, rasterize } from "../editor/pixeleditor";
+import { openPixelEditor } from "../editor/pixeleditor";
 import { getImage } from "../engine/renderer";
 import { buildAssets, assetStatus, GROUP_ORDER, type ArtAsset, type AssetGroup } from "./assets";
 import { importFiles, sliceStrip, imageSize } from "./importers";
 import { downloadFrame, downloadStrip, downloadContactSheet } from "./exporters";
-import { openSvgEditor } from "./svgeditor";
+import { openSvgEditor, rasterizeSeedTight } from "./svgeditor";
 
 const PASS_KEY = "playpen.artist.password";
 const SEEN_KEY = "playpen.artist.welcomed";
@@ -654,7 +654,8 @@ class Studio {
       `This art is bigger than the pixel editor's ${size}×${size} grid — editing here will flatten it to ${size}×${size} when saved.\n\n` +
       `Your original file on your computer is untouched either way. Continue?`
     )) return;
-    const seed = existing ? [existing] : (a.drawAlt ? [rasterize(size, (ctx) => a.drawAlt!(ctx, 0, 0, size))] : []);
+    const tightSeed = a.drawAlt && rasterizeSeedTight(a.drawAlt, a.drawnW, a.drawnH, size);
+    const seed = existing ? [existing] : (tightSeed ? [tightSeed] : []);
     openPixelEditor({
       title: `${a.label} — ${a.altLabel} (${size}×${size})`,
       size,
@@ -698,10 +699,17 @@ class Studio {
       `Your original file on your computer is untouched either way. Continue?`
     )) return;
     // No custom art yet? Seed the grid from the current in-game look so
-    // she's tweaking, never staring at a blank canvas.
+    // she's tweaking, never staring at a blank canvas. Cropped tightly to
+    // the actual content (rasterizeSeedTight) rather than drawn at the
+    // asset's own gallery-thumbnail scale (a big fixed margin meant for
+    // card/zoom views) -- that mismatch was the "sprite editor frame and
+    // the shapes editor frame are inconsistent" report (Sean, 2026-08-12):
+    // the shape editor's seed already crops to content, so this now
+    // matches it instead of looking padded and small by comparison.
+    const tightSeed = rasterizeSeedTight((ctx, x, y, cell) => a.drawCurrent(ctx, x, y, cell), a.drawnW, a.drawnH, size);
     const seed = art.frames.length
       ? art.frames
-      : [rasterize(size, (ctx) => a.drawCurrent(ctx, 0, 0, size))];
+      : (tightSeed ? [tightSeed] : []);
     openPixelEditor({
       title: `${a.label} (${size}×${size})`,
       size,

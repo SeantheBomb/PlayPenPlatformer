@@ -565,29 +565,33 @@ function normColor(v: string | null): string | null {
   return v;
 }
 
-/** Rasterize the asset's current look and convert it into flat colored
- *  rects (greedy run + downward merge), so procedural art and PNGs become
- *  a tweakable starting point instead of a blank canvas. Colors are
- *  lightly quantized so anti-aliased edges don't shatter into hundreds of
- *  one-pixel specks.
- *
- *  Rasterizes into a generously OVERSCANNED canvas (not just W×H) and
- *  reports back the tight content bounding box as `width`/`height` — some
- *  procedural looks deliberately draw outside their own declared box
- *  (checkpoint's flag reaches ~2x its box width, brazier's halo ~1.9x),
- *  and a raster sized to exactly W×H just clips that overflow at the edge
- *  (Sean, 2026-08-12, third report — two earlier fixes touched the zoom
- *  preview and gallery thumbnail, both DIFFERENT code paths from this
- *  one). The returned width/height only ever grow to fit real content;
- *  self-contained art gets back exactly W×H, unchanged. Callers use them
- *  as the editor's actual working canvas size — safe to be larger than
- *  the true in-game box, since custom art always gets fit/stretched to
- *  that box at draw time regardless of its own declared size. */
-function vectorizeCurrentLook(
-  seedDraw: (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => void,
-  W: number,
-  H: number
-): { shapes: Shape[]; width: number; height: number } {
+type SeedDraw = (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => void;
+
+interface SeedRaster {
+  cv: HTMLCanvasElement;
+  data: Uint8ClampedArray;
+  RW: number;
+  RH: number;
+  SS: number;
+  padRW: number;
+  nomRW: number;
+  nomRH: number;
+}
+
+/** Alpha cutoff for "this pixel is real content" — shared by every seed
+ *  consumer (shape editor's color extraction AND the pixel editor's crop
+ *  bounds) so they always agree on where the art actually starts/ends. */
+const CONTENT_ALPHA = 160;
+
+/** Rasterizes seedDraw into a generously OVERSCANNED canvas (not just
+ *  W×H) — some procedural looks deliberately draw outside their own
+ *  declared box (checkpoint's flag reaches ~2x its box width, brazier's
+ *  halo ~1.9x), and a raster sized to exactly W×H just clips that
+ *  overflow at the edge (Sean, 2026-08-12, third report — two earlier
+ *  fixes touched the zoom preview and gallery thumbnail, both DIFFERENT
+ *  code paths from this one). Shared by every seed consumer so they all
+ *  agree on the same underlying pixels. */
+function rasterOverscanSeed(seedDraw: SeedDraw, W: number, H: number): SeedRaster {
   const SS = Math.max(1, Math.min(2, Math.round(22 / Math.max(W, H))));
   // One box-size of margin on every side — comfortably covers every
   // overflow case in this game (checkpoint needs ~0.9x, brazier ~0.9x on
@@ -608,6 +612,79 @@ function vectorizeCurrentLook(
   const nomCell = Math.max(nomRW, nomRH);
   seedDraw(ctx, padRW - (nomCell - nomRW) / 2, padRW - (nomCell - nomRH) / 2, nomCell);
   const data = ctx.getImageData(0, 0, RW, RH).data;
+  return { cv, data, RW, RH, SS, padRW, nomRW, nomRH };
+}
+
+/** Tight pixel bounds of the real content in a SeedRaster, unioned with
+ *  the nominal (un-overflowed) box so non-overflowing assets always keep
+ *  their full declared box even if the art inside is sparse. Null only
+ *  when the raster is fully transparent. */
+function contentBoundsOf(r: SeedRaster): { x0: number; y0: number; x1: number; y1: number } | null {
+  let x0 = r.RW, y0 = r.RH, x1 = 0, y1 = 0, any = false;
+  for (let y = 0; y < r.RH; y++) {
+    for (let x = 0; x < r.RW; x++) {
+      if (r.data[(y * r.RW + x) * 4 + 3] < CONTENT_ALPHA) continue;
+      any = true;
+      if (x < x0) x0 = x;
+      if (x + 1 > x1) x1 = x + 1;
+      if (y < y0) y0 = y;
+      if (y + 1 > y1) y1 = y + 1;
+    }
+  }
+  if (!any) return null;
+  const nomX0 = r.padRW, nomY0 = r.padRW, nomX1 = r.padRW + r.nomRW, nomY1 = r.padRW + r.nomRH;
+  return {
+    x0: Math.min(x0, nomX0), y0: Math.min(y0, nomY0),
+    x1: Math.max(x1, nomX1), y1: Math.max(y1, nomY1),
+  };
+}
+
+/** Crops a seed's current look tightly to its real content (same bounds
+ *  the shape editor's seeding uses — see rasterOverscanSeed/
+ *  contentBoundsOf) and resamples it into a `targetSize`×`targetSize`
+ *  square, centered. This is what feeds the PIXEL editor's seed frame:
+ *  it used to draw straight into a `size`×`size` canvas via the asset's
+ *  own gallery-thumbnail scale (a big fixed margin meant for card/zoom
+ *  views), which made the seed look padded and small compared to the
+ *  shape editor's snug crop of the SAME asset — Sean, 2026-08-12, fourth
+ *  report ("the sprite editor frame and the shapes editor frame are
+ *  inconsistent"). Sharing this crop is what keeps both editors' seed
+ *  framing in agreement. Returns null for a fully transparent look (no
+ *  seed to offer). */
+export function rasterizeSeedTight(seedDraw: SeedDraw, W: number, H: number, targetSize: number): string | null {
+  const raster = rasterOverscanSeed(seedDraw, W, H);
+  const bounds = contentBoundsOf(raster);
+  if (!bounds) return null;
+  const cw = bounds.x1 - bounds.x0, ch = bounds.y1 - bounds.y0;
+  const s = targetSize / Math.max(cw, ch);
+  const outCv = document.createElement("canvas");
+  outCv.width = targetSize;
+  outCv.height = targetSize;
+  const octx = outCv.getContext("2d")!;
+  octx.imageSmoothingEnabled = false;
+  const dw = cw * s, dh = ch * s;
+  octx.drawImage(raster.cv, bounds.x0, bounds.y0, cw, ch, (targetSize - dw) / 2, (targetSize - dh) / 2, dw, dh);
+  return outCv.toDataURL("image/png");
+}
+
+/** Rasterize the asset's current look and convert it into flat colored
+ *  rects (greedy run + downward merge), so procedural art and PNGs become
+ *  a tweakable starting point instead of a blank canvas. Colors are
+ *  lightly quantized so anti-aliased edges don't shatter into hundreds of
+ *  one-pixel specks. Reports back the tight content bounding box (see
+ *  rasterOverscanSeed) as `width`/`height`, grown only enough to fit real
+ *  overflowing content — self-contained art gets back exactly W×H,
+ *  unchanged. Callers use them as the editor's actual working canvas
+ *  size — safe to be larger than the true in-game box, since custom art
+ *  always gets fit/stretched to that box at draw time regardless of its
+ *  own declared size. */
+function vectorizeCurrentLook(
+  seedDraw: SeedDraw,
+  W: number,
+  H: number
+): { shapes: Shape[]; width: number; height: number } {
+  const raster = rasterOverscanSeed(seedDraw, W, H);
+  const { data, RW, RH, SS } = raster;
 
   // Build a small palette from the pixels that are actually there, then
   // snap every opaque pixel to its nearest palette color — this is what
@@ -675,14 +752,11 @@ function vectorizeCurrentLook(
   }
   if (!raw.length) return { shapes: [], width: W, height: H };
 
-  // The nominal (un-overflowed) box, in the same overscan-raster space —
-  // the final canvas always includes at least this, even if content
-  // happens to be smaller (e.g. a mostly-empty icon).
-  const nomX0 = padRW, nomY0 = padRW, nomX1 = padRW + nomRW, nomY1 = padRW + nomRH;
-  const contentX0 = Math.min(nomX0, ...raw.map((r) => r.x));
-  const contentY0 = Math.min(nomY0, ...raw.map((r) => r.y));
-  const contentX1 = Math.max(nomX1, ...raw.map((r) => r.x + r.w));
-  const contentY1 = Math.max(nomY1, ...raw.map((r) => r.y + r.h));
+  // Same bounds the pixel editor's seed crop uses (contentBoundsOf) —
+  // not the raw rects' own min/max, which the lone-speck drop above can
+  // shrink slightly below the true alpha extent.
+  const bounds = contentBoundsOf(raster)!; // raw.length > 0 implies a non-null result (same alpha cutoff)
+  const { x0: contentX0, y0: contentY0, x1: contentX1, y1: contentY1 } = bounds;
 
   const shapes: Shape[] = raw.map((r) => ({
     kind: "rect", fill: r.fill, stroke: null, sw: 0,
