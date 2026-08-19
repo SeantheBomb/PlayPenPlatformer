@@ -337,7 +337,9 @@ export interface EnemyDef extends SpriteFields {
 export type TauntTrigger =
   | "game_start" | "room_enter" | "first_death" | "death"
   | "craft_fail" | "first_craft" | "craft_item" | "idle"
-  | "hide_enter" | "npc_help" | "confiscate" | "warden_chase" | "win";
+  | "hide_enter" | "npc_help" | "confiscate" | "warden_chase" | "win"
+  | "first_ignite" | "first_melt" | "first_extinguish"
+  | "first_freeze" | "first_shatter" | "first_dissolve";
 
 // ---- Achievements ----
 

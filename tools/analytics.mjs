@@ -66,7 +66,10 @@ let wins = 0;
 function roomStat(id) {
   let r = rooms.get(id);
   if (!r) {
-    r = { attempts: 0, completions: 0, deaths: 0, durations: [], crafts: new Map(), collects: new Map() };
+    r = {
+      attempts: 0, completions: 0, deaths: 0, durations: [],
+      crafts: new Map(), collects: new Map(), interactions: new Map(),
+    };
     rooms.set(id, r);
   }
   return r;
@@ -87,6 +90,7 @@ for (const b of batches) {
       case "death": roomStat(e.room).deaths++; break;
       case "craft": bump(roomStat(e.room).crafts, e.item); break;
       case "collect": bump(roomStat(e.room).collects, e.item); break;
+      case "interaction": bump(roomStat(e.room).interactions, e.extra?.effect ?? "?"); break;
       case "game_win": wins++; break;
     }
   }
@@ -139,5 +143,17 @@ for (const id of order) {
   console.log(`  ${id}`);
   if (crafts) console.log(`    crafted:   ${crafts}`);
   if (collects) console.log(`    collected: ${collects}`);
+}
+
+// Which of a gate's documented multi-solution paths (see OPPORTUNITY_MATRIX.md
+// "Multi-solution gates") players actually take, in aggregate — e.g. a room
+// showing "melt×41, shatter×3" says the shatter path is barely being found.
+console.log("\nPER-ROOM ELEMENT INTERACTIONS (ignite/melt/extinguish/freeze/shatter/dissolve):");
+for (const id of order) {
+  const r = rooms.get(id);
+  if (r.interactions.size === 0) continue;
+  const interactions = [...r.interactions.entries()].sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k}×${n}`).join(", ");
+  console.log(`  ${id}: ${interactions}`);
 }
 console.log("");

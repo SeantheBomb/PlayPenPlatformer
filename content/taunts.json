@@ -178,6 +178,66 @@
     "emotion": "shocked"
   },
   {
+    "id": "first_ignite",
+    "trigger": "first_ignite",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Combustion! Unauthorized, but conceptually impressive. Try not to enjoy that, #67."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "first_melt",
+    "trigger": "first_melt",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "You melted facility property. That's... actually kind of elegant. Don't tell the others."
+    ],
+    "emotion": "shocked"
+  },
+  {
+    "id": "first_extinguish",
+    "trigger": "first_extinguish",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Fire's out. Mood's ruined. Well done, I suppose."
+    ],
+    "emotion": "annoyed"
+  },
+  {
+    "id": "first_freeze",
+    "trigger": "first_freeze",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Frozen solid. Very tidy. I do appreciate tidy, #67."
+    ],
+    "emotion": "smug"
+  },
+  {
+    "id": "first_shatter",
+    "trigger": "first_shatter",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Oh, you BROKE it. Noted. Your chart's getting thicker."
+    ],
+    "emotion": "shocked"
+  },
+  {
+    "id": "first_dissolve",
+    "trigger": "first_dissolve",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "Dissolved on contact. Like my patience, lately."
+    ],
+    "emotion": "annoyed"
+  },
+  {
     "id": "craft_sock_puppet",
     "trigger": "craft_item",
     "itemId": "sock_puppet",

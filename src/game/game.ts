@@ -1,5 +1,5 @@
 // Game orchestrator: scenes, room flow, interactions, death loop, win.
-import type { Content, ItemDef } from "../data/types";
+import type { Content, ItemDef, TauntTrigger } from "../data/types";
 import { Input } from "../engine/input";
 import { Loop } from "../engine/loop";
 import { HitStop } from "../engine/hitstop";
@@ -1472,6 +1472,30 @@ export class Game {
         }
         if (ev.effect === "enemy_stun" && ev.element === "water" && ev.enemyId === "spotter") {
           this.state.bump("spottersSplashed");
+        }
+        // First-time elemental-discovery taunts: "discovery is the reward"
+        // (Pillar 2) and "the Warden is always watching" (Pillar 1) previously
+        // covered crafting/death/rooms but not the game's own signature
+        // moment — actually combining elements. One counter per effect keys
+        // both the first-time taunt AND doubles as a future achievement hook.
+        const DISCOVERY_COUNTER: Partial<Record<string, string>> = {
+          ignite: "burns", melt: "melts", extinguish: "douses",
+          freeze: "freezes", shatter: "shatters", dissolve: "dissolves",
+        };
+        const counterName = DISCOVERY_COUNTER[ev.effect];
+        if (counterName && ev.effect !== "ignite" && ev.effect !== "extinguish") {
+          this.state.bump(counterName);
+        }
+        if (counterName && this.state.counters.get(counterName) === 1) {
+          this.taunts.fire(("first_" + ev.effect) as TauntTrigger);
+        }
+        // Per-room-per-effect interaction telemetry: which of a gate's
+        // documented multi-solution paths (OPPORTUNITY_MATRIX's "Multi-
+        // solution gates" table) players actually take, in aggregate.
+        // Scoped to the six real element interactions, not every event
+        // flowing through this handler (enemy_kill, energize, fuse, ...).
+        if (counterName && !this.replay) {
+          telemetry.event("interaction", { room: this.currentRoomId, extra: { effect: ev.effect, element: ev.element } });
         }
       }
       switch (ev.effect) {
