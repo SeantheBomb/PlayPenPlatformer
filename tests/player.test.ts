@@ -366,3 +366,34 @@ describe("electrified water repels the player like fire", () => {
     expect(player.vx).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REQUIREMENT (Sean, 2026-08-08): balloons should pop from plain player
+// contact, not just a tool swing. Player.ts only reports the touch (via
+// PlayerFrameEvents.poppedBalloons) — the actual pop/particles/sfx happen in
+// game.ts, reusing the existing popBalloons path (see tests/room-progress.ts
+// for the tile-progress side of this).
+// ---------------------------------------------------------------------------
+describe("touching a balloon tile reports contact for game.ts to pop it", () => {
+  const rows = [
+    "........",
+    "..b.....",
+    "########",
+  ];
+
+  it("flags the touched tile when the player overlaps a balloon", () => {
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 32; player.y = 16;
+    const ev = player.update(1 / 60, NO_INPUT, map, {} as RunState);
+    expect(ev.poppedBalloons).toContainEqual({ tx: 2, ty: 1 });
+  });
+
+  it("reports nothing when nowhere near a balloon", () => {
+    const map = makeMap(rows);
+    const player = new Player(gameJson.player as never);
+    player.x = 96; player.y = 16;
+    const ev = player.update(1 / 60, NO_INPUT, map, {} as RunState);
+    expect(ev.poppedBalloons).toBeUndefined();
+  });
+});

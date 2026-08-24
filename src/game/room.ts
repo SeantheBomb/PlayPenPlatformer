@@ -10,6 +10,7 @@ import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
 import { Rng } from "../engine/rng";
 import type { PlacedItem, RoomMutations, ScatterDrop } from "./state";
+import { entityProgress, tileProgress, type Progress } from "./roomProgress";
 import {
   BehaviorSystem, enemyAttachments, enemyResetState,
   registerFn, type ScriptCtx,
@@ -488,6 +489,7 @@ export class RoomRuntime {
     // Persist (replace any earlier override for this index)
     this.muts.tileOverrides = this.muts.tileOverrides.filter(([i]) => i !== idx);
     this.muts.tileOverrides.push([idx, id || null]);
+    this.progressDirty = true;
     // Any transform that produces a fluid (ice melting, cracked stone
     // lava-ing) joins the flow sim too, not just fluid poured by spreading —
     // otherwise it sits inert, ignoring open space (and drains) next to it.
@@ -1662,6 +1664,7 @@ export class RoomRuntime {
     e.lit = lit;
     this.muts.brazierLit = this.muts.brazierLit.filter(([i]) => i !== e.index);
     this.muts.brazierLit.push([e.index, lit]);
+    this.progressDirty = true;
   }
 
   /**
@@ -1758,6 +1761,7 @@ export class RoomRuntime {
       if (hit) {
         cap.open = true;
         this.muts.openedDoors.add(cap.index);
+        this.progressDirty = true;
         // Own effect, not "fuse" — a capacitor turning on starts a quiet
         // ambient hum, not the fusebox's one-shot "unlock" clink.
         events.push({
@@ -1818,6 +1822,7 @@ export class RoomRuntime {
     const wasOpen = fb.open;
     fb.open = true;
     this.muts.openedDoors.add(fb.index);
+    this.progressDirty = true;
     if (!wasOpen) {
       events.push({ effect: "fuse", x: fb.x + fb.w / 2, y: fb.y, color: "#ffe95a" });
     }
@@ -1828,12 +1833,14 @@ export class RoomRuntime {
         e.open = true;
         this.muts.openedDoors.add(e.index);
         this.muts.gateTouched.add(e.index);
+        this.progressDirty = true;
         events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#9be8b0" });
       }
       if (e.def.closeFuseId && e.def.closeFuseId === fb.def.fuseId && e.open) {
         e.open = false;
         this.muts.openedDoors.delete(e.index);
         this.muts.gateTouched.add(e.index);
+        this.progressDirty = true;
         events.push({ effect: "fuse", x: e.x + e.w / 2, y: e.y + e.h / 2, color: "#e8a2b4" });
         this.recedeCutOffFluid(e, events);
       }
@@ -1843,6 +1850,7 @@ export class RoomRuntime {
       if (cap.def.offFuseId && cap.def.offFuseId === fb.def.fuseId) {
         cap.open = false;
         this.muts.openedDoors.delete(cap.index);
+        this.progressDirty = true;
         // Cooldown = however long a charged tile takes to discharge on its
         // own — long enough that anything the capacitor was still charging
         // has genuinely gone dark before it's allowed to trip back on, so
@@ -1989,6 +1997,20 @@ export class RoomRuntime {
   isEnergized(tx: number, ty: number): boolean {
     const until = this.energized.get(this.map.index(tx, ty));
     return !!until && until > simNow();
+  }
+
+  /** Set whenever a tracked mutation happens (tile transform, brazier
+   *  lit/doused, a gate/fusebox/capacitor open state flips) — lets the game
+   *  loop re-check room_progress achievements only on an actual change
+   *  instead of scanning every frame. Caller clears it after checking. */
+  progressDirty = false;
+
+  tileProgress(tileId: string): Progress {
+    return tileProgress(this.room, this.content, this.muts, tileId);
+  }
+
+  entityProgress(entityType: string, field: "open" | "lit"): Progress {
+    return entityProgress(this.room, this.muts, entityType, field);
   }
 
   isBurning(tx: number, ty: number): boolean {

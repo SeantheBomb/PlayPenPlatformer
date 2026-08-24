@@ -1,5 +1,5 @@
 // Game orchestrator: scenes, room flow, interactions, death loop, win.
-import type { Content, ItemDef, TauntTrigger } from "../data/types";
+import type { Content, ItemDef, RoomQuest, TauntTrigger } from "../data/types";
 import { Input } from "../engine/input";
 import { Loop } from "../engine/loop";
 import { HitStop } from "../engine/hitstop";
@@ -10,7 +10,8 @@ import { music } from "../engine/music";
 import { TILE } from "../engine/tilemap";
 import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawSprite, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
-import { RunState, type StateSnapshot } from "./state";
+import { RunState, emptyRoomMutations, type StateSnapshot } from "./state";
+import { tileProgress, entityProgress, type Progress } from "./roomProgress";
 import { Player, type PlayerSnapshot } from "./player";
 import {
   RoomRuntime, type ElementEvent, type EntityInstance,
@@ -302,6 +303,7 @@ export class Game {
       if (cpEntity) {
         cpEntity.open = true;
         this.state.mutations(this.currentRoomId).openedDoors.add(cpEntity.index);
+        this.roomRt.progressDirty = true;
       }
     }
     this.floaty("Room reset.", this.player.centerX, this.player.y - 12, "#9be8b0");
@@ -836,6 +838,13 @@ export class Game {
       // from it (centerX would always shove rightward — hurt()'s sign(0)||1).
       this.damagePlayer(ev.spikeDamage, ev.repelFromX ?? this.player.centerX, "spikes");
     }
+    if (ev.poppedBalloons) {
+      // Plain contact pops them too, not just a tool swing — pure whimsy,
+      // reuses the exact same pop+particle+sfx path as popBalloons().
+      for (const p of ev.poppedBalloons) {
+        this.popBalloons({ x: p.tx * TILE, y: p.ty * TILE, w: TILE, h: TILE });
+      }
+    }
 
     // ---- Elemental hazards on the player (burning tiles, live charge) ----
     {
@@ -1008,6 +1017,10 @@ export class Game {
       this.content.game.rules.stunDurationMs,
       (events) => this.handleElementEvents(events)
     );
+    if (this.roomRt.progressDirty) {
+      this.roomRt.progressDirty = false;
+      this.checkAchievements("room_progress");
+    }
     if (!this.player.invulnerable) {
       const prect = { x: this.player.x, y: this.player.y, w: this.player.w, h: this.player.h };
       const inSmoke = this.roomRt.smokeAtPoint(this.player.centerX, this.player.centerY);
@@ -1066,6 +1079,7 @@ export class Game {
       if (e.kind === "checkpoint" && !e.open && rectsOverlap(prect, e)) {
         e.open = true;
         this.state.mutations(this.currentRoomId).openedDoors.add(e.index);
+        this.roomRt.progressDirty = true;
         // loadout is deliberately NOT carried here — it's an editor-only
         // "start test from here" / shareable-deep-link convenience, never a
         // real-respawn effect. A real checkpoint touch must have zero impact
@@ -1362,6 +1376,23 @@ export class Game {
     }
   }
 
+  /** Resolves a RoomQuest (NPC roomQuest / achievement roomProgress) against
+   *  the target room's content + persisted mutations — works for ANY room,
+   *  visited or not, live or not. See src/game/roomProgress.ts. */
+  private roomQuestProgress(rq: RoomQuest): Progress {
+    const room = this.content.rooms[rq.roomId];
+    if (!room) return { total: 0, done: 0 };
+    const muts = this.state.peekMutations(rq.roomId) ?? emptyRoomMutations();
+    return rq.tileId
+      ? tileProgress(room, this.content, muts, rq.tileId)
+      : entityProgress(room, muts, rq.entityType ?? "", rq.entityField ?? "open");
+  }
+
+  private roomQuestSatisfied(rq: RoomQuest): boolean {
+    const { total, done } = this.roomQuestProgress(rq);
+    return total > 0 && done === total;
+  }
+
   private talkToNpc(e: EntityInstance): void {
     const d = e.def;
     this.overlayEntity = e;
@@ -1373,11 +1404,19 @@ export class Game {
       return;
     }
     const wants = d.wants;
-    if (wants && this.state.has(wants.item, wants.count)) {
-      // They can SEE you have it — confirm before handing it over.
-      const itemName = this.state.item(wants.item)?.name ?? wants.item;
-      this.overlayText =
-        d.dialogConfirm ?? `Is that... a ${itemName}? It IS. Hand it over?`;
+    const ready = d.roomQuest
+      ? this.roomQuestSatisfied(d.roomQuest)
+      : !!(wants && this.state.has(wants.item, wants.count));
+    if (ready) {
+      if (d.dialogConfirm) {
+        this.overlayText = d.dialogConfirm;
+      } else if (wants) {
+        // They can SEE you have it — confirm before handing it over.
+        const itemName = this.state.item(wants.item)?.name ?? wants.item;
+        this.overlayText = `Is that... a ${itemName}? It IS. Hand it over?`;
+      } else {
+        this.overlayText = "You actually did it?";
+      }
       this.overlay = "npcConfirm";
     } else {
       this.overlayText = d.dialogAsk ?? "...";
@@ -1385,11 +1424,15 @@ export class Game {
     }
   }
 
-  /** The player agreed to the trade. */
+  /** The player agreed to the trade / their room quest is complete. */
   private giveNpc(e: EntityInstance): void {
     const d = e.def;
     const wants = d.wants;
-    if (!wants || !this.state.remove(wants.item, wants.count)) return;
+    if (d.roomQuest) {
+      if (!this.roomQuestSatisfied(d.roomQuest)) return;
+    } else if (!wants || !this.state.remove(wants.item, wants.count)) {
+      return;
+    }
     e.helped = true;
     this.state.mutations(this.currentRoomId).helpedNpcs.add(e.index);
     if (d.npcId) this.state.helpedNpcIds.add(d.npcId);
@@ -1446,6 +1489,9 @@ export class Game {
       if (a.trigger === "win") {
         if (a.maxDeaths !== undefined && this.state.stats.deaths > a.maxDeaths) continue;
         if (a.maxSeconds !== undefined && this.finishedInMs / 1000 > a.maxSeconds) continue;
+      }
+      if (a.trigger === "room_progress") {
+        if (!a.roomProgress || !this.roomQuestSatisfied(a.roomProgress)) continue;
       }
       this.earnAchievement(a.id);
     }

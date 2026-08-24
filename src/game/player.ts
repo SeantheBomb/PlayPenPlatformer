@@ -23,6 +23,9 @@ export interface PlayerFrameEvents {
    *  should push away from HERE, not from the player's own center. */
   repelFromX?: number;
   inLiquidOrGoo: boolean;
+  /** Balloon tiles touched this frame (tile coords) — popped just from
+   *  contact, no swing required. See PlayPen CLAUDE.md room-progress note. */
+  poppedBalloons?: { tx: number; ty: number }[];
 }
 
 export class Player {
@@ -411,6 +414,9 @@ export class Player {
       // whether a given water tile repels can flip tick to tick.
       if (hit.def.repels || (hit.def.element === "water" && isElectrified?.(hit.tx, hit.ty))) {
         repelHit = hit;
+      }
+      if (hit.def.style === "balloon") {
+        (ev.poppedBalloons ??= []).push({ tx: hit.tx, ty: hit.ty });
       }
     }
 

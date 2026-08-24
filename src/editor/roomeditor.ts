@@ -4,7 +4,9 @@ import type { ContentStore } from "../data/content";
 import { TILE } from "../engine/tilemap";
 import { drawBlob, drawMap } from "../engine/renderer";
 import { RoomRuntime } from "../game/room";
-import { autoForm, el, fieldOptionsFor, toast } from "./forms";
+import { emptyRoomMutations } from "../game/state";
+import { tileProgress, entityProgress } from "../game/roomProgress";
+import { allNpcIds, autoForm, el, fieldOptionsFor, toast } from "./forms";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 
 // Matches ENTITY_SIZES.npc in game/room.ts — used only to fit the procedural
@@ -15,6 +17,13 @@ const NPC_W = 12, NPC_H = 16;
 // per-type rendering would otherwise show a second, redundant (and for
 // loadout, raw-JSON) editor for the same field.
 const SPRITE_KEYS = ["portrait", "sprite", "spriteFrames", "spriteFps", "loadout"];
+// NPC quest/gating fields get their own dedicated panel (npcQuestRow /
+// npcHelpedGatesRow below) instead of autoForm's generic textarea/JSON
+// widgets — richer UI, matches the polish bar of recent editor additions.
+const NPC_QUEST_KEYS = [
+  "npcId", "requiresHelped", "hiddenIfHelped", "wants", "roomQuest",
+  "rewardItems", "rewardRecipes",
+];
 
 type Tool =
   | { kind: "select" }
@@ -758,9 +767,10 @@ export class RoomEditor {
       capacitor: { offFuseId: "" },
       enemy: { enemy: firstEnemy, patrolMinX: tx - 3, patrolMaxX: tx + 3 },
       npc: {
-        name: "Prisoner", color: "#7fd8e8",
+        name: "Prisoner", color: "#7fd8e8", npcId: "",
         wants: { item: firstMaterial, count: 1 },
         rewardItems: [], rewardRecipes: [],
+        requiresHelped: [], hiddenIfHelped: [],
         dialogAsk: "Hey.", dialogDone: "Thanks!", dialogAfter: "Good luck.",
       },
       source: { sourceItem: firstMaterial, sourceAmount: -1 },
@@ -848,14 +858,26 @@ export class RoomEditor {
       // anything. If wiring is present, it's clearly meant to gate.
       if (!sel.gate && (s.openFuseId || s.closeFuseId || s.startOpen)) s.gate = true;
     }
+    // NPCs authored before npcId/requiresHelped/hiddenIfHelped existed (or
+    // by hand-editing room JSON, currently the only other way to set them)
+    // are missing those keys outright — same back-fill reasoning as above.
+    if (sel.type === "npc") {
+      const s = sel as unknown as Record<string, unknown>;
+      if (!("npcId" in s)) s.npcId = "";
+      if (!("requiresHelped" in s)) s.requiresHelped = [];
+      if (!("hiddenIfHelped" in s)) s.hiddenIfHelped = [];
+    }
     this.inspectorEl.append(
       el("div", { className: "pp-hint" }, `${sel.type} @ ${sel.x},${sel.y}`),
       autoForm(sel as unknown as Record<string, unknown>, () => {
         this.markDirty();
         this.renderCanvas();
-      }, SPRITE_KEYS, () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
+      }, sel.type === "npc" ? [...SPRITE_KEYS, ...NPC_QUEST_KEYS] : SPRITE_KEYS,
+      () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
       sel.type === "npc" ? this.npcPortraitRow(sel) : el("span", {}),
       sel.type === "npc" ? this.npcSpriteRow(sel) : el("span", {}),
+      sel.type === "npc" ? this.npcQuestRow(sel) : el("span", {}),
+      sel.type === "npc" ? this.npcHelpedGatesRow(sel) : el("span", {}),
       sel.type === "checkpoint" ? el("div", { className: "pp-btnrow" },
         el("button", {
           className: "pp-btn",
@@ -1091,6 +1113,211 @@ export class RoomEditor {
     );
   }
 
+  /** Quest type toggle (none / item trade / room progress) + reward-list
+   *  builder — replaces autoForm's raw JSON-ish rendering of wants/
+   *  roomQuest/rewardItems/rewardRecipes with a proper quest-builder panel.
+   *  Mutual exclusivity between wants/roomQuest is enforced by deletion,
+   *  same convention as schemaForm's FieldSpec.reveals groups. */
+  private npcQuestRow(sel: RoomEntity): HTMLElement {
+    const content = this.content;
+    const itemIds = content.items.map((i) => i.id);
+    const recipeIds = content.recipes.map((r) => r.id);
+    const roomIds = Object.keys(content.rooms);
+    const rerender = () => { this.markDirty(); this.renderInspector(); };
+    const opt = (value: string, label: string, selected: boolean) =>
+      el("option", { value, ...(selected ? { selected: true } : {}) }, label);
+
+    const mode = sel.roomQuest ? "roomProgress" : sel.wants ? "trade" : "none";
+    const modeSelect = el("select", {
+      onchange: (e) => {
+        this.pushUndo();
+        const v = (e.target as HTMLSelectElement).value;
+        delete sel.wants;
+        delete sel.roomQuest;
+        if (v === "trade") sel.wants = { item: itemIds[0] ?? "", count: 1 };
+        if (v === "roomProgress") {
+          sel.roomQuest = { roomId: this.room?.id ?? roomIds[0] ?? "", tileId: content.tiles[0]?.id };
+        }
+        rerender();
+      },
+    },
+      opt("none", "None", mode === "none"),
+      opt("trade", "Item Trade", mode === "trade"),
+      opt("roomProgress", "Room Progress", mode === "roomProgress"),
+    );
+
+    const body: HTMLElement[] = [];
+
+    if (mode === "trade" && sel.wants) {
+      const wants = sel.wants;
+      body.push(el("div", { className: "pp-row" },
+        el("label", {}, "item"),
+        el("select", {
+          onchange: (e) => { this.pushUndo(); wants.item = (e.target as HTMLSelectElement).value; rerender(); },
+        }, ...itemIds.map((id) => opt(id, id, id === wants.item))),
+        el("input", {
+          type: "number", value: wants.count, min: "1", step: "1",
+          oninput: (e) => {
+            const n = parseInt((e.target as HTMLInputElement).value, 10);
+            if (!Number.isNaN(n) && n > 0) { wants.count = n; this.markDirty(); }
+          },
+        }),
+      ));
+    }
+
+    if (mode === "roomProgress" && sel.roomQuest) {
+      const rq = sel.roomQuest;
+      const trackMode = rq.entityType ? "entity" : "tile";
+      body.push(
+        el("div", { className: "pp-row" },
+          el("label", {}, "room"),
+          el("select", {
+            onchange: (e) => { this.pushUndo(); rq.roomId = (e.target as HTMLSelectElement).value; rerender(); },
+          }, ...roomIds.map((id) => opt(id, id, id === rq.roomId))),
+        ),
+        el("div", { className: "pp-row" },
+          el("label", {}, "tracking"),
+          el("select", {
+            onchange: (e) => {
+              this.pushUndo();
+              const v = (e.target as HTMLSelectElement).value;
+              if (v === "tile") {
+                delete rq.entityType; delete rq.entityField;
+                rq.tileId = content.tiles[0]?.id ?? "";
+              } else {
+                delete rq.tileId;
+                rq.entityType = "brazier"; rq.entityField = "lit";
+              }
+              rerender();
+            },
+          },
+            opt("tile", "Tile (popped / burned / melted...)", trackMode === "tile"),
+            opt("entity", "Entity (open / lit)", trackMode === "entity"),
+          ),
+        ),
+      );
+      if (trackMode === "tile") {
+        body.push(el("div", { className: "pp-row" },
+          el("label", {}, "tile id"),
+          el("select", {
+            onchange: (e) => { this.pushUndo(); rq.tileId = (e.target as HTMLSelectElement).value; rerender(); },
+          }, ...content.tiles.map((t) => opt(t.id, `${t.id} — ${t.name}`, t.id === rq.tileId))),
+        ));
+      } else {
+        body.push(
+          el("div", { className: "pp-row" },
+            el("label", {}, "entity type"),
+            el("select", {
+              onchange: (e) => { this.pushUndo(); rq.entityType = (e.target as HTMLSelectElement).value; rerender(); },
+            }, ...ENTITY_TYPES.map((t) => opt(t, t, t === rq.entityType))),
+          ),
+          el("div", { className: "pp-row" },
+            el("label", {}, "field"),
+            el("select", {
+              onchange: (e) => {
+                this.pushUndo();
+                rq.entityField = (e.target as HTMLSelectElement).value as "open" | "lit";
+                rerender();
+              },
+            },
+              opt("open", "open", rq.entityField === "open"),
+              opt("lit", "lit", rq.entityField === "lit"),
+            ),
+          ),
+        );
+      }
+      const targetRoom = content.rooms[rq.roomId];
+      const progress = targetRoom
+        ? (rq.tileId
+            ? tileProgress(targetRoom, content, emptyRoomMutations(), rq.tileId)
+            : entityProgress(targetRoom, emptyRoomMutations(), rq.entityType ?? "", rq.entityField ?? "open"))
+        : { total: 0, done: 0 };
+      body.push(el("p", { className: "pp-hint" },
+        `${progress.done} / ${progress.total} in "${rq.roomId}" as authored (a fresh run, no progress applied)`));
+    }
+
+    const rewardItems = sel.rewardItems ?? (sel.rewardItems = []);
+    const rewardRows = rewardItems.map((r, i) => el("div", { className: "pp-row" },
+      el("label", {}, `reward ${i + 1}`),
+      el("select", {
+        onchange: (e) => { this.pushUndo(); r.item = (e.target as HTMLSelectElement).value; rerender(); },
+      }, ...itemIds.map((id) => opt(id, id, id === r.item))),
+      el("input", {
+        type: "number", value: r.count, min: "1", step: "1",
+        oninput: (e) => {
+          const n = parseInt((e.target as HTMLInputElement).value, 10);
+          if (!Number.isNaN(n) && n > 0) { r.count = n; this.markDirty(); }
+        },
+      }),
+      el("button", {
+        className: "pp-btn pp-danger",
+        onclick: () => { this.pushUndo(); rewardItems.splice(i, 1); rerender(); },
+      }, "✕"),
+    ));
+    const rewardRecipes = sel.rewardRecipes ?? (sel.rewardRecipes = []);
+    const recipeRows = rewardRecipes.map((rid, i) => el("div", { className: "pp-row" },
+      el("label", {}, `recipe ${i + 1}`),
+      el("select", {
+        onchange: (e) => { this.pushUndo(); rewardRecipes[i] = (e.target as HTMLSelectElement).value; rerender(); },
+      }, ...recipeIds.map((id) => opt(id, id, id === rid))),
+      el("button", {
+        className: "pp-btn pp-danger",
+        onclick: () => { this.pushUndo(); rewardRecipes.splice(i, 1); rerender(); },
+      }, "✕"),
+    ));
+
+    return el("div", { className: "pp-form" }, el("fieldset", {},
+      el("legend", {}, "Quest"),
+      el("div", { className: "pp-row" }, el("label", {}, "type"), modeSelect),
+      ...body,
+      ...rewardRows,
+      ...recipeRows,
+      el("div", { className: "pp-btnrow" },
+        el("button", {
+          className: "pp-btn",
+          onclick: () => { this.pushUndo(); rewardItems.push({ item: itemIds[0] ?? "", count: 1 }); rerender(); },
+        }, "+ reward item"),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => { this.pushUndo(); rewardRecipes.push(recipeIds[0] ?? ""); rerender(); },
+        }, "+ reward recipe"),
+      ),
+    ));
+  }
+
+  /** requiresHelped/hiddenIfHelped as chip checklists over every other
+   *  NPC's npcId, instead of autoForm's raw newline-separated textareas. */
+  private npcHelpedGatesRow(sel: RoomEntity): HTMLElement {
+    const ids = allNpcIds(this.content).filter((id) => id !== sel.npcId);
+    const rerender = () => { this.markDirty(); this.renderInspector(); };
+    const requiresHelped = sel.requiresHelped ?? (sel.requiresHelped = []);
+    const hiddenIfHelped = sel.hiddenIfHelped ?? (sel.hiddenIfHelped = []);
+    const chipList = (arr: string[]) => el("div", { className: "pp-chiplist" },
+      ...(ids.length === 0
+        ? [el("span", { className: "pp-hint" }, "no other NPCs have an npcId set yet")]
+        : ids.map((id) => el("label", { className: "pp-chip" },
+            el("input", {
+              type: "checkbox", ...(arr.includes(id) ? { checked: true } : {}),
+              onchange: (e) => {
+                this.pushUndo();
+                const checked = (e.target as HTMLInputElement).checked;
+                const i = arr.indexOf(id);
+                if (checked && i === -1) arr.push(id);
+                if (!checked && i !== -1) arr.splice(i, 1);
+                rerender();
+              },
+            }),
+            id,
+          ))
+      ),
+    );
+    return el("div", { className: "pp-form" }, el("fieldset", {},
+      el("legend", {}, "Spawn Gating"),
+      el("div", { className: "pp-row" }, el("label", {}, "requires helped"), chipList(requiresHelped)),
+      el("div", { className: "pp-row" }, el("label", {}, "hidden if helped"), chipList(hiddenIfHelped)),
+    ));
+  }
+
   private normalizeTiles(): void {
     const room = this.room;
     if (!room) return;
@@ -1116,14 +1343,8 @@ export class RoomEditor {
     ctx.fillRect(0, 0, room.width * TILE, room.height * TILE);
 
     // Real runtime preview: same rendering the game uses.
-    const emptyMuts = {
-      collected: new Set<number>(), tileOverrides: [], openedDoors: new Set<number>(),
-      gateTouched: new Set<number>(),
-      helpedNpcs: new Set<number>(), disabledEnemies: new Set<number>(), drops: [],
-      placedItems: [], brazierLit: [], sourceAmounts: [],
-    };
     try {
-      const rt = new RoomRuntime(room, this.content, emptyMuts);
+      const rt = new RoomRuntime(room, this.content, emptyRoomMutations());
       drawMap(ctx, rt.map, 0, 0, room.width * TILE, room.height * TILE, 0);
       rt.draw(ctx, 0);
       this.drawOverlays(ctx, room, rt.spawnX, rt.spawnY);

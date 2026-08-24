@@ -144,6 +144,12 @@ const CSS = `
   padding:8px 14px; border-radius:6px; z-index:99; font:12px monospace; }
 .pp-toast-bad { background:#4a2432; color:#ffe8ee; }
 .pp-sep { color:#3a3550; margin:0 4px; }
+/* Quest builder (NPC inspector): requiresHelped/hiddenIfHelped chip lists */
+.pp-chiplist { display:flex; flex-wrap:wrap; gap:6px; flex:1; }
+.pp-chip { display:flex; align-items:center; gap:4px; background:#100e1a;
+  border:1px solid #3a3550; border-radius:12px; padding:2px 8px; font-size:11px;
+  color:#bbb3d6; cursor:pointer; }
+.pp-chip input { margin:0; }
 /* Room editor */
 .pp-roomeditor { display:flex; gap:12px; align-items:flex-start; }
 .pp-sidebar { width:230px; flex:none; background:#1a1626; border:1px solid #2c2740;

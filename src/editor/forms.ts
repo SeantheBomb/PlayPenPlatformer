@@ -70,7 +70,7 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     enemy: enemyIds,
     burnsTo: tileIds, meltsTo: tileIds, freezesTo: tileIds,
     shattersTo: tileIds, dissolvesTo: tileIds, extinguishesTo: tileIds,
-    fallSpawns: tileIds, dropsItem: itemIds,
+    fallSpawns: tileIds, dropsItem: itemIds, tileId: content.tiles.map((t) => t.id),
     recipe: recipeIds,
     track: trackIds, defaultTrackId: trackIds,
     // Closed enums from the schema itself
@@ -95,6 +95,20 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     emotion: ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"],
   };
   return (key) => map[key];
+}
+
+/** Every stable NPC identity currently authored anywhere in content — npcId
+ *  values live on scattered RoomEntity instances inside content.rooms, not
+ *  in a top-level array like items/enemies/etc., so this needs its own scan
+ *  rather than fitting into fieldOptionsFor's map. */
+export function allNpcIds(content: Content): string[] {
+  const ids = new Set<string>();
+  for (const room of Object.values(content.rooms)) {
+    for (const e of room.entities) {
+      if (e.type === "npc" && e.npcId) ids.add(e.npcId);
+    }
+  }
+  return [...ids];
 }
 
 let datalistSeq = 0;

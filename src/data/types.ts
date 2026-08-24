@@ -348,7 +348,21 @@ export type AchievementTrigger =
   | "pickup_item" // itemId filter (hidden curios)
   | "counter"     // counter name reaches count
   | "npc_help"
+  | "room_progress" // roomProgress condition fully satisfied — see RoomQuest
   | "win";        // optional maxDeaths / maxSeconds filters
+
+/** A "how many of tile/entity type X have been affected, out of how many
+ *  exist in this room" condition — an NPC's quest (RoomEntity.roomQuest) and
+ *  an achievement's room_progress trigger (AchievementDef.roomProgress)
+ *  share this exact shape. Satisfied when total > 0 && done === total (see
+ *  src/game/roomProgress.ts). tileId and entityType are mutually exclusive;
+ *  entityField is required when entityType is set. */
+export interface RoomQuest {
+  roomId: string;
+  tileId?: string;
+  entityType?: string;
+  entityField?: "open" | "lit";
+}
 
 export interface AchievementDef {
   id: string;
@@ -361,6 +375,7 @@ export interface AchievementDef {
   count?: number;
   maxDeaths?: number;
   maxSeconds?: number;
+  roomProgress?: RoomQuest;
   wardenLine: string;
   emotion: WardenEmotion;
 }
@@ -456,6 +471,10 @@ export interface RoomEntity extends SpriteFields {
   // `sprite`/`spriteFrames` (from SpriteFields, above) override this NPC's
   // in-room body — separate from `portrait`, which is the dialog-box face.
   wants?: { item: string; count: number };
+  /** Alternative to `wants` — quest is "give-able" once this room's progress
+   *  condition is fully satisfied (see RoomQuest), instead of the player
+   *  carrying an item. Mutually exclusive with `wants`. */
+  roomQuest?: RoomQuest;
   rewardItems?: { item: string; count: number }[];
   rewardRecipes?: string[];
   dialogAsk?: string;

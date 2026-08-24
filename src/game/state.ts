@@ -37,6 +37,25 @@ export interface RoomMutations {
   sourceAmounts: [number, number][]; // entity index -> remaining stock override
 }
 
+/** The canonical "never mutated" RoomMutations literal — shared by
+ *  RunState.mutations(), and by anything (room-progress queries, the
+ *  editor's live quest preview) that needs to treat an unvisited room as
+ *  fully pristine without allocating a real entry in roomStates. */
+export function emptyRoomMutations(): RoomMutations {
+  return {
+    collected: new Set(),
+    tileOverrides: [],
+    openedDoors: new Set(),
+    gateTouched: new Set(),
+    helpedNpcs: new Set(),
+    disabledEnemies: new Set(),
+    drops: [],
+    placedItems: [],
+    brazierLit: [],
+    sourceAmounts: [],
+  };
+}
+
 export interface RunStats {
   deaths: number;
   crafts: number;
@@ -192,21 +211,17 @@ export class RunState {
   mutations(roomId: string): RoomMutations {
     let m = this.roomStates.get(roomId);
     if (!m) {
-      m = {
-        collected: new Set(),
-        tileOverrides: [],
-        openedDoors: new Set(),
-        gateTouched: new Set(),
-        helpedNpcs: new Set(),
-        disabledEnemies: new Set(),
-        drops: [],
-        placedItems: [],
-        brazierLit: [],
-        sourceAmounts: [],
-      };
+      m = emptyRoomMutations();
       this.roomStates.set(roomId, m);
     }
     return m;
+  }
+
+  /** Pure read — unlike mutations(), never allocates a room entry as a side
+   *  effect. For queries (room progress, achievements) that need to check a
+   *  room the player may never have set foot in. */
+  peekMutations(roomId: string): RoomMutations | undefined {
+    return this.roomStates.get(roomId);
   }
 
   item(id: string): ItemDef | undefined {
