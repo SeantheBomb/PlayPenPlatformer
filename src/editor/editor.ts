@@ -355,6 +355,11 @@ class EditorShell {
         el("span", { style: "flex:1" }),
         el("button", { className: "pp-btn", onclick: () => this.exportAll() }, "Export JSON"),
         el("button", { className: "pp-btn", onclick: () => this.importAll() }, "Import JSON"),
+        el("button", {
+          className: "pp-btn",
+          title: "One row per campaign room; one column per enemy/character/tile/entity/item/recipe — import into Google Sheets",
+          onclick: () => this.exportMacrodesignCsv(),
+        }, "Export macrodesign.csv"),
         el("span", { className: "pp-hint" }, "Ctrl+Shift+E to close")
       ),
       this.bodyEl
@@ -1551,5 +1556,101 @@ class EditorShell {
       }
     };
     input.click();
+  }
+
+  /** A macro-design coverage matrix: one row per campaign room (in campaign
+   *  order), one column per enemy/character(npc)/tile/entity-type/item/recipe
+   *  — "1" if that room includes it, blank otherwise. Presence is derived
+   *  from the room's own data (char-map for tiles, entity fields for
+   *  everything else), not hand-maintained, so it can't drift from the
+   *  actual content. Meant to be opened in Google Sheets for a bird's-eye
+   *  view of what each room teaches/reuses across the whole campaign. */
+  private exportMacrodesignCsv(): void {
+    const c = this.store.content;
+
+    const enemyCols = c.enemies.map((e) => ({ key: e.id, label: e.name || e.id }));
+    const tileCols = c.tiles.map((t) => ({ key: t.id, label: t.name || t.id }));
+    const itemCols = c.items.map((i) => ({ key: i.id, label: i.name || i.id }));
+    const recipeCols = c.recipes.map((r) => ({ key: r.id, label: r.id }));
+
+    // Entity-type columns: every RoomEntity.type actually used in a room,
+    // minus "enemy"/"npc" — those already get their own column groups above.
+    const entityTypes = new Set<string>();
+    // Character columns: distinct npcId (cast identity) across all rooms.
+    const npcLabels = new Map<string, string>(); // npcId -> display name
+    for (const room of Object.values(c.rooms)) {
+      for (const e of room.entities) {
+        if (e.type === "npc") npcLabels.set(e.npcId || e.name || "npc", e.name || e.npcId || "npc");
+        else if (e.type !== "enemy") entityTypes.add(e.type);
+      }
+    }
+    const charCols = [...npcLabels.entries()].map(([key, label]) => ({ key, label }));
+    const entityCols = [...entityTypes].sort().map((t) => ({ key: t, label: t }));
+
+    const charToTileId = new Map(c.tiles.map((t) => [t.char, t.id]));
+
+    const header = [
+      "Order", "Level Name", "Level Title",
+      ...enemyCols.map((x) => `Enemy: ${x.label}`),
+      ...charCols.map((x) => `Character: ${x.label}`),
+      ...tileCols.map((x) => `Tile: ${x.label}`),
+      ...entityCols.map((x) => `Entity: ${x.label}`),
+      ...itemCols.map((x) => `Item: ${x.label}`),
+      ...recipeCols.map((x) => `Recipe: ${x.label}`),
+    ];
+    const rows = [header];
+
+    c.campaign.rooms.forEach((roomId, i) => {
+      const room = c.rooms[roomId];
+      if (!room) return; // campaign lists a room that no longer exists — skip it
+
+      const tilesPresent = new Set<string>();
+      for (const rowStr of room.tiles) {
+        for (const ch of rowStr) {
+          const tileId = charToTileId.get(ch);
+          if (tileId) tilesPresent.add(tileId);
+        }
+      }
+      const enemiesPresent = new Set<string>();
+      const npcsPresent = new Set<string>();
+      const entitiesPresent = new Set<string>();
+      const itemsPresent = new Set<string>();
+      const recipesPresent = new Set<string>();
+      for (const e of room.entities) {
+        if (e.type === "enemy" && e.enemy) enemiesPresent.add(e.enemy);
+        if (e.type === "npc") npcsPresent.add(e.npcId || e.name || "npc");
+        if (e.type !== "enemy" && e.type !== "npc") entitiesPresent.add(e.type);
+        if (e.item) itemsPresent.add(e.item);
+        if (e.wants?.item) itemsPresent.add(e.wants.item);
+        for (const ri of e.rewardItems ?? []) itemsPresent.add(ri.item);
+        for (const li of e.loadout ?? []) itemsPresent.add(li.item);
+        if (e.sourceItem) itemsPresent.add(e.sourceItem);
+        if (e.convertInput) itemsPresent.add(e.convertInput);
+        if (e.convertOutput) itemsPresent.add(e.convertOutput);
+        if (e.recipe) recipesPresent.add(e.recipe);
+        for (const rr of e.rewardRecipes ?? []) recipesPresent.add(rr);
+      }
+
+      const cell = (present: boolean) => (present ? "1" : "");
+      rows.push([
+        String(i + 1), room.id, room.name,
+        ...enemyCols.map((x) => cell(enemiesPresent.has(x.key))),
+        ...charCols.map((x) => cell(npcsPresent.has(x.key))),
+        ...tileCols.map((x) => cell(tilesPresent.has(x.key))),
+        ...entityCols.map((x) => cell(entitiesPresent.has(x.key))),
+        ...itemCols.map((x) => cell(itemsPresent.has(x.key))),
+        ...recipeCols.map((x) => cell(recipesPresent.has(x.key))),
+      ]);
+    });
+
+    const csvCell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "macrodesign.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(`Exported macrodesign.csv (${rows.length - 1} rooms).`);
   }
 }
