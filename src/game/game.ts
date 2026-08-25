@@ -1403,20 +1403,23 @@ export class Game {
       this.overlay = "dialog";
       return;
     }
-    const wants = d.wants;
-    const ready = d.roomQuest
-      ? this.roomQuestSatisfied(d.roomQuest)
-      : !!(wants && this.state.has(wants.item, wants.count));
-    if (ready) {
-      if (d.dialogConfirm) {
-        this.overlayText = d.dialogConfirm;
-      } else if (wants) {
-        // They can SEE you have it — confirm before handing it over.
-        const itemName = this.state.item(wants.item)?.name ?? wants.item;
-        this.overlayText = `Is that... a ${itemName}? It IS. Hand it over?`;
+    if (d.roomQuest) {
+      // Nothing to hand over — a room-progress quest resolves the instant
+      // it's satisfied, straight to the "done" dialog, no confirm prompt.
+      if (this.roomQuestSatisfied(d.roomQuest)) {
+        this.giveNpc(e);
       } else {
-        this.overlayText = "You actually did it?";
+        this.overlayText = d.dialogAsk ?? "...";
+        this.overlay = "dialog";
       }
+      return;
+    }
+    const wants = d.wants;
+    if (wants && this.state.has(wants.item, wants.count)) {
+      // They can SEE you have it — confirm before handing it over.
+      const itemName = this.state.item(wants.item)?.name ?? wants.item;
+      this.overlayText =
+        d.dialogConfirm ?? `Is that... a ${itemName}? It IS. Hand it over?`;
       this.overlay = "npcConfirm";
     } else {
       this.overlayText = d.dialogAsk ?? "...";
