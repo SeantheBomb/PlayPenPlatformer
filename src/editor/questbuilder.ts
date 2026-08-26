@@ -6,7 +6,7 @@
 // where it is" split as the pixel editor pop-out.
 import type { Content, NpcAvatar, RoomEntity } from "../data/types";
 import { drawNpcAvatar } from "../engine/renderer";
-import { tileProgress, entityProgress } from "../game/roomProgress";
+import { tileProgress, entityProgress, enemyProgress } from "../game/roomProgress";
 import { emptyRoomMutations } from "../game/state";
 import { allNpcIds, el } from "./forms";
 
@@ -257,7 +257,8 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
 
     if (mode === "roomProgress" && sel.roomQuest) {
       const rq = sel.roomQuest;
-      const trackMode = rq.entityType ? "entity" : "tile";
+      const enemyIds = content.enemies.map((e) => e.id);
+      const trackMode = rq.enemyId ? "enemy" : rq.entityType ? "entity" : "tile";
       body.push(
         fieldWrap("Room", el("select", {
           onchange: (e) => mutate(() => { rq.roomId = (e.target as HTMLSelectElement).value; }),
@@ -265,24 +266,22 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
         fieldWrap("Tracking", el("select", {
           onchange: (e) => mutate(() => {
             const v = (e.target as HTMLSelectElement).value;
-            if (v === "tile") {
-              delete rq.entityType; delete rq.entityField;
-              rq.tileId = content.tiles[0]?.id ?? "";
-            } else {
-              delete rq.tileId;
-              rq.entityType = "brazier"; rq.entityField = "lit";
-            }
+            delete rq.tileId; delete rq.entityType; delete rq.entityField; delete rq.enemyId;
+            if (v === "tile") rq.tileId = content.tiles[0]?.id ?? "";
+            else if (v === "entity") { rq.entityType = "brazier"; rq.entityField = "lit"; }
+            else rq.enemyId = enemyIds[0] ?? "";
           }),
         },
           opt("tile", "Tile (popped / burned / melted...)", trackMode === "tile"),
           opt("entity", "Entity (open / lit)", trackMode === "entity"),
+          opt("enemy", "Enemy (destroyed)", trackMode === "enemy"),
         ))
       );
       if (trackMode === "tile") {
         body.push(fieldWrap("Tile id", el("select", {
           onchange: (e) => mutate(() => { rq.tileId = (e.target as HTMLSelectElement).value; }),
         }, ...content.tiles.map((t) => opt(t.id, `${t.id} — ${t.name}`, t.id === rq.tileId)))));
-      } else {
+      } else if (trackMode === "entity") {
         body.push(
           fieldWrap("Entity type", el("select", {
             onchange: (e) => mutate(() => { rq.entityType = (e.target as HTMLSelectElement).value; }),
@@ -294,12 +293,19 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
             opt("lit", "lit", rq.entityField === "lit"),
           ))
         );
+      } else {
+        body.push(fieldWrap("Enemy", el("select", {
+          onchange: (e) => mutate(() => { rq.enemyId = (e.target as HTMLSelectElement).value; }),
+        }, ...enemyIds.map((id) => opt(id, id, id === rq.enemyId))),
+          "Stuns wear off, so only destroyed enemies count — a killed enemy stays gone for the rest of the run."));
       }
       const targetRoom = content.rooms[rq.roomId];
       const progress = targetRoom
         ? (rq.tileId
             ? tileProgress(targetRoom, content, emptyRoomMutations(), rq.tileId)
-            : entityProgress(targetRoom, emptyRoomMutations(), rq.entityType ?? "", rq.entityField ?? "open"))
+            : rq.enemyId
+              ? enemyProgress(targetRoom, emptyRoomMutations(), rq.enemyId)
+              : entityProgress(targetRoom, emptyRoomMutations(), rq.entityType ?? "", rq.entityField ?? "open"))
         : { total: 0, done: 0 };
       body.push(el("p", { className: "pp-hint" },
         `${progress.done} / ${progress.total} in "${rq.roomId}" as authored (a fresh run, no progress applied)`));

@@ -7,23 +7,25 @@
 // setBrazierLit or the openedDoors call sites.
 import { describe, expect, it } from "vitest";
 import { RoomRuntime, type EntityInstance } from "../src/game/room";
-import { tileProgress, entityProgress } from "../src/game/roomProgress";
+import { tileProgress, entityProgress, enemyProgress } from "../src/game/roomProgress";
 import { emptyRoomMutations } from "../src/game/state";
-import type { Content, RoomDef, RoomEntity, TileDef } from "../src/data/types";
+import type { Content, EnemyDef, RoomDef, RoomEntity, TileDef } from "../src/data/types";
 import type { RoomMutations } from "../src/game/state";
 import { setSimTime } from "../src/engine/simclock";
 import tilesJson from "../content/tiles.json";
 import gameJson from "../content/game.json";
 import behaviorsJson from "../content/behaviors.json";
+import enemiesJson from "../content/enemies.json";
 import rulesJson from "../content/rules.json";
 
 const TILES = tilesJson as TileDef[];
+const ENEMIES = enemiesJson as EnemyDef[];
 
-function makeContent(): Content {
+function makeContent(withEnemies = false): Content {
   return {
     game: gameJson as Content["game"],
     elements: [], behaviors: behaviorsJson as never, rules: rulesJson,
-    achievements: [], tiles: TILES, items: [], recipes: [], enemies: [],
+    achievements: [], tiles: TILES, items: [], recipes: [], enemies: withEnemies ? ENEMIES : [],
     taunts: [], campaign: { rooms: [] }, rooms: {},
   } as unknown as Content;
 }
@@ -35,8 +37,10 @@ function makeRoomDef(rows: string[], entities: RoomEntity[] = []): RoomDef {
   } as RoomDef;
 }
 
-function makeRoom(rows: string[], entities: RoomEntity[] = [], muts = emptyRoomMutations()) {
-  return { rt: new RoomRuntime(makeRoomDef(rows, entities), makeContent(), muts), muts };
+function makeRoom(
+  rows: string[], entities: RoomEntity[] = [], muts = emptyRoomMutations(), withEnemies = false
+) {
+  return { rt: new RoomRuntime(makeRoomDef(rows, entities), makeContent(withEnemies), muts), muts };
 }
 
 const find = (rt: RoomRuntime, kind: string): EntityInstance =>
@@ -134,6 +138,59 @@ describe("entityProgress derives from openedDoors/brazierLit, no persisted count
       { type: "door", x: 3, y: 0, gate: true, startOpen: false } as RoomEntity,
     ]);
     expect(rt.entityProgress("door", "open")).toEqual({ total: 2, done: 1 });
+  });
+});
+
+describe("enemyProgress derives from disabledEnemies, no persisted counter needed", () => {
+  const rows = ["#..........#", "#..........#", "############"];
+  const enemyEntity = (x: number, y: number, id: string): RoomEntity =>
+    ({ type: "enemy", x, y, enemy: id, patrolMinX: x - 2, patrolMaxX: x + 2 } as RoomEntity);
+
+  it("reports 0/2 for a fresh room with two crawlers", () => {
+    const { rt } = makeRoom(rows, [enemyEntity(2, 1, "crawler"), enemyEntity(8, 1, "crawler")], undefined, true);
+    expect(rt.enemyProgress("crawler")).toEqual({ total: 2, done: 0 });
+  });
+
+  it("killing one crawler (fire) reports 1/2 and marks it permanently gone", () => {
+    const { rt, muts } = makeRoom(rows, [enemyEntity(2, 1, "crawler"), enemyEntity(8, 1, "crawler")], undefined, true);
+    const en = rt.enemies[0];
+    const idx = en.index;
+    const events = rt.applyElementToEnemies("fire", { x: en.x - 2, y: en.y - 2, w: 24, h: 24 }, 3000);
+    expect(events.some((e) => e.effect === "enemy_kill")).toBe(true);
+    expect(muts.disabledEnemies.has(idx)).toBe(true);
+    expect(rt.enemyProgress("crawler")).toEqual({ total: 2, done: 1 });
+    expect(rt.progressDirty).toBe(true); // room_progress achievements re-check promptly
+  });
+
+  it("killing every crawler in the room reports 2/2", () => {
+    const { rt } = makeRoom(rows, [enemyEntity(2, 1, "crawler"), enemyEntity(8, 1, "crawler")], undefined, true);
+    for (const en of [...rt.enemies]) {
+      rt.applyElementToEnemies("fire", { x: en.x - 2, y: en.y - 2, w: 24, h: 24 }, 3000);
+    }
+    expect(rt.enemyProgress("crawler")).toEqual({ total: 2, done: 2 });
+  });
+
+  it("survives a room reload — progress reads from persisted disabledEnemies", () => {
+    const muts = emptyRoomMutations();
+    const first = makeRoom(rows, [enemyEntity(2, 1, "crawler")], muts, true);
+    const en = first.rt.enemies[0];
+    first.rt.applyElementToEnemies("fire", { x: en.x - 2, y: en.y - 2, w: 24, h: 24 }, 3000);
+    expect(first.rt.enemyProgress("crawler")).toEqual({ total: 1, done: 1 });
+    const second = makeRoom(rows, [enemyEntity(2, 1, "crawler")], muts, true); // fresh RoomRuntime, same persisted mutations
+    expect(second.rt.enemyProgress("crawler")).toEqual({ total: 1, done: 1 });
+  });
+
+  it("a room this player never visited reads as fully un-destroyed via emptyRoomMutations()", () => {
+    const room = makeRoomDef(rows, [enemyEntity(2, 1, "crawler")]);
+    expect(enemyProgress(room, emptyRoomMutations(), "crawler")).toEqual({ total: 1, done: 0 });
+  });
+
+  it("stuns don't count — only destruction persists", () => {
+    const { rt } = makeRoom(rows, [enemyEntity(2, 1, "crawler")], undefined, true);
+    const en = rt.enemies[0];
+    const events = rt.applyElementToEnemies("ice", { x: en.x - 2, y: en.y - 2, w: 24, h: 24 }, 3000);
+    expect(events.some((e) => e.effect === "enemy_stun")).toBe(true);
+    expect(rt.enemyProgress("crawler")).toEqual({ total: 1, done: 0 });
   });
 });
 

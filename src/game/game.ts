@@ -11,7 +11,7 @@ import { TILE } from "../engine/tilemap";
 import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawSprite, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
 import { RunState, emptyRoomMutations, type StateSnapshot } from "./state";
-import { tileProgress, entityProgress, type Progress } from "./roomProgress";
+import { tileProgress, entityProgress, enemyProgress, type Progress } from "./roomProgress";
 import { Player, type PlayerSnapshot } from "./player";
 import {
   RoomRuntime, type ElementEvent, type EntityInstance,
@@ -1383,6 +1383,7 @@ export class Game {
     const room = this.content.rooms[rq.roomId];
     if (!room) return { total: 0, done: 0 };
     const muts = this.state.peekMutations(rq.roomId) ?? emptyRoomMutations();
+    if (rq.enemyId) return enemyProgress(room, muts, rq.enemyId);
     return rq.tileId
       ? tileProgress(room, this.content, muts, rq.tileId)
       : entityProgress(room, muts, rq.entityType ?? "", rq.entityField ?? "open");

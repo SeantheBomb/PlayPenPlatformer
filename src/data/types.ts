@@ -351,17 +351,21 @@ export type AchievementTrigger =
   | "room_progress" // roomProgress condition fully satisfied — see RoomQuest
   | "win";        // optional maxDeaths / maxSeconds filters
 
-/** A "how many of tile/entity type X have been affected, out of how many
- *  exist in this room" condition — an NPC's quest (RoomEntity.roomQuest) and
- *  an achievement's room_progress trigger (AchievementDef.roomProgress)
+/** A "how many of tile/entity/enemy type X have been affected, out of how
+ *  many exist in this room" condition — an NPC's quest (RoomEntity.roomQuest)
+ *  and an achievement's room_progress trigger (AchievementDef.roomProgress)
  *  share this exact shape. Satisfied when total > 0 && done === total (see
- *  src/game/roomProgress.ts). tileId and entityType are mutually exclusive;
- *  entityField is required when entityType is set. */
+ *  src/game/roomProgress.ts). tileId, entityType, and enemyId are mutually
+ *  exclusive; entityField is required when entityType is set. enemyId only
+ *  tracks destruction (killed enemies stay permanently removed via
+ *  RoomMutations.disabledEnemies) — stuns wear off, so there's nothing
+ *  persisted to check later the way a kill leaves behind. */
 export interface RoomQuest {
   roomId: string;
   tileId?: string;
   entityType?: string;
   entityField?: "open" | "lit";
+  enemyId?: string;
 }
 
 export interface AchievementDef {

@@ -59,3 +59,20 @@ export function entityProgress(
   });
   return { total, done };
 }
+
+/** How many enemies of `enemyId` in the room have been destroyed, out of
+ *  how many are authored there. Reuses `disabledEnemies` — the same
+ *  persisted set RoomRuntime already checks to keep a killed enemy from
+ *  respawning on a later visit (room.ts, `disabledEnemies.has(index)`) —
+ *  so "destroy all X here" resolves for any room, visited or not, exactly
+ *  like tile/entity progress. Stuns aren't tracked: they wear off, so
+ *  there's nothing persisted to check later the way a kill leaves behind. */
+export function enemyProgress(room: RoomDef, muts: RoomMutations, enemyId: string): Progress {
+  let total = 0, done = 0;
+  room.entities.forEach((e, idx) => {
+    if (e.type !== "enemy" || e.enemy !== enemyId) return;
+    total++;
+    if (muts.disabledEnemies.has(idx)) done++;
+  });
+  return { total, done };
+}

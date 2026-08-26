@@ -10,7 +10,7 @@ import { dist, randRange, rectsOverlap, type Rect } from "../engine/math";
 import { simNow } from "../engine/simclock";
 import { Rng } from "../engine/rng";
 import type { PlacedItem, RoomMutations, ScatterDrop } from "./state";
-import { entityProgress, tileProgress, type Progress } from "./roomProgress";
+import { enemyProgress, entityProgress, tileProgress, type Progress } from "./roomProgress";
 import {
   BehaviorSystem, enemyAttachments, enemyResetState,
   registerFn, type ScriptCtx,
@@ -2013,6 +2013,10 @@ export class RoomRuntime {
     return entityProgress(this.room, this.muts, entityType, field);
   }
 
+  enemyProgress(enemyId: string): Progress {
+    return enemyProgress(this.room, this.muts, enemyId);
+  }
+
   isBurning(tx: number, ty: number): boolean {
     return this.burning.has(this.map.index(tx, ty));
   }
@@ -3195,6 +3199,7 @@ function applyReaction(ctx: ScriptCtx, reaction: EnemyReaction, msOverride?: num
       en.state = "trapped"; // reuse: removed from play
       rt.muts.disabledEnemies.add(en.index);
       rt.enemies = rt.enemies.filter((e) => e !== en);
+      rt.progressDirty = true; // room_progress achievements re-check promptly
       break;
     case "stun":
       en.state = "stunned";
@@ -3434,6 +3439,7 @@ registerFn("checkTraps", (ctx) => {
       p.data.used = true;
       en.state = "trapped";
       rt.muts.disabledEnemies.add(en.index);
+      rt.progressDirty = true; // room_progress achievements re-check promptly
     }
   }
   return undefined;
