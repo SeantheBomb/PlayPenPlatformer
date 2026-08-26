@@ -199,6 +199,47 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 .pp-portraitgrid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:8px; }
 .pp-portraitcell { background:#161226; border:1px solid #2c2740; border-radius:6px; padding:8px;
   display:flex; flex-direction:column; align-items:center; gap:5px; }
+/* Quest Builder modal (questbuilder.ts) — reuses .pp-pixmodal's overlay,
+   its own wider panel since this form has real content (dialog/quest/
+   gating), not a pixel grid. */
+.pp-questpanel { background:#1a1626; border:1px solid #3a3550; border-radius:8px; padding:16px;
+  color:#d8d2ec; font:12px "Segoe UI", system-ui, sans-serif; width:min(900px, 92vw);
+  max-height:88vh; display:flex; flex-direction:column; box-shadow:0 12px 40px rgba(0,0,0,0.6); }
+.pp-questhead { display:flex; align-items:center; gap:10px; padding-bottom:12px; margin-bottom:12px;
+  border-bottom:1px solid #2c2740; }
+.pp-questclose { color:#8f87ad; font-size:13px; cursor:pointer; }
+.pp-questclose:hover { color:#e8e2f4; }
+.pp-questbody { display:flex; gap:16px; flex:1; min-height:0; overflow:hidden; }
+.pp-questnav { width:170px; flex:none; display:flex; flex-direction:column; gap:2px; }
+.pp-questnavitem { padding:8px 10px; border-radius:5px; font-size:12px; cursor:pointer; color:#bbb3d6; }
+.pp-questnavitem:hover { background:#241f36; }
+.pp-questnavitem.pp-active { background:#3d3556; color:#fff; font-weight:600; }
+.pp-questcontent { flex:1; min-width:0; overflow-y:auto; padding-right:4px; }
+.pp-questfield { margin-bottom:14px; }
+.pp-questfieldlabel { color:#8f87ad; font-size:10px; font-weight:700; letter-spacing:0.5px;
+  margin-bottom:5px; text-transform:uppercase; }
+.pp-questfieldhint { color:#6a6485; font-size:10px; margin-top:4px; }
+.pp-questcontent input[type=text], .pp-questcontent input[type=number], .pp-questcontent textarea,
+.pp-questcontent select { width:100%; box-sizing:border-box; background:#100e1a; color:#e8e2f4;
+  border:1px solid #3a3550; border-radius:4px; padding:7px 9px; font:12px "Segoe UI", system-ui, sans-serif; }
+.pp-questcontent textarea { resize:vertical; font-family:"Segoe UI", system-ui, sans-serif; }
+.pp-questavatars { display:flex; gap:8px; }
+.pp-questavatar { width:44px; height:44px; border-radius:6px; display:flex; align-items:center;
+  justify-content:center; background:#100e1a; border:1px solid #3a3550; cursor:pointer; }
+.pp-questavatar.pp-active { background:#3d3556; border-color:#ffd166; }
+.pp-questcolorrow { display:flex; align-items:center; gap:8px; }
+.pp-questcolorrow input[type=color] { width:32px; height:32px; padding:0; border:none; background:none; }
+.pp-queststages { display:flex; align-items:center; gap:8px; margin-bottom:14px; padding:8px 10px;
+  background:#100e1a; border-radius:6px; border:1px solid #2c2740; }
+.pp-queststages > span { color:#ffd166; font-size:10px; font-weight:700; }
+.pp-questarrow { color:#3a3550 !important; font-weight:400 !important; }
+.pp-questsegmented { display:flex; background:#100e1a; border:1px solid #3a3550; border-radius:6px;
+  padding:2px; width:fit-content; }
+.pp-questseg { padding:6px 14px; border-radius:5px; font-size:11px; cursor:pointer; color:#8f87ad; }
+.pp-questseg.pp-active { background:#3d3556; color:#fff; font-weight:600; }
+.pp-questrow { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.pp-questrow select { width:auto; flex:1; }
+.pp-questrow input[type=number] { width:60px; flex:none; }
 /* penscript editor (scripteditor.ts): highlight layer behind a transparent-
    text textarea. Both layers MUST share the exact same font/padding. */
 .pp-codewrap { position:relative; overflow:hidden; resize:vertical; height:460px; min-height:160px;
