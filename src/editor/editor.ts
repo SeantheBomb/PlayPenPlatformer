@@ -2030,7 +2030,8 @@ class EditorShell {
       for (const col of cols) {
         const isFocus = !!(this.macroFocus && this.macroFocus.cat === cat && this.macroFocus.key === col.key);
         group.append(el("div", {
-          style: `position:relative;width:${CELL_W}px;height:${HEADER_H}px;overflow:visible;cursor:pointer` +
+          style: `width:${CELL_W}px;height:${HEADER_H}px;display:flex;align-items:center;justify-content:center;` +
+            "overflow:visible;cursor:pointer" +
             (isFocus ? ";background:#3d3556;border-radius:3px 3px 0 0" : ""),
           title: col.label,
           onclick: () => {
@@ -2038,9 +2039,12 @@ class EditorShell {
             this.renderTab();
           },
         },
+          // Default transform-origin is the element's own center, and its
+          // parent centers it both axes — so rotating in place keeps the
+          // whole icon+label group centered in the header regardless of how
+          // long the label text runs, no manual offset math needed.
           el("div", {
-            style: "position:absolute;left:50%;bottom:6px;transform-origin:left bottom;transform:rotate(-90deg);" +
-              "display:flex;align-items:center;gap:5px;white-space:nowrap",
+            style: "transform:rotate(-90deg);display:flex;align-items:center;gap:5px;white-space:nowrap",
           },
             // Counter-rotate 90° clockwise: the parent's -90° tips the icon
             // sideways along with the label, so undo just that on the icon
