@@ -2042,7 +2042,10 @@ class EditorShell {
             style: "position:absolute;left:50%;bottom:6px;transform-origin:left bottom;transform:rotate(-90deg);" +
               "display:flex;align-items:center;gap:5px;white-space:nowrap",
           },
-            this.macroIcon(m, cat, col.key, 16),
+            // Counter-rotate 90° clockwise: the parent's -90° tips the icon
+            // sideways along with the label, so undo just that on the icon
+            // to keep the avatar upright while the label still reads vertically.
+            el("div", { style: "transform:rotate(90deg);display:flex" }, this.macroIcon(m, cat, col.key, 16)),
             el("span", { style: `font-size:10px;color:${isFocus ? "#fff" : "#bbb3d6"}` }, col.label)
           )
         ));
