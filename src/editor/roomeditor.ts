@@ -373,6 +373,16 @@ export class RoomEditor {
     this.renderCanvas();
   }
 
+  /** External navigation hook (macro tab "open room" jumps): select a room
+   *  by id on an already-mounted editor, without re-running mount()'s
+   *  campaign-room-0 default. No-ops for an unknown id. */
+  focusRoom(roomId: string): void {
+    if (!this.content.rooms[roomId]) return;
+    this.roomId = roomId;
+    this.clearSelection();
+    this.refreshAll();
+  }
+
   // ---------- Sidebar ----------
 
   private renderRoomList(): void {

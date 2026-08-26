@@ -2,7 +2,7 @@
 // has a tab here: rooms, tiles, items, recipes, enemies, taunts, game, campaign.
 import type { ContentStore } from "../data/content";
 import { isElectron, mergedFiles } from "../data/content";
-import type { EnemyDef, ItemDef, TileDef, WardenEmotion } from "../data/types";
+import type { EnemyDef, ItemDef, NpcAvatar, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
 import {
   enemyAttachments, itemAttachments, knownFnNames, normalizeAttachment,
@@ -10,7 +10,8 @@ import {
 } from "../game/behavior";
 import { createScriptEditor } from "./scripteditor";
 import {
-  currentFrame, drawBlob, drawItemIcon, drawTile, drawWardenPortrait, getImage,
+  currentFrame, drawBlob, drawEntityPreview, drawItemIcon, drawNpcAvatar, drawTile,
+  drawWardenPortrait, getImage, PREVIEWABLE_ENTITY_KINDS,
 } from "../engine/renderer";
 import { autoForm, el, fieldOptionsFor, schemaForm, toast, type FieldSpec } from "./forms";
 import { RoomEditor } from "./roomeditor";
@@ -241,12 +242,70 @@ hr { border:none; border-top:1px solid #2c2740; margin:10px 0; }
 type TabId =
   | "rooms" | "elements" | "rules" | "behaviors" | "tiles" | "items" | "recipes"
   | "enemies" | "entities" | "taunts" | "achievements" | "music" | "game" | "campaign"
-  | "publish" | "sessions" | "reports";
+  | "macro" | "publish" | "sessions" | "reports";
 
 // Electron loads from file://, so API calls need the real origin.
 const API_BASE =
   location.protocol === "file:" ? "https://playpen.pages.dev" : "";
 const PASS_KEY = "playpen.editorPass";
+// Macro drafts are editor-only planning notes — never content, never
+// published, never merged. Same precedent as PASS_KEY: a bare localStorage
+// key, not routed through ContentStore's overlay/publish system.
+const MACRO_DRAFTS_KEY = "playpen.macroDrafts";
+
+/** The six content axes a room can "use": what the macro matrix's columns
+ *  and the macrodesign.csv export both group by. */
+type MacroCat = "enemy" | "character" | "tile" | "entity" | "item" | "recipe";
+
+/** One planned add/remove on the macro matrix. Not content — toggling one
+ *  doesn't place anything in a room, it's a note-to-self that something
+ *  should be. `op` is relative to LIVE presence at the time it was made;
+ *  the changes panel re-checks live presence every render to tell "done". */
+interface MacroChange {
+  id: string;
+  roomId: string;
+  cat: MacroCat;
+  key: string;
+  op: "+" | "-";
+  note: string;
+}
+interface MacroDraft {
+  id: string;
+  name: string;
+  createdAt: number;
+  changes: MacroChange[];
+}
+
+const MACRO_CAT_META: Record<MacroCat, { label: string; accent: string; tab?: TabId }> = {
+  enemy: { label: "ENEMIES", accent: "#c84b6a", tab: "enemies" },
+  // NPCs aren't their own content tab (they're per-room entities) — the only
+  // jump target for a character column is the room it's focused on.
+  character: { label: "CHARACTERS", accent: "#e8a2b4" },
+  tile: { label: "TILES", accent: "#7a6f9b", tab: "tiles" },
+  entity: { label: "ENTITIES", accent: "#e8b04b", tab: "entities" },
+  item: { label: "ITEMS", accent: "#5ad1a5", tab: "items" },
+  recipe: { label: "RECIPES", accent: "#c586c0", tab: "recipes" },
+};
+const MACRO_CAT_ORDER: MacroCat[] = ["enemy", "character", "tile", "entity", "item", "recipe"];
+const MACRO_CAT_SINGULAR: Record<MacroCat, string> = {
+  enemy: "Enemy", character: "Character", tile: "Tile",
+  entity: "Entity", item: "Item", recipe: "Recipe",
+};
+
+interface MacroCol { key: string; label: string; }
+interface MacroRoomRow {
+  roomId: string;
+  name: string;
+  order: number;
+  present: Record<MacroCat, Set<string>>;
+}
+interface MacroMatrix {
+  cols: Record<MacroCat, MacroCol[]>;
+  rows: MacroRoomRow[];
+  /** npcId -> avatar/color, for drawing a real NPC icon in the header
+   *  (first entity carrying that npcId across all rooms wins). */
+  npcMeta: Map<string, { avatar: NpcAvatar; color: string }>;
+}
 
 interface ListSpec {
   file: string;
@@ -299,6 +358,8 @@ class EditorShell {
   private bodyEl!: HTMLElement;
   private roomEditor: RoomEditor;
   private selectedIndex = 0;
+  private macroDraftId: string | null = null;
+  private macroFocus: { roomId: string; cat: MacroCat; key: string } | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -335,7 +396,7 @@ class EditorShell {
     const tabs: TabId[] = [
       "rooms", "elements", "rules", "behaviors", "tiles", "items", "recipes",
       "enemies", "entities", "taunts", "achievements", "music", "game", "campaign",
-      "publish", "sessions", "reports",
+      "macro", "publish", "sessions", "reports",
     ];
     this.bodyEl = el("div", { className: "pp-body" });
     const shell = el(
@@ -606,6 +667,9 @@ class EditorShell {
       }
       case "campaign":
         this.renderCampaignTab();
+        break;
+      case "macro":
+        this.renderMacroTab();
         break;
       case "publish":
         this.renderPublishTab();
@@ -1558,90 +1622,99 @@ class EditorShell {
     input.click();
   }
 
-  /** A macro-design coverage matrix: one row per campaign room (in campaign
-   *  order), one column per enemy/character(npc)/tile/entity-type/item/recipe
-   *  — "1" if that room includes it, blank otherwise. Presence is derived
+  /** Derives the macro-design coverage matrix: one row per campaign room (in
+   *  campaign order), one column per enemy/character(npc)/tile/entity-type/
+   *  item/recipe, with a per-room presence set for each. Presence is derived
    *  from the room's own data (char-map for tiles, entity fields for
    *  everything else), not hand-maintained, so it can't drift from the
-   *  actual content. Meant to be opened in Google Sheets for a bird's-eye
-   *  view of what each room teaches/reuses across the whole campaign. */
-  private exportMacrodesignCsv(): void {
+   *  actual content. Shared by the macro tab and the CSV export — one
+   *  derivation, two views. */
+  private deriveMacroMatrix(): MacroMatrix {
     const c = this.store.content;
-
-    const enemyCols = c.enemies.map((e) => ({ key: e.id, label: e.name || e.id }));
-    const tileCols = c.tiles.map((t) => ({ key: t.id, label: t.name || t.id }));
-    const itemCols = c.items.map((i) => ({ key: i.id, label: i.name || i.id }));
-    const recipeCols = c.recipes.map((r) => ({ key: r.id, label: r.id }));
+    const cols: Record<MacroCat, MacroCol[]> = {
+      enemy: c.enemies.map((e) => ({ key: e.id, label: e.name || e.id })),
+      character: [],
+      tile: c.tiles.map((t) => ({ key: t.id, label: t.name || t.id })),
+      entity: [],
+      item: c.items.map((i) => ({ key: i.id, label: i.name || i.id })),
+      recipe: c.recipes.map((r) => ({ key: r.id, label: r.id })),
+    };
 
     // Entity-type columns: every RoomEntity.type actually used in a room,
     // minus "enemy"/"npc" — those already get their own column groups above.
     const entityTypes = new Set<string>();
     // Character columns: distinct npcId (cast identity) across all rooms.
     const npcLabels = new Map<string, string>(); // npcId -> display name
+    const npcMeta = new Map<string, { avatar: NpcAvatar; color: string }>();
     for (const room of Object.values(c.rooms)) {
       for (const e of room.entities) {
-        if (e.type === "npc") npcLabels.set(e.npcId || e.name || "npc", e.name || e.npcId || "npc");
-        else if (e.type !== "enemy") entityTypes.add(e.type);
+        if (e.type === "npc") {
+          const key = e.npcId || e.name || "npc";
+          npcLabels.set(key, e.name || e.npcId || "npc");
+          if (!npcMeta.has(key) && e.avatar) npcMeta.set(key, { avatar: e.avatar, color: e.color || "#8f87ad" });
+        } else if (e.type !== "enemy") {
+          entityTypes.add(e.type);
+        }
       }
     }
-    const charCols = [...npcLabels.entries()].map(([key, label]) => ({ key, label }));
-    const entityCols = [...entityTypes].sort().map((t) => ({ key: t, label: t }));
+    cols.character = [...npcLabels.entries()].map(([key, label]) => ({ key, label }));
+    cols.entity = [...entityTypes].sort().map((t) => ({ key: t, label: t }));
 
     const charToTileId = new Map(c.tiles.map((t) => [t.char, t.id]));
-
-    const header = [
-      "Order", "Level Name", "Level Title",
-      ...enemyCols.map((x) => `Enemy: ${x.label}`),
-      ...charCols.map((x) => `Character: ${x.label}`),
-      ...tileCols.map((x) => `Tile: ${x.label}`),
-      ...entityCols.map((x) => `Entity: ${x.label}`),
-      ...itemCols.map((x) => `Item: ${x.label}`),
-      ...recipeCols.map((x) => `Recipe: ${x.label}`),
-    ];
-    const rows = [header];
+    const rows: MacroRoomRow[] = [];
 
     c.campaign.rooms.forEach((roomId, i) => {
       const room = c.rooms[roomId];
       if (!room) return; // campaign lists a room that no longer exists — skip it
 
-      const tilesPresent = new Set<string>();
+      const present: Record<MacroCat, Set<string>> = {
+        enemy: new Set(), character: new Set(), tile: new Set(),
+        entity: new Set(), item: new Set(), recipe: new Set(),
+      };
       for (const rowStr of room.tiles) {
         for (const ch of rowStr) {
           const tileId = charToTileId.get(ch);
-          if (tileId) tilesPresent.add(tileId);
+          if (tileId) present.tile.add(tileId);
         }
       }
-      const enemiesPresent = new Set<string>();
-      const npcsPresent = new Set<string>();
-      const entitiesPresent = new Set<string>();
-      const itemsPresent = new Set<string>();
-      const recipesPresent = new Set<string>();
       for (const e of room.entities) {
-        if (e.type === "enemy" && e.enemy) enemiesPresent.add(e.enemy);
-        if (e.type === "npc") npcsPresent.add(e.npcId || e.name || "npc");
-        if (e.type !== "enemy" && e.type !== "npc") entitiesPresent.add(e.type);
-        if (e.item) itemsPresent.add(e.item);
-        if (e.wants?.item) itemsPresent.add(e.wants.item);
-        for (const ri of e.rewardItems ?? []) itemsPresent.add(ri.item);
-        for (const li of e.loadout ?? []) itemsPresent.add(li.item);
-        if (e.sourceItem) itemsPresent.add(e.sourceItem);
-        if (e.convertInput) itemsPresent.add(e.convertInput);
-        if (e.convertOutput) itemsPresent.add(e.convertOutput);
-        if (e.recipe) recipesPresent.add(e.recipe);
-        for (const rr of e.rewardRecipes ?? []) recipesPresent.add(rr);
+        if (e.type === "enemy" && e.enemy) present.enemy.add(e.enemy);
+        if (e.type === "npc") present.character.add(e.npcId || e.name || "npc");
+        if (e.type !== "enemy" && e.type !== "npc") present.entity.add(e.type);
+        if (e.item) present.item.add(e.item);
+        if (e.wants?.item) present.item.add(e.wants.item);
+        for (const ri of e.rewardItems ?? []) present.item.add(ri.item);
+        for (const li of e.loadout ?? []) present.item.add(li.item);
+        if (e.sourceItem) present.item.add(e.sourceItem);
+        if (e.convertInput) present.item.add(e.convertInput);
+        if (e.convertOutput) present.item.add(e.convertOutput);
+        if (e.recipe) present.recipe.add(e.recipe);
+        for (const rr of e.rewardRecipes ?? []) present.recipe.add(rr);
       }
-
-      const cell = (present: boolean) => (present ? "1" : "");
-      rows.push([
-        String(i + 1), room.id, room.name,
-        ...enemyCols.map((x) => cell(enemiesPresent.has(x.key))),
-        ...charCols.map((x) => cell(npcsPresent.has(x.key))),
-        ...tileCols.map((x) => cell(tilesPresent.has(x.key))),
-        ...entityCols.map((x) => cell(entitiesPresent.has(x.key))),
-        ...itemCols.map((x) => cell(itemsPresent.has(x.key))),
-        ...recipeCols.map((x) => cell(recipesPresent.has(x.key))),
-      ]);
+      rows.push({ roomId, name: room.name, order: i + 1, present });
     });
+
+    return { cols, rows, npcMeta };
+  }
+
+  /** One row per campaign room, one column per enemy/character/tile/entity/
+   *  item/recipe — "1" if that room includes it, blank otherwise. Meant to
+   *  be opened in Google Sheets for a bird's-eye view; the macro tab is the
+   *  same data, live and interactive, inside the editor. */
+  private exportMacrodesignCsv(): void {
+    const m = this.deriveMacroMatrix();
+    const header = [
+      "Order", "Level Name", "Level Title",
+      ...MACRO_CAT_ORDER.flatMap((cat) => m.cols[cat].map((x) => `${MACRO_CAT_SINGULAR[cat]}: ${x.label}`)),
+    ];
+    const rows = [header];
+    const cell = (present: boolean) => (present ? "1" : "");
+    for (const row of m.rows) {
+      rows.push([
+        String(row.order), row.roomId, row.name,
+        ...MACRO_CAT_ORDER.flatMap((cat) => m.cols[cat].map((x) => cell(row.present[cat].has(x.key)))),
+      ]);
+    }
 
     const csvCell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
@@ -1652,5 +1725,564 @@ class EditorShell {
     a.click();
     URL.revokeObjectURL(a.href);
     toast(`Exported macrodesign.csv (${rows.length - 1} rooms).`);
+  }
+
+  // ---------- Cross-tab navigation (macro tab drill-down) ----------
+
+  /** Switch to the room editor already focused on a specific room, instead
+   *  of its mount()-time default (campaign room 0). */
+  private jumpToRoom(roomId: string): void {
+    this.tab = "rooms";
+    this.selectedIndex = 0;
+    this.render();
+    this.roomEditor.focusRoom(roomId);
+  }
+
+  /** Switch to a list tab (tiles/items/enemies/entities/recipes) with a
+   *  specific entry pre-selected. */
+  private jumpToDef(tab: TabId, id: string): void {
+    const c = this.store.content;
+    const lists: Partial<Record<TabId, Record<string, unknown>[]>> = {
+      tiles: c.tiles as unknown as Record<string, unknown>[],
+      items: c.items as unknown as Record<string, unknown>[],
+      enemies: c.enemies as unknown as Record<string, unknown>[],
+      entities: c.entityTypes as unknown as Record<string, unknown>[],
+      recipes: c.recipes as unknown as Record<string, unknown>[],
+    };
+    const list = lists[tab];
+    const idx = list ? list.findIndex((x) => x.id === id) : -1;
+    this.tab = tab;
+    this.selectedIndex = idx >= 0 ? idx : 0;
+    this.render();
+  }
+
+  // ---------- Macro drafts (editor-only localStorage, never content) ----------
+
+  private loadMacroDrafts(): MacroDraft[] {
+    try {
+      const raw = localStorage.getItem(MACRO_DRAFTS_KEY);
+      return raw ? (JSON.parse(raw) as MacroDraft[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private saveMacroDrafts(drafts: MacroDraft[]): void {
+    localStorage.setItem(MACRO_DRAFTS_KEY, JSON.stringify(drafts));
+  }
+
+  private toggleMacroChange(
+    draft: MacroDraft, roomId: string, cat: MacroCat, key: string, livePresent: boolean
+  ): void {
+    const existing = draft.changes.findIndex((c) => c.roomId === roomId && c.cat === cat && c.key === key);
+    if (existing >= 0) {
+      draft.changes.splice(existing, 1);
+    } else {
+      draft.changes.push({
+        id: `chg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        roomId, cat, key, op: livePresent ? "-" : "+", note: "",
+      });
+    }
+    const drafts = this.loadMacroDrafts();
+    const idx = drafts.findIndex((d) => d.id === draft.id);
+    if (idx >= 0) drafts[idx] = draft;
+    this.saveMacroDrafts(drafts);
+    this.renderTab();
+  }
+
+  // ---------- Macro tab ----------
+
+  /** Draw a real sprite for a macro column — the same drawItemIcon/drawTile/
+   *  drawBlob/drawNpcAvatar calls the tiles/items/enemies list thumbnails
+   *  already use, plus drawEntityPreview for the entity kinds it covers.
+   *  A handful of entity kinds (converter/hint/pickup/source/spawn, and the
+   *  generic "enemy spawn marker" entity) have no isolated draw call in
+   *  room.ts to reuse — those get a small hand-drawn stand-in instead. */
+  private macroIcon(m: MacroMatrix, cat: MacroCat, key: string, size: number): HTMLElement {
+    const c = this.store.content;
+    const cv = el("canvas", { width: size, height: size, style: "flex:none" }) as HTMLCanvasElement;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return cv;
+    try {
+      if (cat === "item") {
+        const def = c.items.find((i) => i.id === key);
+        if (def) drawItemIcon(ctx, def, size / 2, size / 2, size / 11.5);
+      } else if (cat === "recipe") {
+        const r = c.recipes.find((r2) => r2.id === key);
+        const def = r && c.items.find((i) => i.id === r.output);
+        if (def) drawItemIcon(ctx, def, size / 2, size / 2, size / 11.5);
+      } else if (cat === "tile") {
+        const def = c.tiles.find((t) => t.id === key);
+        if (def) {
+          ctx.save();
+          ctx.translate((size - 16) / 2, (size - 16) / 2);
+          drawTile(ctx, def, 0, 0, 0);
+          ctx.restore();
+        }
+      } else if (cat === "enemy") {
+        const def = c.enemies.find((e) => e.id === key);
+        if (def) {
+          const s = (size * 0.85) / Math.max(def.width, def.height);
+          const dw = def.width * s, dh = def.height * s;
+          drawBlob(ctx, (size - dw) / 2, (size - dh) / 2, dw, dh, def.color, def.eyeColor, 1, { eyeStyle: "dot" });
+        }
+      } else if (cat === "character") {
+        const meta = m.npcMeta.get(key);
+        if (meta) {
+          const s = (size / 16) * 0.85;
+          const dw = 12 * s, dh = 16 * s;
+          drawNpcAvatar(ctx, meta.avatar, (size - dw) / 2, (size - dh) / 2, dw, dh, meta.color, 1, { t: 0.4 });
+        }
+      } else if (cat === "entity") {
+        if (PREVIEWABLE_ENTITY_KINDS.has(key)) {
+          const s2 = size * 0.72;
+          drawEntityPreview(ctx, key, (size - s2) / 2, (size - s2) / 2, s2, s2, 0.4, false);
+        } else {
+          this.drawMacroFallbackIcon(ctx, key, size);
+        }
+      }
+    } catch {
+      // Half-authored defs (missing color, zero width, ...) shouldn't break
+      // the header row — an empty canvas cell is a fine fallback.
+    }
+    return cv;
+  }
+
+  /** Small procedural stand-ins for the entity kinds drawEntityPreview
+   *  doesn't cover — same gold tone as the entity category accent, same
+   *  "the sprite that represents it" spirit, just hand-drawn. */
+  private drawMacroFallbackIcon(ctx: CanvasRenderingContext2D, kind: string, size: number): void {
+    const s = size / 16;
+    ctx.save();
+    ctx.scale(s, s);
+    ctx.strokeStyle = "#e8b04b";
+    ctx.fillStyle = "#e8b04b";
+    ctx.lineWidth = 1.4;
+    switch (kind) {
+      case "converter":
+        ctx.beginPath();
+        ctx.arc(6.5, 6, 4.5, Math.PI * 0.15, Math.PI * 1.7);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(9.5, 10, 4.5, Math.PI * 1.15, Math.PI * 2.7);
+        ctx.stroke();
+        break;
+      case "hint":
+        ctx.strokeRect(2, 3, 12, 7);
+        ctx.beginPath();
+        ctx.moveTo(6, 10); ctx.lineTo(6, 12.5); ctx.lineTo(8.5, 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.font = "6px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("?", 8, 8.5);
+        break;
+      case "pickup":
+        ctx.beginPath();
+        ctx.moveTo(2, 6); ctx.lineTo(8, 2.5); ctx.lineTo(14, 6); ctx.lineTo(8, 9.5);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8, 9.5); ctx.lineTo(8, 15.5);
+        ctx.moveTo(2, 6); ctx.lineTo(2, 12); ctx.lineTo(8, 15.5); ctx.lineTo(14, 12); ctx.lineTo(14, 6);
+        ctx.stroke();
+        break;
+      case "source":
+        ctx.beginPath(); ctx.arc(8, 8, 6, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(8, 8, 2, 0, Math.PI * 2); ctx.fill();
+        break;
+      case "spawn":
+        ctx.beginPath();
+        ctx.moveTo(4, 1); ctx.lineTo(4, 15);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(4, 1); ctx.lineTo(12, 4); ctx.lineTo(4, 7);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      case "enemy":
+        ctx.beginPath();
+        ctx.moveTo(8, 1); ctx.lineTo(15, 14); ctx.lineTo(1, 14);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.fillRect(7.3, 6, 1.4, 4);
+        ctx.fillRect(7.3, 11, 1.4, 1.4);
+        break;
+    }
+    ctx.restore();
+  }
+
+  private renderMacroTab(): void {
+    const m = this.deriveMacroMatrix();
+    const drafts = this.loadMacroDrafts();
+    const draft = drafts.find((d) => d.id === this.macroDraftId) ?? null;
+    if (this.macroDraftId && !draft) this.macroDraftId = null; // stale id (deleted elsewhere)
+
+    const panel = el("div", { className: "pp-panel", style: "max-width:none" });
+
+    const draftSelect = el("select", {
+      onchange: (e) => {
+        const v = (e.target as HTMLSelectElement).value;
+        this.macroDraftId = v || null;
+        this.macroFocus = null;
+        this.renderTab();
+      },
+    },
+      el("option", { value: "", selected: !this.macroDraftId }, "— live content —"),
+      ...drafts.map((d) => el("option", { value: d.id, selected: d.id === this.macroDraftId }, d.name))
+    );
+
+    panel.append(
+      el("div", { className: "pp-btnrow", style: "align-items:center;flex-wrap:wrap" },
+        el("span", { className: "pp-hint" }, "Source:"),
+        draftSelect,
+        el("button", {
+          className: "pp-btn pp-primary",
+          onclick: () => {
+            const name = prompt("Name this draft:", `Draft ${new Date().toLocaleDateString()}`);
+            if (!name) return;
+            const d: MacroDraft = { id: `draft_${Date.now()}`, name, createdAt: Date.now(), changes: [] };
+            drafts.push(d);
+            this.saveMacroDrafts(drafts);
+            this.macroDraftId = d.id;
+            this.macroFocus = null;
+            this.renderTab();
+          },
+        }, "+ new draft from live"),
+        draft ? el("button", {
+          className: "pp-btn",
+          onclick: () => {
+            const copy: MacroDraft = {
+              id: `draft_${Date.now()}`, name: `${draft.name} copy`, createdAt: Date.now(),
+              changes: JSON.parse(JSON.stringify(draft.changes)),
+            };
+            drafts.push(copy);
+            this.saveMacroDrafts(drafts);
+            this.macroDraftId = copy.id;
+            this.renderTab();
+          },
+        }, "Duplicate") : el("span", {}),
+        draft ? el("button", {
+          className: "pp-btn pp-danger",
+          onclick: () => {
+            if (!confirm(`Delete draft "${draft.name}"? This can't be undone.`)) return;
+            this.saveMacroDrafts(drafts.filter((d) => d.id !== draft.id));
+            this.macroDraftId = null;
+            this.macroFocus = null;
+            this.renderTab();
+          },
+        }, "Delete draft") : el("span", {}),
+        el("span", { style: "flex:1" }),
+        el("button", { className: "pp-btn", onclick: () => this.exportMacrodesignCsv() }, "Export CSV")
+      ),
+      draft
+        ? el("p", { className: "pp-hint", style: "color:#c586c0" },
+            `Draft "${draft.name}" — click a cell to toggle a planned change. Drafts never touch content/, ` +
+            "only this browser's local storage.")
+        : el("p", { className: "pp-hint" },
+            "Live content — derives from actual room data every render. Click a cell to inspect it, " +
+            "or click a room name to open it in the room editor. Start a draft to plan changes without " +
+            "touching content.")
+    );
+
+    panel.append(this.macroMatrixEl(m, draft));
+    panel.append(this.macroCornersEl(m));
+
+    if (draft) {
+      panel.append(this.macroChangesEl(m, draft));
+    } else if (this.macroFocus) {
+      panel.append(this.macroDrilldownEl(m, this.macroFocus));
+    }
+
+    this.bodyEl.append(panel);
+  }
+
+  private macroMatrixEl(m: MacroMatrix, draft: MacroDraft | null): HTMLElement {
+    const CELL_W = 30, CELL_H = 20, HEADER_H = 130, LABEL_W = 200;
+    const firstRoomOf: Record<MacroCat, Map<string, string>> = {
+      enemy: new Map(), character: new Map(), tile: new Map(),
+      entity: new Map(), item: new Map(), recipe: new Map(),
+    };
+    for (const cat of MACRO_CAT_ORDER) {
+      for (const row of m.rows) {
+        for (const key of row.present[cat]) {
+          if (!firstRoomOf[cat].has(key)) firstRoomOf[cat].set(key, row.roomId);
+        }
+      }
+    }
+
+    const wrap = el("div", { style: "overflow-x:auto;padding-bottom:6px;margin-top:10px" });
+    const inner = el("div", { style: "display:inline-block" });
+
+    const bandRow = el("div", { style: `display:flex;gap:7px;margin-left:${LABEL_W}px` });
+    const headRow = el("div", { style: `display:flex;gap:7px;margin-left:${LABEL_W}px;margin-top:2px` });
+    for (const cat of MACRO_CAT_ORDER) {
+      const cols = m.cols[cat];
+      if (!cols.length) continue;
+      const meta = MACRO_CAT_META[cat];
+      bandRow.append(el("div", {
+        style: `width:${cols.length * CELL_W}px;height:16px;display:flex;align-items:center;justify-content:center;` +
+          `background:${meta.accent}22;border-top:2px solid ${meta.accent};color:${meta.accent};` +
+          "font-size:9px;font-weight:700;letter-spacing:1px;overflow:hidden",
+      }, meta.label));
+
+      const group = el("div", { style: "display:flex" });
+      for (const col of cols) {
+        const isFocus = !!(this.macroFocus && this.macroFocus.cat === cat && this.macroFocus.key === col.key);
+        group.append(el("div", {
+          style: `position:relative;width:${CELL_W}px;height:${HEADER_H}px;overflow:visible;cursor:pointer` +
+            (isFocus ? ";background:#3d3556;border-radius:3px 3px 0 0" : ""),
+          title: col.label,
+          onclick: () => {
+            this.macroFocus = { roomId: this.macroFocus?.roomId ?? m.rows[0]?.roomId ?? "", cat, key: col.key };
+            this.renderTab();
+          },
+        },
+          el("div", {
+            style: "position:absolute;left:50%;bottom:6px;transform-origin:left bottom;transform:rotate(-90deg);" +
+              "display:flex;align-items:center;gap:5px;white-space:nowrap",
+          },
+            this.macroIcon(m, cat, col.key, 16),
+            el("span", { style: `font-size:10px;color:${isFocus ? "#fff" : "#bbb3d6"}` }, col.label)
+          )
+        ));
+      }
+      headRow.append(group);
+    }
+    inner.append(bandRow, headRow);
+
+    for (const row of m.rows) {
+      const flagged = !!draft?.changes.some((ch) => ch.roomId === row.roomId);
+      const rowEl = el("div", { style: "display:flex;gap:7px;align-items:center" },
+        el("div", {
+          style: `display:flex;align-items:center;gap:6px;width:${LABEL_W - 8}px;padding-right:8px;` +
+            `height:${CELL_H}px;cursor:pointer`,
+          title: "Open in room editor",
+          onclick: () => this.jumpToRoom(row.roomId),
+        },
+          el("span", { style: "color:#4a4562;font-size:10px;width:16px;text-align:right" }, String(row.order)),
+          el("span", {
+            style: `color:${flagged ? "#ffd166" : "#d8d2ec"};font-size:11px;font-weight:600;` +
+              "overflow:hidden;white-space:nowrap;flex:1",
+          }, row.name),
+          flagged
+            ? el("span", { style: "width:7px;height:7px;border-radius:50%;background:#ffd166;flex:none" })
+            : el("span", {})
+        )
+      );
+      for (const cat of MACRO_CAT_ORDER) {
+        const cols = m.cols[cat];
+        if (!cols.length) continue;
+        const group = el("div", { style: "display:flex" });
+        for (const col of cols) {
+          const first = firstRoomOf[cat].get(col.key) === row.roomId;
+          group.append(this.macroCellEl(row, cat, col, draft, first, CELL_W, CELL_H));
+        }
+        rowEl.append(group);
+      }
+      inner.append(rowEl);
+    }
+
+    wrap.append(inner);
+    return wrap;
+  }
+
+  private macroCellEl(
+    row: MacroRoomRow, cat: MacroCat, col: MacroCol, draft: MacroDraft | null,
+    first: boolean, w: number, h: number
+  ): HTMLElement {
+    const meta = MACRO_CAT_META[cat];
+    const livePresent = row.present[cat].has(col.key);
+    const change = draft?.changes.find((c) => c.roomId === row.roomId && c.cat === cat && c.key === col.key);
+    let bg = "#161226", border = "#1e192e";
+    let glyph: HTMLElement | null = null;
+    if (change) {
+      if (change.op === "+") {
+        bg = `${meta.accent}33`; border = "#5ad1a5";
+        glyph = el("span", { style: "color:#5ad1a5;font-size:10px;font-weight:700;line-height:1" }, "+");
+      } else {
+        bg = "#4a2432"; border = "#c84b6a";
+        glyph = el("span", { style: "color:#ff9db4;font-size:9px;font-weight:700;line-height:1" }, "✕");
+      }
+    } else if (livePresent) {
+      bg = first ? meta.accent : `${meta.accent}66`;
+      border = first ? "#ffd166" : `${meta.accent}33`;
+    }
+    const cell = el("div", {
+      style: `width:${w - 2}px;height:${h - 2}px;margin:1px;border-radius:3px;display:flex;` +
+        `align-items:center;justify-content:center;background:${bg};border:1px solid ${border};cursor:pointer`,
+      title: `${col.label} × ${row.name}`,
+      onclick: () => {
+        if (draft) this.toggleMacroChange(draft, row.roomId, cat, col.key, livePresent);
+        else { this.macroFocus = { roomId: row.roomId, cat, key: col.key }; this.renderTab(); }
+      },
+    });
+    if (glyph) cell.append(glyph);
+    return el("div", { style: `width:${w}px` }, cell);
+  }
+
+  /** "Reaching the corners" callout: content used in exactly one room. */
+  private macroCornersEl(m: MacroMatrix): HTMLElement {
+    const once: { cat: MacroCat; col: MacroCol }[] = [];
+    for (const cat of MACRO_CAT_ORDER) {
+      for (const col of m.cols[cat]) {
+        const n = m.rows.filter((r) => r.present[cat].has(col.key)).length;
+        if (n === 1) once.push({ cat, col });
+      }
+    }
+    const wrap = el("div", {
+      style: "margin-top:10px;background:#1a1626;border:1px solid #2c2740;border-radius:6px;padding:8px 12px",
+    });
+    wrap.append(el("div", { style: "color:#ffd166;font-weight:700;margin-bottom:4px" },
+      "Corners check — content used in only one room"));
+    if (once.length === 0) {
+      wrap.append(el("p", { className: "pp-hint" }, "Nothing is single-use right now."));
+      return wrap;
+    }
+    const chips = el("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
+    for (const { cat, col } of once) {
+      chips.append(el("span", {
+        style: "display:flex;align-items:center;gap:6px;background:#100e1a;border:1px solid #7a3e50;" +
+          "border-radius:12px;padding:2px 9px 2px 6px;font-size:11px;color:#ffb3c4;cursor:pointer",
+        onclick: () => { this.macroFocus = { roomId: m.rows[0]?.roomId ?? "", cat, key: col.key }; this.renderTab(); },
+      }, this.macroIcon(m, cat, col.key, 16), `${MACRO_CAT_SINGULAR[cat]}: ${col.label}`));
+    }
+    wrap.append(chips);
+    return wrap;
+  }
+
+  private macroChangesEl(m: MacroMatrix, draft: MacroDraft): HTMLElement {
+    const wrap = el("div", { style: "margin-top:14px" });
+    wrap.append(el("div", { className: "pp-sidehead" }, `Changes needed — ${draft.changes.length}`));
+    if (draft.changes.length === 0) {
+      wrap.append(el("p", { className: "pp-hint" }, "Click any cell above to plan an add/remove for that room."));
+      return wrap;
+    }
+    const persist = () => {
+      const all = this.loadMacroDrafts();
+      const idx = all.findIndex((d) => d.id === draft.id);
+      if (idx >= 0) all[idx] = draft;
+      this.saveMacroDrafts(all);
+    };
+    const byRoom = new Map<string, MacroChange[]>();
+    for (const ch of draft.changes) {
+      if (!byRoom.has(ch.roomId)) byRoom.set(ch.roomId, []);
+      byRoom.get(ch.roomId)!.push(ch);
+    }
+    for (const [roomId, changes] of byRoom) {
+      const row = m.rows.find((r) => r.roomId === roomId);
+      const card = el("div", {
+        style: "background:#1a1626;border:1px solid #5a5080;border-radius:6px;padding:8px 10px;margin-bottom:8px",
+      });
+      card.append(
+        el("div", { style: "display:flex;align-items:center;gap:6px;margin-bottom:5px" },
+          el("b", { style: "color:#fff" }, row?.name ?? roomId),
+          el("span", { style: "font-family:monospace;font-size:10px;color:#8f87ad" }, roomId),
+          el("span", { style: "flex:1" }),
+          el("button", { className: "pp-btn", onclick: () => this.jumpToRoom(roomId) }, "open room ↗")
+        )
+      );
+      for (const ch of changes) {
+        const col = m.cols[ch.cat].find((c) => c.key === ch.key);
+        const livePresent = row?.present[ch.cat].has(ch.key) ?? false;
+        const resolved = livePresent === (ch.op === "+");
+        card.append(
+          el("div", {
+            style: `display:flex;gap:6px;align-items:center;margin:3px 0${resolved ? ";opacity:0.55" : ""}`,
+          },
+            el("span", {
+              style: `color:${ch.op === "+" ? "#5ad1a5" : "#ff9db4"};font-weight:700;width:12px`,
+            }, ch.op === "+" ? "+" : "✕"),
+            this.macroIcon(m, ch.cat, ch.key, 16),
+            el("span", { style: "font-size:11px;width:150px;overflow:hidden;white-space:nowrap" },
+              `${MACRO_CAT_META[ch.cat].label}: ${col?.label ?? ch.key}`),
+            el("input", {
+              type: "text", value: ch.note, placeholder: "why?",
+              style: "flex:1;background:#100e1a;color:#e8e2f4;border:1px solid #3a3550;border-radius:4px;" +
+                "padding:3px 6px;font-size:11px",
+              oninput: (e) => { ch.note = (e.target as HTMLInputElement).value; persist(); },
+            }),
+            resolved ? el("span", { style: "color:#5ad1a5;font-size:10px;white-space:nowrap" }, "✓ done") : el("span", {}),
+            el("button", {
+              className: "pp-tool",
+              onclick: () => {
+                draft.changes = draft.changes.filter((c) => c !== ch);
+                persist();
+                this.renderTab();
+              },
+            }, "✕")
+          )
+        );
+      }
+      wrap.append(card);
+    }
+    return wrap;
+  }
+
+  private macroDrilldownEl(m: MacroMatrix, focus: { roomId: string; cat: MacroCat; key: string }): HTMLElement {
+    const col = m.cols[focus.cat].find((c) => c.key === focus.key);
+    if (!col) return el("div", {});
+    const meta = MACRO_CAT_META[focus.cat];
+    const focusRowIdx = m.rows.findIndex((r) => r.roomId === focus.roomId);
+    const usedRooms = m.rows.filter((r) => r.present[focus.cat].has(focus.key));
+    const priorRooms = usedRooms.filter((r) => m.rows.indexOf(r) < focusRowIdx).map((r) => r.name);
+
+    const wrap = el("div", {
+      style: "margin-top:14px;background:#1a1626;border:1px solid #2c2740;border-radius:6px;padding:12px",
+    });
+    wrap.append(
+      el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap" },
+        el("span", { style: "color:#8f87ad;font-size:11px" }, "macro ▸ cell"),
+        el("span", {
+          style: "display:flex;align-items:center;gap:7px;background:#3d3556;border:1px solid #ffd166;" +
+            "border-radius:4px;padding:4px 10px 4px 7px",
+        },
+          this.macroIcon(m, focus.cat, focus.key, 18),
+          el("b", {}, `${meta.label}: ${col.label}`)
+        ),
+        el("span", { style: "flex:1" }),
+        el("button", {
+          className: "pp-btn",
+          onclick: () => { this.macroFocus = null; this.renderTab(); },
+        }, "✕ close")
+      ),
+      el("div", { style: "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px" },
+        ...m.rows.map((r) => {
+          const used = r.present[focus.cat].has(focus.key);
+          const isFocus = r.roomId === focus.roomId;
+          return el("span", {
+            style: "display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:10px;font-size:10px;" +
+              `cursor:pointer;background:${used ? meta.accent + "33" : "#161226"};` +
+              `border:1px solid ${isFocus ? "#ffd166" : used ? meta.accent + "55" : "#241f36"};` +
+              `color:${used ? "#d8d2ec" : "#8f87ad"}`,
+            onclick: () => { this.macroFocus = { ...focus, roomId: r.roomId }; this.renderTab(); },
+          }, r.name);
+        })
+      ),
+      el("p", { className: "pp-hint" },
+        priorRooms.length
+          ? `Setup → challenge check: taught in ${priorRooms.slice(0, 3).join(", ")} before this room ✓`
+          : usedRooms.length
+            ? "First used here — no earlier setup."
+            : "Not used anywhere yet.")
+    );
+
+    const focusRow = m.rows[focusRowIdx];
+    if (focusRow) {
+      const btns = [
+        el("button", {
+          className: "pp-btn pp-primary",
+          onclick: () => this.jumpToRoom(focusRow.roomId),
+        }, `Open ${focusRow.roomId} in room editor ↗`),
+      ];
+      if (meta.tab) {
+        btns.push(el("button", {
+          className: "pp-btn",
+          onclick: () => this.jumpToDef(meta.tab!, focus.key),
+        }, "Open def ↗"));
+      }
+      wrap.append(el("div", { className: "pp-btnrow" }, ...btns));
+    }
+    return wrap;
   }
 }
