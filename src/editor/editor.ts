@@ -252,6 +252,9 @@ const PASS_KEY = "playpen.editorPass";
 // published, never merged. Same precedent as PASS_KEY: a bare localStorage
 // key, not routed through ContentStore's overlay/publish system.
 const MACRO_DRAFTS_KEY = "playpen.macroDrafts";
+// Same editor-only-localStorage precedent as MACRO_DRAFTS_KEY — a saved
+// filter is a personal view preference, not content.
+const MACRO_FILTER_PRESETS_KEY = "playpen.macroFilterPresets";
 
 /** The six content axes a room can "use": what the macro matrix's columns
  *  and the macrodesign.csv export both group by. */
@@ -274,6 +277,15 @@ interface MacroDraft {
   name: string;
   createdAt: number;
   changes: MacroChange[];
+}
+
+/** A saved column-visibility filter for the macro matrix — which columns
+ *  ("cat:key" strings) show. Purely a view preference: never affects what
+ *  a draft's changes mean or what the CSV export contains. */
+interface MacroFilterPreset {
+  id: string;
+  name: string;
+  cols: string[];
 }
 
 const MACRO_CAT_META: Record<MacroCat, { label: string; accent: string; tab?: TabId }> = {
@@ -360,6 +372,12 @@ class EditorShell {
   private selectedIndex = 0;
   private macroDraftId: string | null = null;
   private macroFocus: { roomId: string; cat: MacroCat; key: string } | null = null;
+  private macroFilterOpen = false;
+  /** null = no filter (every column shows) — the default, unchanged-behavior
+   *  state. Once set, stays applied even if the rail is closed again, so
+   *  closing it to reclaim width doesn't lose the filter. */
+  private macroFilterSelection: Set<string> | null = null;
+  private macroActiveFilterPresetId: string | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -1972,6 +1990,13 @@ class EditorShell {
             this.renderTab();
           },
         }, "Delete draft") : el("span", {}),
+        el("span", { style: "width:1px;height:18px;background:#3a3550;margin:0 2px" }),
+        el("button", {
+          className: "pp-btn",
+          style: this.macroFilterOpen ? "border-color:#ffd166;color:#fff" : "",
+          onclick: () => { this.macroFilterOpen = !this.macroFilterOpen; this.renderTab(); },
+        }, "🔍 Filters"),
+        this.macroFilterSelection ? this.macroFilterStatusChipEl(m) : el("span", {}),
         el("span", { style: "flex:1" }),
         el("button", { className: "pp-btn", onclick: () => this.exportMacrodesignCsv() }, "Export CSV")
       ),
@@ -1985,16 +2010,230 @@ class EditorShell {
             "touching content.")
     );
 
-    panel.append(this.macroMatrixEl(m, draft));
-    panel.append(this.macroCornersEl(m));
-
+    const filteredM = this.applyMacroFilter(m);
+    const mainCol = el("div", { style: "flex:1;min-width:0" });
+    mainCol.append(this.macroMatrixEl(filteredM, draft));
+    mainCol.append(this.macroCornersEl(filteredM));
     if (draft) {
-      panel.append(this.macroChangesEl(m, draft));
+      mainCol.append(this.macroChangesEl(m, draft));
     } else if (this.macroFocus) {
-      panel.append(this.macroDrilldownEl(m, this.macroFocus));
+      mainCol.append(this.macroDrilldownEl(m, this.macroFocus));
+    }
+
+    if (this.macroFilterOpen) {
+      panel.append(
+        el("div", { style: "display:flex;gap:12px;align-items:flex-start;margin-top:10px" },
+          this.macroFilterRailEl(m), mainCol)
+      );
+    } else {
+      panel.append(mainCol);
     }
 
     this.bodyEl.append(panel);
+  }
+
+  // ---------- Macro column filters (view-only, localStorage presets) ----------
+
+  private allMacroColKeys(m: MacroMatrix): Set<string> {
+    return new Set(MACRO_CAT_ORDER.flatMap((cat) => m.cols[cat].map((c) => `${cat}:${c.key}`)));
+  }
+
+  /** Filtering never mutates m.rows (presence is still fully derived) —
+   *  only which columns the matrix/corners callout iterate over. */
+  private applyMacroFilter(m: MacroMatrix): MacroMatrix {
+    if (!this.macroFilterSelection) return m;
+    const sel = this.macroFilterSelection;
+    const cols = {} as Record<MacroCat, MacroCol[]>;
+    for (const cat of MACRO_CAT_ORDER) cols[cat] = m.cols[cat].filter((c) => sel.has(`${cat}:${c.key}`));
+    return { ...m, cols };
+  }
+
+  private loadMacroFilterPresets(): MacroFilterPreset[] {
+    try {
+      const raw = localStorage.getItem(MACRO_FILTER_PRESETS_KEY);
+      return raw ? (JSON.parse(raw) as MacroFilterPreset[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private saveMacroFilterPresets(presets: MacroFilterPreset[]): void {
+    localStorage.setItem(MACRO_FILTER_PRESETS_KEY, JSON.stringify(presets));
+  }
+
+  private macroFilterStatusChipEl(m: MacroMatrix): HTMLElement {
+    const sel = this.macroFilterSelection!;
+    const total = MACRO_CAT_ORDER.reduce((n, cat) => n + m.cols[cat].length, 0);
+    return el("span", {
+      style: "display:flex;align-items:center;gap:6px;background:#100e1a;border:1px solid #5a5080;" +
+        "border-radius:12px;padding:3px 9px 3px 10px;font-size:11px;color:#c9b8ff;cursor:pointer",
+      title: "clear filter",
+      onclick: () => {
+        this.macroFilterSelection = null;
+        this.macroActiveFilterPresetId = null;
+        this.renderTab();
+      },
+    }, `${sel.size}/${total} columns`, el("span", { style: "color:#8f87ad" }, "✕"));
+  }
+
+  private saveMacroFilterPreset(m: MacroMatrix): void {
+    const name = prompt("Name this filter:", "New filter");
+    if (!name) return;
+    const sel = this.macroFilterSelection ?? this.allMacroColKeys(m);
+    const presets = this.loadMacroFilterPresets();
+    const p: MacroFilterPreset = { id: `filter_${Date.now()}`, name, cols: [...sel] };
+    presets.push(p);
+    this.saveMacroFilterPresets(presets);
+    this.macroFilterSelection = sel;
+    this.macroActiveFilterPresetId = p.id;
+    this.renderTab();
+  }
+
+  private macroFilterRailEl(m: MacroMatrix): HTMLElement {
+    const presets = this.loadMacroFilterPresets();
+    if (this.macroActiveFilterPresetId && !presets.some((p) => p.id === this.macroActiveFilterPresetId)) {
+      this.macroActiveFilterPresetId = null; // stale id (deleted elsewhere)
+    }
+
+    const wrap = el("div", {
+      style: "width:230px;flex-shrink:0;background:#1a1626;border:1px solid #2c2740;border-radius:6px;" +
+        "padding:10px;max-height:78vh;overflow-y:auto",
+    });
+
+    wrap.append(
+      el("div", { className: "pp-sidehead" },
+        "Presets",
+        el("button", {
+          className: "pp-btn", style: "padding:2px 7px;font-size:11px",
+          onclick: () => this.saveMacroFilterPreset(m),
+        }, "＋")
+      )
+    );
+    if (presets.length === 0) {
+      wrap.append(el("p", { className: "pp-hint" }, "No saved filters yet — set one up below, then ＋ to keep it."));
+    }
+    for (const p of presets) {
+      const active = p.id === this.macroActiveFilterPresetId;
+      const row = el("div", {
+        style: "display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:4px;cursor:pointer;" +
+          `background:${active ? "#3d3556" : "transparent"};color:${active ? "#fff" : "#d8d2ec"}`,
+        onclick: () => {
+          this.macroFilterSelection = new Set(p.cols);
+          this.macroActiveFilterPresetId = p.id;
+          this.renderTab();
+        },
+      },
+        el("span", { style: "flex:1;font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" }, p.name)
+      );
+      if (active) {
+        row.append(
+          el("span", {
+            style: "color:#8f87ad;font-size:10px;cursor:pointer", title: "rename",
+            onclick: (e) => {
+              (e as Event).stopPropagation();
+              const name = prompt("Rename filter:", p.name);
+              if (!name) return;
+              p.name = name;
+              this.saveMacroFilterPresets(presets);
+              this.renderTab();
+            },
+          }, "✎"),
+          el("span", {
+            style: "color:#8f87ad;font-size:10px;cursor:pointer", title: "delete",
+            onclick: (e) => {
+              (e as Event).stopPropagation();
+              if (!confirm(`Delete filter "${p.name}"?`)) return;
+              this.saveMacroFilterPresets(presets.filter((x) => x.id !== p.id));
+              this.macroActiveFilterPresetId = null;
+              this.renderTab();
+            },
+          }, "✕")
+        );
+      }
+      wrap.append(row);
+    }
+
+    wrap.append(el("hr"));
+    wrap.append(
+      el("div", { className: "pp-sidehead" },
+        "Columns",
+        el("span", { style: "display:flex;gap:6px" },
+          el("button", {
+            className: "pp-btn", style: "padding:2px 7px;font-size:10px",
+            onclick: () => {
+              this.macroFilterSelection = this.allMacroColKeys(m);
+              this.macroActiveFilterPresetId = null;
+              this.renderTab();
+            },
+          }, "All"),
+          el("button", {
+            className: "pp-btn", style: "padding:2px 7px;font-size:10px",
+            onclick: () => {
+              this.macroFilterSelection = new Set();
+              this.macroActiveFilterPresetId = null;
+              this.renderTab();
+            },
+          }, "None")
+        )
+      )
+    );
+    for (const cat of MACRO_CAT_ORDER) {
+      if (m.cols[cat].length) wrap.append(this.macroFilterCategoryEl(m, cat));
+    }
+
+    return wrap;
+  }
+
+  private macroFilterCategoryEl(m: MacroMatrix, cat: MacroCat): HTMLElement {
+    const meta = MACRO_CAT_META[cat];
+    const cols = m.cols[cat];
+    const sel = this.macroFilterSelection ?? this.allMacroColKeys(m);
+    const selectedCount = cols.filter((c) => sel.has(`${cat}:${c.key}`)).length;
+    const allOn = selectedCount === cols.length;
+
+    const wrap = el("div", { style: "margin-bottom:8px" });
+    wrap.append(
+      el("div", { style: "display:flex;align-items:center;gap:7px" },
+        el("input", {
+          type: "checkbox", checked: allOn, style: `accent-color:${meta.accent}`,
+          onchange: () => {
+            const s = new Set(this.macroFilterSelection ?? this.allMacroColKeys(m));
+            for (const c of cols) {
+              const k = `${cat}:${c.key}`;
+              if (allOn) s.delete(k); else s.add(k);
+            }
+            this.macroFilterSelection = s;
+            this.macroActiveFilterPresetId = null;
+            this.renderTab();
+          },
+        }),
+        el("span", { style: `color:${meta.accent};font-size:10px;font-weight:700;letter-spacing:1px;flex:1` }, meta.label),
+        el("span", { style: "color:#8f87ad;font-size:10px" }, `${selectedCount}/${cols.length}`)
+      )
+    );
+    const list = el("div", { style: "margin-left:22px;margin-top:4px;display:flex;flex-direction:column;gap:4px" });
+    for (const col of cols) {
+      const key = `${cat}:${col.key}`;
+      const on = sel.has(key);
+      list.append(
+        el("label", { style: "display:flex;align-items:center;gap:6px;font-size:11px;color:#d8d2ec;cursor:pointer" },
+          el("input", {
+            type: "checkbox", checked: on, style: `accent-color:${meta.accent}`,
+            onchange: () => {
+              const s = new Set(this.macroFilterSelection ?? this.allMacroColKeys(m));
+              if (on) s.delete(key); else s.add(key);
+              this.macroFilterSelection = s;
+              this.macroActiveFilterPresetId = null;
+              this.renderTab();
+            },
+          }),
+          this.macroIcon(m, cat, col.key, 14),
+          col.label
+        )
+      );
+    }
+    wrap.append(list);
+    return wrap;
   }
 
   private macroMatrixEl(m: MacroMatrix, draft: MacroDraft | null): HTMLElement {
