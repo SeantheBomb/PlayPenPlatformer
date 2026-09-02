@@ -364,6 +364,15 @@ republishing/re-saving from the editor is still the fix for those.
   nothing for players until art lands; layers with no sprite and no props are
   dropped in `resolveRoomLayers`. `tests/parallax.test.ts` pins that, plus the
   binding/override/defaults semantics — keep it green.
+- **Placeholder strips are GENERATED, not committed** (`src/studio/
+  placeholders.ts`, "✨ Add placeholder set"): drawn on a canvas in the
+  browser into the local draft, so they cost nothing in the published bundle
+  and the art-free default above stays true. They're also the reference for
+  what each plane is for. `wrapped()` in that file draws every element at
+  −w/0/+w so strips tile seamlessly; mid and near additionally tile
+  VERTICALLY (`PLACEHOLDER_WRAP_Y`) because a layer with scrollY near 1
+  barely moves relative to the world, so a 360-tall strip would otherwise
+  run out below the first screen in a tall room (Mess Hall is 896px).
 - Foreground (`plane: "front"`) draws over the player but UNDER interaction
   prompts, and defaults to `fadeNearPlayer` (a soft radial hole punched around
   the player via an offscreen destination-out composite) so foreground art can

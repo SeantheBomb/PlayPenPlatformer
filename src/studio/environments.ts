@@ -13,6 +13,7 @@ import { drawBackdrop, drawMap, drawParallaxLayers } from "../engine/renderer";
 import { DEPTH_PRESETS, resolveRoomLayers, setIdForRoom } from "../game/layers";
 import { VIEW_H, VIEW_W } from "../game/game";
 import { importFiles } from "./importers";
+import { makePlaceholderSet, makePlaceholderStrip, PLACEHOLDER_WRAP_Y, type PlaceholderDepth } from "./placeholders";
 import { openSvgEditor } from "./svgeditor";
 
 export interface EnvContext {
@@ -127,8 +128,34 @@ export function environmentsView(ctx: EnvContext): HTMLElement {
         ctx.open(id);
       },
     }, "+ New layer set"),
-    el("span", { className: "st-hint" }, "Starts with a far, mid, and foreground layer, ready for art.")
+    el("span", { className: "st-hint" }, "Starts with a far, mid, and foreground layer, ready for art."),
+    el("span", { className: "st-spacer" }),
+    el("button", {
+      className: "st-btn",
+      title: "Rough stand-in art for all three layers, so you can see and feel the effect before drawing anything",
+      onclick: async () => {
+        const f2 = file(ctx.store);
+        const id = uid("set");
+        f2.sets[id] = {
+          id,
+          name: "Placeholder facility",
+          layers: makePlaceholderSet().map((p) => ({
+            id: p.depth, name: p.name, depth: p.depth, sprite: p.sprite,
+            props: [], wrapX: true, ...DEPTH_PRESETS[p.depth], wrapY: p.wrapY,
+          })),
+        };
+        // Bind it everywhere, or it's a set nobody can see without extra
+        // steps — the entire point is an immediate look at the system.
+        f2.defaultSetId = id;
+        await save(ctx);
+        toast("Placeholder set added and switched on for every room. Delete it whenever real art lands.");
+        ctx.open(id);
+      },
+    }, "✨ Add placeholder set")
   ));
+  wrap.append(el("div", { className: "st-hint", style: "margin-top:6px" },
+    "Placeholders are generated here in your browser — they cost nothing until you publish, " +
+    "and deleting the set removes them completely."));
   return wrap;
 }
 
@@ -666,6 +693,19 @@ function layerCard(
         },
       }),
     }, "△ Draw a strip"),
+    el("button", {
+      className: "st-btn",
+      title: "Drop in rough stand-in art for this layer, matched to its depth",
+      onclick: async () => {
+        const d = (read("depth") as PlaceholderDepth) ?? "mid";
+        layer.sprite = makePlaceholderStrip(d);
+        layer.wrapY = PLACEHOLDER_WRAP_Y[d];
+        await save(ctx);
+        paintThumb();
+        hooks.onStructureChange();
+        toast("Placeholder strip added — replace it whenever you like.");
+      },
+    }, "✨ Placeholder"),
     layer.sprite ? el("button", {
       className: "st-btn st-danger",
       onclick: async () => {

@@ -188,6 +188,16 @@ spikes at a glance — please keep it on unless there's a good reason.
 files in, then just **drag them around directly in the preview**. They move with
 their layer's parallax like everything else on that plane.
 
+**Want to see it working before you draw anything?** Hit **✨ Add placeholder
+set**. It generates rough stand-in art for all three planes — distant silos,
+interior pillars and shelving, foreground bars — and switches it on for every
+room, so you can play the game and feel the effect immediately. It's also a
+useful reference for what each plane is *for*: notice how the far layer is low
+contrast and barely moves, while the foreground is dark, sparse, and rushes
+past. Delete the set whenever your real art is ready. (There's a ✨ Placeholder
+button on each individual layer too, if you only want a stand-in for one of
+them while you work on the others.)
+
 **The preview** pans a real room at the player's actual running speed, so you're
 tuning by feel rather than by numbers. Drag it to scrub the camera yourself. And
 **▶ Play this room** drops you into the real game, in that exact room, with your
