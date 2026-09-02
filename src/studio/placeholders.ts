@@ -18,7 +18,11 @@ export type PlaceholderDepth = "far" | "mid" | "near";
 /** View-height strips: tall enough to fill the 640×360 view without needing
  *  vertical wrap, wide enough that the repeat isn't obvious at a glance. */
 const SIZES: Record<PlaceholderDepth, { w: number; h: number }> = {
-  far: { w: 192, h: 360 },
+  // Taller than the 360px view on purpose: the far layer is the one plane
+  // that can't repeat downwards (a second horizon halfway down reads as
+  // broken), so it has to be tall enough to still cover the bottom of the
+  // tallest room — 403px for Mess Hall at scrollY 0.08. See stripadvice.ts.
+  far: { w: 192, h: 420 },
   mid: { w: 160, h: 360 },
   near: { w: 320, h: 360 },
 };

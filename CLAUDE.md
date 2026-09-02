@@ -378,6 +378,15 @@ republishing/re-saving from the editor is still the fix for those.
   the player via an offscreen destination-out composite) so foreground art can
   never hide the player or a hazard. That guard is the whole reason Sean
   allowed a foreground plane at all — don't default it off.
+- **Strip sizing is computed, not guessed** (`src/studio/stripadvice.ts`, pinned
+  by `tests/strip-advice.test.ts`): width to cross a room without the repeat
+  coming around is `VIEW_W + travelX*scrollX`; height to still cover the view
+  at the bottom of a room is `VIEW_H + travelY*scrollY - min(0, offsetY)`.
+  Counter-intuitively a NEARER layer needs a WIDER strip (it travels further).
+  The studio recomputes both live as the sliders move, per previewed room and
+  as a worst case across every room bound to the set. Thresholds are
+  deliberately loose (8px shortfall, 6× repeat) — warning about a 2px gap just
+  teaches her to ignore the panel.
 - Edited in the Art Studio's **Environments** tab (`src/studio/environments.ts`):
   set list → layer stack (six knobs + far/mid/near depth presets) → live preview
   that pans a real room at the player's own `runSpeed`, drag-scrubs, drags props,

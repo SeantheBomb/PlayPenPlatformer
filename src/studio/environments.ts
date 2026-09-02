@@ -14,6 +14,7 @@ import { DEPTH_PRESETS, resolveRoomLayers, setIdForRoom } from "../game/layers";
 import { VIEW_H, VIEW_W } from "../game/game";
 import { importFiles } from "./importers";
 import { makePlaceholderSet, makePlaceholderStrip, PLACEHOLDER_WRAP_Y, type PlaceholderDepth } from "./placeholders";
+import { stripGuidance, type StripRoom } from "./stripadvice";
 import { openSvgEditor } from "./svgeditor";
 
 export interface EnvContext {
@@ -87,7 +88,12 @@ export function environmentsView(ctx: EnvContext): HTMLElement {
       "A layer is one image that repeats sideways forever, so it works in any room and stays small to download."),
     el("div", { className: "st-hint" },
       "Build a few sets and point rooms at them. Anything you leave empty simply doesn't draw, " +
-      "so a half-finished set is always safe to leave in place.")
+      "so a half-finished set is always safe to leave in place."),
+    el("div", { className: "st-note", style: "margin-top:10px" },
+      "One thing worth knowing before you size a strip: unlike every other asset here, a strip is " +
+      "NOT fitted to a box — one image pixel is one pixel of the game world. So a bigger image covers " +
+      "more ground rather than looking sharper, and the right size depends on how fast the layer " +
+      "moves. Each layer works out its own ideal size for you as you tune it.")
   ));
 
   const grid = el("div", { className: "st-grid", style: "grid-template-columns:repeat(auto-fill,minmax(230px,1fr))" });
@@ -342,7 +348,14 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
     panning = !panning;
     playPauseBtn.textContent = panning ? "⏸ Pause pan" : "▶ Resume pan";
   };
-  roomSelect.onchange = () => { manualCam = null; panT = 0; rebindPreview(); };
+  roomSelect.onchange = () => {
+    manualCam = null;
+    panT = 0;
+    const r = ctx.store.content.rooms[roomSelect.value];
+    camY = r ? Math.max(0, r.height * 16 - VIEW_H) : 0;
+    rebindPreview();
+    rerenderStack(); // size guidance is per-room, so it has to follow the picker
+  };
   overrideChip.onclick = () => {
     roomOnly = !roomOnly;
     overrideChip.classList.toggle("st-on", roomOnly);
@@ -616,9 +629,65 @@ function layerCard(
           const v = Number((e.target as HTMLInputElement).value);
           out.textContent = fmt(v);
           await write(key, v as never);
+          updateAdvice();
         },
       }),
       out);
+  };
+
+  // ---- Live size guidance ----
+  // Recomputed on every slider move, so the answer to "how big should I draw
+  // this?" tracks the settings instead of being a static rule of thumb.
+  const advice = el("div", { className: "st-card", style: "background:#241d3c;margin:10px 0 0;padding:10px 12px" });
+  let natural: { w: number; h: number } | null = null;
+  const measure = () => {
+    if (!layer.sprite) { natural = null; return; }
+    const img = new Image();
+    img.onload = () => {
+      natural = { w: img.naturalWidth, h: img.naturalHeight };
+      updateAdvice();
+    };
+    img.src = layer.sprite;
+  };
+  const updateAdvice = () => {
+    const f2 = file(ctx.store);
+    const allRoomIds = Object.keys(ctx.store.content.rooms);
+    const bound = roomsUsing(f2, set.id, allRoomIds);
+    const rooms: StripRoom[] = (bound.length ? bound : allRoomIds).map((id) => {
+      const r = ctx.store.content.rooms[id];
+      return { id, name: r.name ?? id, worldW: r.width * 16, worldH: r.height * 16 };
+    });
+    const g = stripGuidance(rooms, hooks.roomId(), {
+      scrollX: (read("scrollX") as number) ?? 0.5,
+      scrollY: (read("scrollY") as number) ?? 0.3,
+      offsetY: (read("offsetY") as number) ?? 0,
+      wrapX: read("wrapX") !== false,
+      wrapY: !!read("wrapY"),
+      driftX: (read("driftX") as number) ?? 0,
+      driftY: (read("driftY") as number) ?? 0,
+    }, natural, VIEW_W, VIEW_H);
+
+    // A vertically-repeating strip has no "right" height at all, so quoting
+    // a number there would send her off to draw 950px of nothing.
+    const heightText = read("wrapY") ? "any height" : String(g.room.height);
+    const worstHeightText = read("wrapY") ? "any height" : String(g.worst.height);
+    advice.replaceChildren(
+      el("div", { className: "st-row", style: "margin:0 0 4px" },
+        el("b", {}, "📐 Size guidance"),
+        el("span", { className: "st-spacer" }),
+        el("span", { className: "st-hint" },
+          natural ? `this strip: ${natural.w} × ${natural.h}` : "no strip yet")),
+      el("div", {},
+        `Draw it `, el("b", { style: "color:#ffd166" }, `${g.room.width} × ${heightText}`),
+        ` to cross ${g.room.roomName} without repeating.`),
+      rooms.length > 1 ? el("div", { className: "st-hint", style: "margin-top:3px" },
+        `Covers all ${g.worst.roomCount} rooms in this set at ` +
+        `${g.worst.width} × ${worstHeightText} (widest: ${g.worst.widthRoom}` +
+        (read("wrapY") ? ")." : `, tallest: ${g.worst.heightRoom}).`)
+      ) : el("span", {}),
+      ...g.problems.map((p) => el("div", { className: "st-note st-err", style: "margin:6px 0 0" }, `⚠ ${p}`)),
+      ...g.notes.map((n) => el("div", { className: "st-hint", style: "margin-top:3px" }, n))
+    );
   };
 
   const knobs = el("div", {},
@@ -630,8 +699,8 @@ function layerCard(
     slider("Vertical offset", "offsetY", -400, 400, 4, (v) => `${v} px`),
     el("div", { className: "st-row" },
       el("span", { style: "min-width:132px" }, "Repeats"),
-      checkbox("sideways", read("wrapX") !== false, (v) => write("wrapX", v)),
-      checkbox("downwards", !!read("wrapY"), (v) => write("wrapY", v)),
+      checkbox("sideways", read("wrapX") !== false, async (v) => { await write("wrapX", v); updateAdvice(); }),
+      checkbox("downwards", !!read("wrapY"), async (v) => { await write("wrapY", v); updateAdvice(); }),
       el("span", { className: "st-spacer" }),
       checkbox("draw in front of the player", isFront, async (v) => {
         await write("plane", v ? "front" : "behind");
@@ -647,6 +716,9 @@ function layerCard(
   card.append(el("div", { className: "st-hint" },
     "“Follows camera” is the whole trick: 1.00× moves exactly with the level, 0.15× reads as far away, " +
     "above 1.00× rushes past in front. Drift keeps a layer alive even when you're standing still."));
+  card.append(advice);
+  measure();
+  updateAdvice();
 
   // Strip drop zone + shape editor
   const drop = el("div", { className: "st-drop", style: "padding:14px;margin-top:10px" },

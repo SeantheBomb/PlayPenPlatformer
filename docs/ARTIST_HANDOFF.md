@@ -184,6 +184,28 @@ so foreground art can never hide the player, a hazard, or a prompt. You can
 turn that off per layer, but the game is for 10-year-olds who need to read
 spikes at a glance — please keep it on unless there's a good reason.
 
+**How big should a strip be?** Each layer works this out for you and shows it
+live under **📐 Size guidance**, updating as you move the sliders — so you can
+try a setting and immediately see what size it would want. Two things drive it:
+
+- **Width** is about how far the layer travels. A *nearer* layer (higher
+  "follows camera") sweeps past faster and so needs a *wider* strip than a
+  distant one — the opposite of what you'd expect. The panel tells you the
+  width at which the repeat never comes around in the room you're previewing,
+  and a second figure that covers every room in the set.
+- **Height** is about tall rooms. A near-foreground layer barely moves relative
+  to the level, so a screen-height strip runs out below the first screenful and
+  the background shows through. Either draw it tall enough (the panel says how
+  tall) or tick **repeats downwards**, after which any height works.
+
+It also flags real problems — a strip too short to reach the bottom of a room,
+or one repeating so often it reads as tiling — while staying quiet about
+differences too small to see.
+
+One quirk worth internalising: a strip is the *only* thing in the studio that
+isn't fitted to a box. One image pixel is one pixel of the game world, so a
+bigger strip covers more ground rather than looking sharper.
+
 **Props** are one-off objects on a layer — a pipe, a poster, a cloud. Drop image
 files in, then just **drag them around directly in the preview**. They move with
 their layer's parallax like everything else on that plane.
