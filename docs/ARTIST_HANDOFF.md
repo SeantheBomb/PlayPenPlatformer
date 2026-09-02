@@ -206,6 +206,35 @@ One quirk worth internalising: a strip is the *only* thing in the studio that
 isn't fitted to a box. One image pixel is one pixel of the game world, so a
 bigger strip covers more ground rather than looking sharper.
 
+**Sizing one set to cover the whole game (the first-pass recipe).** The
+Environments page works these out live, but the short version, and the
+reasoning, is worth having up front:
+
+| Layer | Never repeats anywhere | What to actually do |
+|---|---|---|
+| **Far** | 808 × 403 | Draw it at full size. It's the one plane where a repeat really shows — a horizon that comes around twice looks broken — and it's cheap art, so this is the best value in the set. |
+| **Mid** | 1144 × 521 | Don't chase it. Draw a tileable pattern (roughly 400–600 wide) and let it repeat. Pillars, shelving and windows are rhythmic anyway. |
+| **Foreground** | 2040 × 950 | Definitely don't chase it. 300–400 wide is plenty — bars, pipes and foliage are *supposed* to recur. |
+
+Three things make those maximums smaller than they look:
+
+- **One room is an outlier.** The Long Run is nearly twice as wide as any
+  other room, and sizing for it inflates the foreground by about 40%. It's the
+  finale chase — the player is sprinting — so it's fine to let the backdrop
+  tile more there. Skip it and everything else is covered at 736 / 928 / 1440.
+- **Vertical wrap removes the height question.** Only one room (the Boiler
+  Room) is tall enough for height to matter. Tick **repeats downwards** on the
+  mid and foreground layers and any height works, which leaves the far layer as
+  the only one needing a real height — 420px covers every room.
+- **Repeating is not failure.** Sonic tiled everything. The size guidance tells
+  you how often a strip repeats in each room; treat anything under about 3× as
+  fine, and worry only when it's high enough that the eye starts matching up
+  landmarks.
+
+So a realistic first pass is: **one properly-drawn far strip at 808 × 420**, and
+**two tileable patterns** for mid and foreground with "repeats downwards" on.
+That dresses all eleven rooms.
+
 **Props** are one-off objects on a layer — a pipe, a poster, a cloud. Drop image
 files in, then just **drag them around directly in the preview**. They move with
 their layer's parallax like everything else on that plane.

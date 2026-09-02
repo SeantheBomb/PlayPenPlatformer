@@ -92,6 +92,52 @@ export function adviceForRoom(
   };
 }
 
+export interface FirstPassRow {
+  depth: string;
+  /** Size that never repeats in ANY room. */
+  width: number;
+  height: number;
+  /** Size that never repeats in every room but the widest one. */
+  widthMost: number;
+  /** Rooms covered by widthMost, and the outlier it gives up on. */
+  mostCount: number;
+  outlierRoom: string;
+  /** How much the single widest room inflates the requirement. */
+  outlierInflationPct: number;
+}
+
+/**
+ * What to draw for a whole campaign in one pass. The per-layer panel answers
+ * "what fits this room"; this answers "what should I actually draw", which is
+ * a different question because the maximums are usually set by one outlier
+ * room. Reporting both the all-rooms figure and the all-but-the-widest figure
+ * lets her see what that last room is costing her before paying for it.
+ */
+export function firstPassPlan(
+  rooms: StripRoom[], presets: Record<string, { scrollX: number; scrollY: number }>,
+  viewW: number, viewH: number
+): FirstPassRow[] {
+  if (!rooms.length) return [];
+  const byTravel = [...rooms].sort((a, b) => travelX(b, viewW) - travelX(a, viewW));
+  const widest = byTravel[0];
+  const secondTravel = byTravel.length > 1 ? travelX(byTravel[1], viewW) : travelX(widest, viewW);
+  const maxTravelY = Math.max(...rooms.map((r) => travelY(r, viewH)));
+
+  return Object.entries(presets).map(([depth, p]) => {
+    const width = Math.ceil(viewW + travelX(widest, viewW) * p.scrollX);
+    const widthMost = Math.ceil(viewW + secondTravel * p.scrollX);
+    return {
+      depth,
+      width,
+      height: Math.max(viewH, Math.ceil(viewH + maxTravelY * p.scrollY)),
+      widthMost,
+      mostCount: rooms.length - 1,
+      outlierRoom: widest.name,
+      outlierInflationPct: widthMost > 0 ? Math.round(((width - widthMost) / widthMost) * 100) : 0,
+    };
+  });
+}
+
 export function stripGuidance(
   rooms: StripRoom[], previewRoomId: string, s: StripSettings,
   current: { w: number; h: number } | null, viewW: number, viewH: number

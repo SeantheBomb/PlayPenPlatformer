@@ -2,7 +2,7 @@
 // guidance an artist will actually draw against, so the numbers have to be
 // right — a wrong "needs 950px tall" costs her a redraw.
 import { describe, expect, it } from "vitest";
-import { adviceForRoom, stripGuidance, type StripRoom, type StripSettings } from "../src/studio/stripadvice";
+import { adviceForRoom, firstPassPlan, stripGuidance, type StripRoom, type StripSettings } from "../src/studio/stripadvice";
 
 const VIEW_W = 640, VIEW_H = 360;
 
@@ -125,5 +125,42 @@ describe("guidance across a set's rooms", () => {
     const g = stripGuidance([], "nope", settings(), null, VIEW_W, VIEW_H);
     expect(g.room.width).toBe(VIEW_W);
     expect(g.worst.roomCount).toBe(0);
+  });
+});
+
+describe("first-pass plan across the whole campaign", () => {
+  const presets = {
+    far: { scrollX: 0.15, scrollY: 0.08 },
+    mid: { scrollX: 0.45, scrollY: 0.3 },
+    near: { scrollX: 1.25, scrollY: 1.1 },
+  };
+  const rooms = [yard, mess, tiny];
+
+  it("sizes width off the widest room and height off the tallest", () => {
+    const plan = firstPassPlan(rooms, presets, VIEW_W, VIEW_H);
+    const near = plan.find((p) => p.depth === "near")!;
+    expect(near.width).toBe(640 + Math.ceil(512 * 1.25)); // The Playground is widest
+    expect(near.height).toBe(360 + Math.ceil(536 * 1.1)); // Boiler Room is tallest
+  });
+
+  it("also reports what dropping the single widest room would save", () => {
+    const plan = firstPassPlan(rooms, presets, VIEW_W, VIEW_H);
+    const near = plan.find((p) => p.depth === "near")!;
+    // Second-widest is the Boiler Room at 256px of travel.
+    expect(near.widthMost).toBe(640 + Math.ceil(256 * 1.25));
+    expect(near.outlierRoom).toBe("The Playground");
+    expect(near.mostCount).toBe(2);
+    expect(near.outlierInflationPct).toBeGreaterThan(0);
+  });
+
+  it("asks for a wider strip the nearer the plane", () => {
+    const plan = firstPassPlan(rooms, presets, VIEW_W, VIEW_H);
+    const [far, mid, near] = ["far", "mid", "near"].map((d) => plan.find((p) => p.depth === d)!.width);
+    expect(far).toBeLessThan(mid);
+    expect(mid).toBeLessThan(near);
+  });
+
+  it("returns nothing when there are no rooms", () => {
+    expect(firstPassPlan([], presets, VIEW_W, VIEW_H)).toEqual([]);
   });
 });

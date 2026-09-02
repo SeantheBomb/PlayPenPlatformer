@@ -14,7 +14,7 @@ import { DEPTH_PRESETS, resolveRoomLayers, setIdForRoom } from "../game/layers";
 import { VIEW_H, VIEW_W } from "../game/game";
 import { importFiles } from "./importers";
 import { makePlaceholderSet, makePlaceholderStrip, PLACEHOLDER_WRAP_Y, type PlaceholderDepth } from "./placeholders";
-import { stripGuidance, type StripRoom } from "./stripadvice";
+import { firstPassPlan, stripGuidance, type StripRoom } from "./stripadvice";
 import { openSvgEditor } from "./svgeditor";
 
 export interface EnvContext {
@@ -95,6 +95,7 @@ export function environmentsView(ctx: EnvContext): HTMLElement {
       "more ground rather than looking sharper, and the right size depends on how fast the layer " +
       "moves. Each layer works out its own ideal size for you as you tune it.")
   ));
+  wrap.append(firstPassCard(ctx));
 
   const grid = el("div", { className: "st-grid", style: "grid-template-columns:repeat(auto-fill,minmax(230px,1fr))" });
   for (const set of Object.values(f.sets)) {
@@ -163,6 +164,58 @@ export function environmentsView(ctx: EnvContext): HTMLElement {
     "Placeholders are generated here in your browser — they cost nothing until you publish, " +
     "and deleting the set removes them completely."));
   return wrap;
+}
+
+/**
+ * "What do I actually draw to cover the whole game?" — the question the
+ * per-layer panel can't answer, because it only knows one room at a time.
+ * Numbers are computed from the real rooms so they stay true as levels
+ * change; the judgement around them is the part worth reading.
+ */
+function firstPassCard(ctx: EnvContext): HTMLElement {
+  const rooms: StripRoom[] = Object.entries(ctx.store.content.rooms).map(([id, r]) => ({
+    id, name: r.name ?? id, worldW: r.width * 16, worldH: r.height * 16,
+  }));
+  const plan = firstPassPlan(
+    rooms,
+    { far: DEPTH_PRESETS.far, mid: DEPTH_PRESETS.mid, near: DEPTH_PRESETS.near } as Record<
+      string, { scrollX: number; scrollY: number }
+    >,
+    VIEW_W, VIEW_H
+  );
+  if (!plan.length) return el("span", {});
+  const far = plan.find((p) => p.depth === "far")!;
+  const near = plan.find((p) => p.depth === "near")!;
+  const label: Record<string, string> = { far: "Far", mid: "Mid", near: "Foreground" };
+  const advice: Record<string, string> = {
+    far: "Worth drawing at full size — this is the one layer where a repeat really shows.",
+    mid: "Better as a repeating pattern than a full-size scene.",
+    near: "Definitely a repeating pattern — bars and pipes are meant to recur.",
+  };
+
+  return el(
+    "div", { className: "st-card" },
+    el("div", { className: "st-row", style: "margin:0" },
+      el("b", { style: "color:#ffd166" }, "📐 Drawing one set to cover all " + rooms.length + " rooms")),
+    el("div", { className: "st-hint", style: "margin:2px 0 8px" },
+      "Sizes below never repeat in any room. They're a ceiling, not a target — the nearer the layer, " +
+      "the less worth chasing."),
+    ...plan.map((p) => el("div", { className: "st-row", style: "margin:4px 0" },
+      el("span", { style: "min-width:96px;font-weight:600" }, label[p.depth] ?? p.depth),
+      el("span", { style: "min-width:120px;color:#ffd166" }, `${p.width} × ${p.height}`),
+      el("span", { className: "st-hint" }, advice[p.depth] ?? ""))),
+    el("div", { className: "st-note", style: "margin-top:10px" },
+      `Two rooms set these maximums almost single-handedly. ${near.outlierRoom} is far wider than ` +
+      `anything else, and sizing for it inflates the foreground by ${near.outlierInflationPct}% — ` +
+      `skip it and the other ${near.mostCount} rooms are covered at ${far.widthMost} / ${near.widthMost} wide. ` +
+      `It's the finale chase, so the player is sprinting past the backdrop anyway.`),
+    el("div", { className: "st-hint", style: "margin-top:6px" },
+      "Height only bites in the one tall room — turn on “repeats downwards” for the mid and foreground " +
+      "layers and it stops mattering entirely, leaving the far layer as the only one that needs a real height."),
+    el("div", { className: "st-hint", style: "margin-top:4px" },
+      "One room is exactly a screen wide, so nothing scrolls there at all — a little drift on every layer " +
+      "keeps it alive.")
+  );
 }
 
 /** Small composited thumbnail of a set: its layers stacked, no room behind. */
