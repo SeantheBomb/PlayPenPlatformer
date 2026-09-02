@@ -106,6 +106,45 @@ describe("overlayArtBundle scope", () => {
     expect(out["recipes.json"]).toEqual([{ id: "r1", output: "torch" }]);
   });
 
+  // Parallax layers are wholly artist-owned (every field is cosmetic and the
+  // sim reads none of it), which is precisely why room->set bindings live in
+  // layers.json instead of on RoomDef — see functions/api/_artscope.js.
+  it("layers.json is fully artist-writable, bindings included", () => {
+    const live = liveBundle() as Record<string, unknown>;
+    live["layers.json"] = { defaultSetId: "facility", sets: {}, rooms: {} };
+    const artist = {
+      "layers.json": {
+        defaultSetId: "greenhouse",
+        sets: { greenhouse: { id: "greenhouse", name: "Greenhouse", layers: [{ id: "far", sprite: px("vines") }] } },
+        rooms: { cell: { setId: "greenhouse", overrides: { far: { opacity: 0.5 } } } },
+      },
+    };
+    const out = overlayArtBundle(live, artist) as any;
+    expect(out["layers.json"].sets.greenhouse.layers[0].sprite).toBe(px("vines"));
+    expect(out["layers.json"].rooms.cell.setId).toBe("greenhouse");
+    expect(out["layers.json"].defaultSetId).toBe("greenhouse");
+  });
+
+  it("layers.json still lands when live doesn't have one yet", () => {
+    // First artist publish after the feature ships: live predates the file.
+    const artist = { "layers.json": { defaultSetId: "facility", sets: {}, rooms: {} } };
+    const out = overlayArtBundle(liveBundle(), artist) as any;
+    expect(out["layers.json"]).toEqual({ defaultSetId: "facility", sets: {}, rooms: {} });
+  });
+
+  it("publishing layers still can't reach room files or gameplay", () => {
+    const live = liveBundle() as Record<string, unknown>;
+    live["layers.json"] = { defaultSetId: "facility", sets: {}, rooms: {} };
+    const artist = {
+      "layers.json": { defaultSetId: "x", sets: {}, rooms: { cell: { setId: "x" } } },
+      "rooms/cell.json": { id: "cell", tiles: ["ZZ"], entities: [] },
+      "recipes.json": [{ id: "r1", output: "hacked" }],
+    };
+    const out = overlayArtBundle(live, artist) as any;
+    expect(out["rooms/cell.json"].tiles).toEqual(["##", "##"]);
+    expect(out["recipes.json"]).toEqual([{ id: "r1", output: "torch" }]);
+  });
+
   it("an artist bundle can't introduce new files or new defs", () => {
     const artist = {
       "hacked.json": { anything: true },

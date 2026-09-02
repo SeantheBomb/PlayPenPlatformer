@@ -4,6 +4,7 @@ import type { ContentStore } from "../data/content";
 import { TILE } from "../engine/tilemap";
 import { drawBlob, drawMap } from "../engine/renderer";
 import { RoomRuntime } from "../game/room";
+import { setIdForRoom } from "../game/layers";
 import { emptyRoomMutations } from "../game/state";
 import { autoForm, el, fieldOptionsFor, toast } from "./forms";
 import { openPixelEditor, rasterize } from "./pixeleditor";
@@ -434,6 +435,21 @@ export class RoomEditor {
         this.markDirty();
         this.renderCanvas();
       }, ["tiles", "entities", "id", "width", "height"], () => this.pushUndoDebounced(), fieldOptionsFor(this.content)),
+      // Parallax backdrop, read-only here on purpose: layers.json is the
+      // artist's file (Art Studio → Environments), and keeping bindings out
+      // of rooms/*.json is what lets an artist publish dress every room
+      // without ever being able to touch level data. This row just answers
+      // "what backdrop is this room getting?" without opening the studio.
+      el("div", { className: "pp-sidehead", style: "margin-top:10px" }, "Environment"),
+      el("p", { className: "pp-hint" }, (() => {
+        const setId = setIdForRoom(this.content.layers, room.id);
+        const set = setId ? this.content.layers.sets[setId] : null;
+        if (!set) return "No parallax backdrop. Set one in the Art Studio (?art → Environments).";
+        const explicit = this.content.layers.rooms?.[room.id]?.setId === setId;
+        const drawn = set.layers.filter((l) => l.sprite || (l.props ?? []).some((p) => p.sprite)).length;
+        return `${set.name || setId}${explicit ? "" : " (the default)"} — ${drawn}/${set.layers.length} layers drawn. ` +
+          "Edited in the Art Studio.";
+      })()),
       el("div", { className: "pp-sidehead", style: "margin-top:10px" }, "Size"),
       el("p", { className: "pp-hint" },
         `Currently ${room.width} × ${room.height} tiles. Shrinking warns first — nothing ` +

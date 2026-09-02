@@ -123,6 +123,10 @@ function assemble(files: Record<string, unknown>): Content {
     tracks: mergeArrayById((BUNDLED["tracks.json"] ?? []) as Content["tracks"], files["tracks.json"]),
     campaign: files["campaign.json"] as Content["campaign"],
     rooms,
+    // Nested-key merge (like game.json): a draft/publish saved before a layer
+    // field existed still gets the bundled default for it instead of handing
+    // the renderer an undefined it reads every frame.
+    layers: deepDefaults(BUNDLED["layers.json"], files["layers.json"]) as Content["layers"],
   };
 }
 
@@ -151,6 +155,7 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   out["enemies.json"] = c.enemies;
   out["taunts.json"] = c.taunts;
   out["tracks.json"] = c.tracks;
+  out["layers.json"] = c.layers;
   return out;
 }
 

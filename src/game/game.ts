@@ -8,7 +8,7 @@ import { Particles } from "../engine/particles";
 import { sfx } from "../engine/audio";
 import { music } from "../engine/music";
 import { TILE } from "../engine/tilemap";
-import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawSprite, roundRect } from "../engine/renderer";
+import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawParallaxLayers, drawSprite, roundRect } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
 import { RunState, emptyRoomMutations, type StateSnapshot } from "./state";
 import { tileProgress, entityProgress, enemyProgress, type Progress } from "./roomProgress";
@@ -17,6 +17,7 @@ import {
   RoomRuntime, type ElementEvent, type EntityInstance,
   type EnemySnapshot, type FluidRuntimeSnapshot,
 } from "./room";
+import { resolveRoomLayers, type ResolvedLayers } from "./layers";
 import { TauntManager } from "./taunts";
 import { CraftUI } from "./craftui";
 import { TouchControls, type SmartContext } from "./touch";
@@ -1911,6 +1912,21 @@ export class Game {
     }
   }
 
+  /** This room's parallax layers, resolved once per room (and re-resolved if
+   *  content is swapped under us — which is exactly what "Try in game" from
+   *  the Art Studio does, so a layer edit must not need a reload to show). */
+  private layerCache: { roomId: string; src: unknown; value: ResolvedLayers } | null = null;
+
+  private roomLayers(): ResolvedLayers {
+    const roomId = this.roomRt.room.id;
+    const src = this.content.layers;
+    const hit = this.layerCache;
+    if (hit && hit.roomId === roomId && hit.src === src) return hit.value;
+    const value = resolveRoomLayers(this.content, roomId);
+    this.layerCache = { roomId, src, value };
+    return value;
+  }
+
   private renderScene(ctx: CanvasRenderingContext2D): void {
     ctx.clearRect(0, 0, VIEW_W, VIEW_H);
     ctx.fillStyle = "#0d0b14";
@@ -1935,6 +1951,9 @@ export class Game {
     ctx.scale(zoom, zoom);
     ctx.translate(-camX, -camY);
     drawBackdrop(ctx, this.roomRt.room.background, camX, camY, vw, vh);
+    // Parallax: behind the world here, in front of it after the player below.
+    const layers = this.roomLayers();
+    drawParallaxLayers(ctx, layers.behind, camX, camY, vw, vh, this.animT);
     drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
     this.roomRt.resolveHintText = (raw) => raw.replace(
       /\{(move|jump|craft|use|interact|cycle|start)\}/g,
@@ -1981,6 +2000,12 @@ export class Game {
     this.warden.draw(ctx, this.content.game.antagonist, this.animT);
     this.particles.draw(ctx);
     drawFloaties(ctx, this.floaties);
+    // Foreground plane: over the world and the player, but UNDER the
+    // interaction prompts below — foreground art may never hide a prompt.
+    drawParallaxLayers(
+      ctx, layers.front, camX, camY, vw, vh, this.animT,
+      { x: this.player.centerX - camX, y: this.player.centerY - camY }
+    );
     // Interaction prompt
     if (this.overlay === "none") {
       const iKey = this.input.label("interact");

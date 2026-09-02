@@ -506,6 +506,88 @@ export interface CampaignDef {
   rooms: string[];
 }
 
+/**
+ * PARALLAX LAYERS (content/layers.json) — purely cosmetic depth planes drawn
+ * behind (and optionally in front of) the world. NOTHING in the simulation
+ * reads any of this: no collision, no element interaction, no entity. That's
+ * deliberate and load-bearing — layers must never be able to affect a run, so
+ * replays of the same inputs stay identical whatever art is published.
+ *
+ * `sprite` is a horizontally tileable strip (Sonic-style), drawn repeatedly to
+ * cover the view rather than one giant painted backdrop — that keeps published
+ * bundle size sane (every player downloads this on boot) and works in any room
+ * width. Layers live in named SETS that rooms bind to, so a handful of sets
+ * dress all 11 rooms and a tone change propagates everywhere at once.
+ */
+export interface ParallaxLayer {
+  id: string;
+  name?: string;
+  /** "behind" (default) draws under the world; "front" draws over the player. */
+  plane?: "behind" | "front";
+  /** UI-only tag recording which depth preset seeded this layer's numbers. */
+  depth?: "far" | "mid" | "near";
+  /** Tileable strip, a data-URI image. No sprite = this layer draws nothing. */
+  sprite?: string;
+  /** Fraction of camera movement this layer tracks. 0 = pinned to the screen
+   *  (infinitely far away), 1 = moves exactly with the world (in-plane). */
+  scrollX?: number;
+  scrollY?: number;
+  /** Ambient self-motion in px/sec — what sells depth in our tighter rooms,
+   *  where the camera barely travels and pure parallax would be invisible. */
+  driftX?: number;
+  driftY?: number;
+  opacity?: number;
+  /** Vertical anchor in px. With scrollY 0 this is an offset from the view's
+   *  top edge; with scrollY 1 it's a fixed world position. */
+  offsetY?: number;
+  /** Repeat the strip to fill. X defaults on (that's the point of a strip);
+   *  Y defaults off so a sky/horizon strip doesn't stack down the screen. */
+  wrapX?: boolean;
+  wrapY?: boolean;
+  /** Front-plane readability guard: softly fades this layer out around the
+   *  player so foreground art can never hide them, a hazard, or a prompt. */
+  fadeNearPlayer?: boolean;
+  props?: LayerProp[];
+}
+
+/** A one-off decorative sprite placed in a layer. Positioned in ROOM world
+ *  coordinates (so it can be lined up against real level geometry) and then
+ *  moved by its layer's parallax like everything else on that plane. */
+export interface LayerProp {
+  id: string;
+  sprite?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  flip?: boolean;
+  opacity?: number;
+}
+
+export interface LayerSet {
+  id: string;
+  name: string;
+  layers: ParallaxLayer[];
+}
+
+/** Which set a room uses, plus per-layer-id tweaks on top of it. */
+export interface RoomLayerBinding {
+  setId?: string;
+  overrides?: Record<string, Partial<ParallaxLayer>>;
+}
+
+/**
+ * The whole of content/layers.json. Room bindings live HERE rather than on
+ * each RoomDef on purpose: layers are artist-owned, and keeping them out of
+ * rooms/*.json preserves the property that an artist publish structurally
+ * cannot touch a room file (see functions/api/_artscope.js).
+ */
+export interface LayersFile {
+  defaultSetId?: string;
+  sets: Record<string, LayerSet>;
+  rooms: Record<string, RoomLayerBinding>;
+}
+
 /** A looping music track. `dataUrl` is the actual audio (uploaded MP3, as a
  *  base64 data: URI) — kept separate from `id`/`name` specifically so the
  *  clip behind a track can be swapped later (re-upload onto the same id)
@@ -532,4 +614,5 @@ export interface Content {
   tracks: TrackDef[];
   campaign: CampaignDef;
   rooms: Record<string, RoomDef>;
+  layers: LayersFile;
 }

@@ -16,6 +16,7 @@ import { buildAssets, assetStatus, GROUP_ORDER, type ArtAsset, type AssetGroup }
 import { importFiles, sliceStrip, imageSize } from "./importers";
 import { downloadFrame, downloadStrip, downloadContactSheet } from "./exporters";
 import { openSvgEditor, rasterizeSeedTight } from "./svgeditor";
+import { environmentsView, layerSetView, stopEnvironmentPreview, type EnvContext } from "./environments";
 
 const PASS_KEY = "playpen.artist.password";
 const SEEN_KEY = "playpen.artist.welcomed";
@@ -133,10 +134,12 @@ export function closeStudio(root: HTMLElement): void {
 }
 
 type Filter = "all" | "needs-art" | "custom" | "animated";
+type View = "login" | "welcome" | "gallery" | "detail" | "environments" | "layerset";
 
 class Studio {
   private assets: ArtAsset[] = [];
-  private view: "login" | "welcome" | "gallery" | "detail" = "gallery";
+  private view: View = "gallery";
+  private layerSetId: string | null = null;
   private selectedKey: string | null = null;
   private filter: Filter = "all";
   private group: AssetGroup | "all" = "all";
@@ -180,6 +183,7 @@ class Studio {
   // ================= RENDER =================
 
   render(): void {
+    stopEnvironmentPreview(); // never leave a rAF loop drawing into a detached canvas
     this.root.replaceChildren();
     const shell = el("div", { className: "st-root" }, el("div", { className: "st-shell" }));
     const inner = shell.firstChild as HTMLElement;
@@ -187,6 +191,8 @@ class Studio {
     if (this.view === "login") return void inner.append(this.loginView());
     inner.append(this.header());
     if (this.view === "welcome") inner.append(this.welcomeView());
+    else if (this.view === "environments") inner.append(environmentsView(this.envContext()));
+    else if (this.view === "layerset" && this.layerSetId) inner.append(layerSetView(this.envContext(), this.layerSetId));
     else if (this.view === "detail" && this.asset(this.selectedKey)) inner.append(this.detailView(this.asset(this.selectedKey)!));
     else inner.append(this.galleryView());
     this.repaintCanvases();
@@ -200,6 +206,10 @@ class Studio {
       this.online ? null : el("span", { className: "st-badge" }, "offline — publishing unavailable"),
       el("span", { className: "st-spacer" }),
       el("button", { className: "st-btn st-quiet", onclick: () => { this.view = "welcome"; this.render(); } }, "How it works"),
+      el("button", {
+        className: "st-btn", title: "Layered scrolling backdrops that give rooms depth",
+        onclick: () => { this.view = "environments"; this.render(); },
+      }, "🌄 Environments"),
       el("button", {
         className: "st-btn", title: "One PNG with every asset's current look — reference for your art app",
         onclick: () => this.downloadSheet(),
@@ -766,10 +776,26 @@ class Studio {
     toast("Reference sheet downloaded — open it next to your art app.");
   }
 
-  private tryInGame(): void {
+  private tryInGame(roomId?: string): void {
     // main.ts closes the studio and resumes the game with the draft content;
-    // the floating 🎨 button brings her back.
-    window.dispatchEvent(new CustomEvent("pp-studio-close"));
+    // the floating 🎨 button brings her back. With a roomId it warps straight
+    // there first, so "play this room" lands on the layers she's tuning.
+    window.dispatchEvent(new CustomEvent("pp-studio-close", { detail: roomId ? { roomId } : undefined }));
+  }
+
+  private envContext(): EnvContext {
+    return {
+      store: this.store,
+      refresh: () => this.render(),
+      markDirty: () => { this.dirty = true; },
+      playRoom: (roomId) => this.tryInGame(roomId),
+      open: (setId) => {
+        this.layerSetId = setId;
+        this.view = setId ? "layerset" : "environments";
+        this.render();
+      },
+      back: () => { this.view = "gallery"; this.render(); },
+    };
   }
 
   private async publish(): Promise<void> {

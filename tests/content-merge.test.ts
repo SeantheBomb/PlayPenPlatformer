@@ -76,6 +76,27 @@ describe("mergeBundles", () => {
     expect(out.player.swim.gravity).toBe(20);  // live's edit
   });
 
+  it("merges layers.json per set and per room binding", () => {
+    // Two concurrent art publishes: one dressed the greenhouse, the other
+    // retuned the facility set. Both must survive.
+    const mk = (facilityOpacity: number, rooms: Record<string, unknown>) => ({
+      "layers.json": {
+        defaultSetId: "facility",
+        sets: { facility: { id: "facility", name: "Facility", layers: [{ id: "far", opacity: facilityOpacity }] } },
+        rooms,
+      },
+    });
+    const base = mk(1, {});
+    const live = mk(1, { greenhouse: { setId: "green" } });
+    const incoming = mk(0.4, {});
+    const out = mergeBundles(base, live, incoming)["layers.json"] as {
+      sets: { facility: { layers: { opacity: number }[] } };
+      rooms: Record<string, { setId: string }>;
+    };
+    expect(out.sets.facility.layers[0].opacity).toBe(0.4);   // incoming's retune
+    expect(out.rooms.greenhouse.setId).toBe("green");        // live's binding
+  });
+
   it("rooms are atomic: incoming wins a room both sides edited", () => {
     const base = { "rooms/vents.json": room("vents", [".."]) };
     const live = { "rooms/vents.json": room("vents", ["#."]) };

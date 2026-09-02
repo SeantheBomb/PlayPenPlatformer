@@ -1,6 +1,6 @@
 // Canvas drawing helpers shared by the game and the editor's room preview.
 // All art is procedural primitives — no image assets.
-import type { ItemDef, NpcAvatar, SpriteFields, TileDef, WardenEmotion } from "../data/types";
+import type { ItemDef, NpcAvatar, ParallaxLayer, SpriteFields, TileDef, WardenEmotion } from "../data/types";
 import { TILE, TileMap } from "./tilemap";
 
 // ---- Custom sprite support (data-URI images stored in content) ----
@@ -838,6 +838,127 @@ export function drawBackdrop(
     for (let x = x0; x < camX + viewW + spacing; x += spacing) {
       // Parallax-ish drift based on world position
       ctx.fillRect(x + ((y / spacing) % 2) * 24 - camX * 0.1, y - camY * 0.05, 2, 2);
+    }
+  }
+}
+
+// ---- Parallax layers (see ParallaxLayer in data/types.ts) ----
+
+/** Offscreen used only by front layers with `fadeNearPlayer` — allocated on
+ *  first use and reused, so the common (no-mask) path allocates nothing. */
+let maskCanvas: HTMLCanvasElement | null = null;
+
+function maskContext(w: number, h: number): CanvasRenderingContext2D | null {
+  if (!maskCanvas) maskCanvas = document.createElement("canvas");
+  const cw = Math.max(1, Math.ceil(w)), ch = Math.max(1, Math.ceil(h));
+  if (maskCanvas.width !== cw || maskCanvas.height !== ch) {
+    maskCanvas.width = cw;
+    maskCanvas.height = ch;
+  }
+  const c = maskCanvas.getContext("2d");
+  if (c) {
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, cw, ch);
+    c.imageSmoothingEnabled = false;
+  }
+  return c;
+}
+
+/**
+ * Draw one plane's worth of parallax layers. Called INSIDE the camera
+ * transform (like drawBackdrop), so everything here is computed in world
+ * coordinates.
+ *
+ * The whole thing rests on one mapping: a point at layer-space position `p`
+ * appears at world position `p + cam * (1 - scroll) + drift * t`.
+ *   - scroll 1 -> `p` (pinned in the world, moves exactly with the level)
+ *   - scroll 0 -> `p + cam` (pinned to the screen, infinitely far away)
+ * Strips are that mapping with p = 0, then tiled to cover the view; props are
+ * the same mapping applied to their authored room coordinates.
+ *
+ * `t` is the game's cosmetic animation clock (animT), which advances one fixed
+ * step per update and freezes while paused — so ambient drift is deterministic
+ * and replays stay pixel-identical, and layers never animate behind a menu.
+ */
+export function drawParallaxLayers(
+  ctx: CanvasRenderingContext2D,
+  layers: ParallaxLayer[],
+  camX: number, camY: number,
+  viewW: number, viewH: number,
+  t: number,
+  playerScreen?: { x: number; y: number } | null
+): void {
+  if (!layers.length) return;
+  for (const layer of layers) {
+    const alpha = layer.opacity ?? 1;
+    if (alpha <= 0) continue;
+    const scrollX = layer.scrollX ?? 0.5, scrollY = layer.scrollY ?? 0.3;
+    const baseX = camX * (1 - scrollX) + (layer.driftX ?? 0) * t;
+    const baseY = camY * (1 - scrollY) + (layer.driftY ?? 0) * t + (layer.offsetY ?? 0);
+
+    // A front layer that fades around the player renders offscreen first so
+    // the hole can be punched with destination-out, then composites in one go.
+    const masked = !!layer.fadeNearPlayer && !!playerScreen;
+    const target = masked ? maskContext(viewW, viewH) : ctx;
+    if (!target) continue;
+    target.save();
+    if (masked) target.translate(-camX, -camY); // offscreen is screen-space
+    else target.globalAlpha = alpha;
+    target.imageSmoothingEnabled = false;
+
+    const img = layer.sprite ? getImage(layer.sprite) : null;
+    if (img) {
+      const iw = img.naturalWidth, ih = img.naturalHeight;
+      // First tile at or before the view's leading edge, then step across.
+      const startX = layer.wrapX === false ? baseX : baseX - Math.ceil((baseX - camX) / iw) * iw;
+      const startY = layer.wrapY ? baseY - Math.ceil((baseY - camY) / ih) * ih : baseY;
+      const endX = camX + viewW, endY = camY + viewH;
+      for (let x = startX; x < endX; x += iw) {
+        for (let y = startY; y < endY; y += ih) {
+          target.drawImage(img, x, y, iw, ih);
+          if (!layer.wrapY) break;
+        }
+        if (layer.wrapX === false) break;
+      }
+    }
+
+    for (const prop of layer.props ?? []) {
+      const pimg = prop.sprite ? getImage(prop.sprite) : null;
+      if (!pimg) continue;
+      const px = prop.x + baseX, py = prop.y + baseY;
+      if (px + prop.w < camX || px > camX + viewW || py + prop.h < camY || py > camY + viewH) continue;
+      const pa = prop.opacity ?? 1;
+      if (pa <= 0) continue;
+      target.save();
+      if (pa < 1) target.globalAlpha = target.globalAlpha * pa;
+      if (prop.flip) {
+        target.translate(px + prop.w, py);
+        target.scale(-1, 1);
+        target.drawImage(pimg, 0, 0, prop.w, prop.h);
+      } else {
+        target.drawImage(pimg, px, py, prop.w, prop.h);
+      }
+      target.restore();
+    }
+    target.restore();
+
+    if (masked && maskCanvas && playerScreen) {
+      const mc = maskCanvas.getContext("2d")!;
+      mc.save();
+      mc.setTransform(1, 0, 0, 1, 0, 0);
+      mc.globalCompositeOperation = "destination-out";
+      const r = 46;
+      const g = mc.createRadialGradient(playerScreen.x, playerScreen.y, 0, playerScreen.x, playerScreen.y, r);
+      g.addColorStop(0, "rgba(0,0,0,0.95)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      mc.fillStyle = g;
+      mc.fillRect(playerScreen.x - r, playerScreen.y - r, r * 2, r * 2);
+      mc.restore();
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(maskCanvas, camX, camY, viewW, viewH);
+      ctx.restore();
     }
   }
 }

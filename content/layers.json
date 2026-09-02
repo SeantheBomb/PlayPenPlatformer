@@ -1,0 +1,58 @@
+{
+  "defaultSetId": "facility",
+  "sets": {
+    "facility": {
+      "id": "facility",
+      "name": "Facility (default)",
+      "layers": [
+        {
+          "id": "far",
+          "name": "Far background",
+          "plane": "behind",
+          "depth": "far",
+          "scrollX": 0.15,
+          "scrollY": 0.08,
+          "driftX": -3,
+          "driftY": 0,
+          "opacity": 1,
+          "offsetY": 0,
+          "wrapX": true,
+          "wrapY": false,
+          "props": []
+        },
+        {
+          "id": "mid",
+          "name": "Mid background",
+          "plane": "behind",
+          "depth": "mid",
+          "scrollX": 0.45,
+          "scrollY": 0.3,
+          "driftX": -1,
+          "driftY": 0,
+          "opacity": 1,
+          "offsetY": 0,
+          "wrapX": true,
+          "wrapY": false,
+          "props": []
+        },
+        {
+          "id": "fore",
+          "name": "Foreground",
+          "plane": "front",
+          "depth": "near",
+          "scrollX": 1.25,
+          "scrollY": 1.1,
+          "driftX": 0,
+          "driftY": 0,
+          "opacity": 0.75,
+          "offsetY": 0,
+          "wrapX": true,
+          "wrapY": false,
+          "fadeNearPlayer": true,
+          "props": []
+        }
+      ]
+    }
+  },
+  "rooms": {}
+}

@@ -112,7 +112,19 @@ async function boot() {
       }
     };
     studioBtn.onclick = () => void toggleStudio();
-    window.addEventListener("pp-studio-close", () => { if (studioOpen) void toggleStudio(); });
+    window.addEventListener("pp-studio-close", (e) => {
+      if (!studioOpen) return;
+      // "Play this room" from the Environments preview: warp there so she
+      // lands on the layers she's tuning instead of wherever the run was.
+      const roomId = (e as CustomEvent<{ roomId?: string } | undefined>).detail?.roomId;
+      void toggleStudio().then(() => {
+        if (roomId && content.rooms[roomId]) {
+          recorder.taint("studio-preview"); // artist iteration, not organic play
+          if (game.scene !== "play") game.newRun(roomId);
+          else game.loadRoom(roomId);
+        }
+      });
+    });
     void toggleStudio();
   }
 

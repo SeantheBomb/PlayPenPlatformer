@@ -21,8 +21,13 @@ export const ID_ARRAY_FILES = new Set([
   "enemies.json", "taunts.json", "tracks.json",
 ]);
 
-/** Files merged recursively per nested key. */
-export const DEEP_OBJECT_FILES = new Set(["game.json"]);
+/** Files merged recursively per nested key. layers.json is keyed by set id
+ *  and room id all the way down, so this gives per-set and per-room-binding
+ *  merging for free; each set's `layers` array stays atomic (an array hits
+ *  `pick`), which is the right grain — two people restacking the same set's
+ *  layers concurrently is a genuine conflict, and last-publisher-wins is the
+ *  established call there. */
+export const DEEP_OBJECT_FILES = new Set(["game.json", "layers.json"]);
 
 export function deepEqual(a, b) {
   if (a === b) return true;

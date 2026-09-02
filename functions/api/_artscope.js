@@ -22,6 +22,13 @@
 export const SPRITE_FIELDS = ["sprite", "spriteFrames", "spriteFps", "spriteAlt", "portrait"];
 const ART_ARRAY_FILES = ["tiles.json", "items.json", "enemies.json", "entities.json"];
 
+// layers.json (parallax backdrops) is wholly artist-owned — every field in it
+// is cosmetic by construction and nothing in the simulation reads any of it,
+// which is exactly why room->layer-set bindings live in THIS file rather than
+// on RoomDef: it keeps rooms/*.json structurally unwritable by an artist
+// publish while still letting her dress every room herself.
+const ART_OWNED_FILES = ["layers.json"];
+
 /** Copy art fields from `src` def onto a clone of `dst` def. Fields absent
  *  on src are DELETED on the result — "revert to procedural" must publish. */
 function overlayDef(dst, src) {
@@ -83,9 +90,15 @@ export function overlayArtBundle(liveFiles, artistFiles) {
     const artistVal = artistFiles[name];
     if (artistVal === undefined) { out[name] = liveVal; continue; }
     if (ART_ARRAY_FILES.includes(name)) out[name] = overlayIdArray(liveVal, artistVal);
+    else if (ART_OWNED_FILES.includes(name)) out[name] = artistVal;
     else if (name === "game.json") out[name] = overlayGame(liveVal, artistVal);
     else if (name.startsWith("rooms/")) out[name] = overlayRoom(liveVal, artistVal);
     else out[name] = liveVal; // recipes, rules, tracks, … — never artist-writable
+  }
+  // An art-owned file live doesn't have yet (first publish after the feature
+  // ships) still needs to land — the loop above only walks live's files.
+  for (const name of ART_OWNED_FILES) {
+    if (out[name] === undefined && artistFiles[name] !== undefined) out[name] = artistFiles[name];
   }
   return out;
 }
