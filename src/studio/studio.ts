@@ -34,6 +34,7 @@ const CSS = `
 .st-btn.st-primary { background:#2c5140; border-color:#3e7a5c; font-weight:600; }
 .st-btn.st-primary:hover { background:#356450; }
 .st-btn.st-quiet { background:none; border-color:transparent; color:#9f96bd; }
+.st-btn.st-on { background:#453a6e; border-color:#ffd166; color:#fff; }
 .st-btn.st-danger { background:#4a2432; border-color:#7a3e50; }
 .st-card { background:#1c1730; border:1px solid #322a4e; border-radius:12px; padding:16px; margin-bottom:14px; }
 .st-steps { display:flex; gap:12px; flex-wrap:wrap; }
@@ -200,16 +201,27 @@ class Studio {
 
   private header(): HTMLElement {
     const pubInfo = this.store.publishedInfo;
+    // Sections on the left, actions on the right. Both sections are always
+    // reachable from anywhere — there used to be no way back to the gallery
+    // except via "How it works", which is a detour through onboarding.
+    const inGallery = this.view === "gallery" || this.view === "detail";
+    const inEnv = this.view === "environments" || this.view === "layerset";
+    const nav = (label: string, title: string, active: boolean, go: () => void) =>
+      el("button", {
+        className: `st-btn${active ? " st-on" : ""}`, title,
+        onclick: () => { go(); this.render(); },
+      }, label);
     return el(
       "div", { className: "st-header" },
       el("span", { className: "st-title" }, "🎨 PlayPen Art Studio"),
+      nav("🖼 Gallery", "Every drawable thing in the game", inGallery, () => { this.view = "gallery"; }),
+      nav("🌄 Environments", "Layered scrolling backdrops that give rooms depth", inEnv, () => {
+        this.view = "environments";
+        this.layerSetId = null; // top-level nav lands on the set list, not the last set
+      }),
       this.online ? null : el("span", { className: "st-badge" }, "offline — publishing unavailable"),
       el("span", { className: "st-spacer" }),
       el("button", { className: "st-btn st-quiet", onclick: () => { this.view = "welcome"; this.render(); } }, "How it works"),
-      el("button", {
-        className: "st-btn", title: "Layered scrolling backdrops that give rooms depth",
-        onclick: () => { this.view = "environments"; this.render(); },
-      }, "🌄 Environments"),
       el("button", {
         className: "st-btn", title: "One PNG with every asset's current look — reference for your art app",
         onclick: () => this.downloadSheet(),
