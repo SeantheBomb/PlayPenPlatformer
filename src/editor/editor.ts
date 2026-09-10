@@ -2,7 +2,7 @@
 // has a tab here: rooms, tiles, items, recipes, enemies, taunts, game, campaign.
 import type { ContentStore } from "../data/content";
 import { isElectron, mergedFiles } from "../data/content";
-import type { EnemyDef, ItemDef, NpcAvatar, TileDef, WardenEmotion } from "../data/types";
+import type { EnemyDef, ItemDef, NpcAvatar, RoomQuest, TileDef, WardenEmotion } from "../data/types";
 import type { Game } from "../game/game";
 import {
   enemyAttachments, itemAttachments, knownFnNames, normalizeAttachment,
@@ -345,12 +345,39 @@ const MACRO_CAT_SINGULAR: Record<MacroCat, string> = {
   entity: "Entity", item: "Item", recipe: "Recipe",
 };
 
+/** One-line human read of what a room-progress quest watches, for the macro
+ *  tab's quest panel (the Quest Builder owns the editing side). */
+function describeRoomQuest(rq: RoomQuest): string {
+  if (rq.enemyId) return `every ${rq.enemyId} destroyed`;
+  if (rq.entityType) return `every ${rq.entityType} ${rq.entityField ?? "open"}`;
+  if (rq.tileId) return `every ${rq.tileId} tile transformed`;
+  return "progress";
+}
+
+/** A quest authored on an NPC in a room. Deliberately NOT its own column
+ *  group (Sean's call): a quest belongs to the cast member who gives it, so
+ *  it renders as a state ON that character's cell — a "?" marker, the same
+ *  one the game itself draws over an open trade. */
+interface MacroQuest {
+  kind: "trade" | "roomProgress";
+  wantsItem?: string;
+  wantsCount?: number;
+  /** roomProgress: which room's progress it watches, and what it watches. */
+  tracks?: { roomId: string; what: string };
+  rewardItems: { item: string; count: number }[];
+  rewardRecipes: string[];
+  /** Which of the four dialog stages are actually written. */
+  dialogStages: string[];
+}
+
 interface MacroCol { key: string; label: string; }
 interface MacroRoomRow {
   roomId: string;
   name: string;
   order: number;
   present: Record<MacroCat, Set<string>>;
+  /** npcId -> the quest that NPC gives in THIS room, if any. */
+  quests: Map<string, MacroQuest>;
 }
 interface MacroMatrix {
   cols: Record<MacroCat, MacroCol[]>;
@@ -358,6 +385,15 @@ interface MacroMatrix {
   /** npcId -> avatar/color, for drawing a real NPC icon in the header
    *  (first entity carrying that npcId across all rooms wins). */
   npcMeta: Map<string, { avatar: NpcAvatar; color: string }>;
+  /** itemId -> earliest campaign order the player can actually GET one
+   *  (pickup / source / converter output / quest reward / checkpoint
+   *  loadout). Deliberately excludes a quest's own `wants` — that's the ask,
+   *  not a source, and counting it would make every quest look satisfiable
+   *  in its own room. */
+  itemSourceOrder: Map<string, number>;
+  /** recipeId -> earliest campaign order it's taught (note or reward), for
+   *  the craftable half of the same question. */
+  recipeOrder: Map<string, number>;
 }
 
 interface ListSpec {
@@ -1721,15 +1757,22 @@ class EditorShell {
 
     const charToTileId = new Map(c.tiles.map((t) => [t.char, t.id]));
     const rows: MacroRoomRow[] = [];
+    const itemSourceOrder = new Map<string, number>();
+    const recipeOrder = new Map<string, number>();
+    const noteFirst = (map: Map<string, number>, key: string, order: number) => {
+      if (!map.has(key)) map.set(key, order);
+    };
 
     c.campaign.rooms.forEach((roomId, i) => {
       const room = c.rooms[roomId];
       if (!room) return; // campaign lists a room that no longer exists — skip it
+      const order = i + 1;
 
       const present: Record<MacroCat, Set<string>> = {
         enemy: new Set(), character: new Set(), tile: new Set(),
         entity: new Set(), item: new Set(), recipe: new Set(),
       };
+      const quests = new Map<string, MacroQuest>();
       for (const rowStr of room.tiles) {
         for (const ch of rowStr) {
           const tileId = charToTileId.get(ch);
@@ -1749,17 +1792,46 @@ class EditorShell {
         if (e.convertOutput) present.item.add(e.convertOutput);
         if (e.recipe) present.recipe.add(e.recipe);
         for (const rr of e.rewardRecipes ?? []) present.recipe.add(rr);
+
+        // Where the player can actually GET things — the ask (`wants`) and a
+        // converter's INPUT are demands, not sources, so neither counts.
+        if (e.item) noteFirst(itemSourceOrder, e.item, order);
+        if (e.sourceItem) noteFirst(itemSourceOrder, e.sourceItem, order);
+        if (e.convertOutput) noteFirst(itemSourceOrder, e.convertOutput, order);
+        for (const ri of e.rewardItems ?? []) noteFirst(itemSourceOrder, ri.item, order);
+        for (const li of e.loadout ?? []) noteFirst(itemSourceOrder, li.item, order);
+        if (e.recipe) noteFirst(recipeOrder, e.recipe, order);
+        for (const rr of e.rewardRecipes ?? []) noteFirst(recipeOrder, rr, order);
+
+        if (e.type === "npc" && (e.wants || e.roomQuest)) {
+          quests.set(e.npcId || e.name || "npc", {
+            kind: e.roomQuest ? "roomProgress" : "trade",
+            wantsItem: e.wants?.item,
+            wantsCount: e.wants?.count,
+            tracks: e.roomQuest
+              ? { roomId: e.roomQuest.roomId, what: describeRoomQuest(e.roomQuest) }
+              : undefined,
+            rewardItems: (e.rewardItems ?? []).map((ri) => ({ ...ri })),
+            rewardRecipes: [...(e.rewardRecipes ?? [])],
+            dialogStages: ([
+              ["ask", e.dialogAsk], ["confirm", e.dialogConfirm],
+              ["done", e.dialogDone], ["after", e.dialogAfter],
+            ] as const).filter(([, v]) => !!v?.trim()).map(([k]) => k),
+          });
+        }
       }
-      rows.push({ roomId, name: room.name, order: i + 1, present });
+      rows.push({ roomId, name: room.name, order, present, quests });
     });
 
-    return { cols, rows, npcMeta };
+    return { cols, rows, npcMeta, itemSourceOrder, recipeOrder };
   }
 
   /** One row per campaign room, one column per enemy/character/tile/entity/
-   *  item/recipe — "1" if that room includes it, blank otherwise. Meant to
-   *  be opened in Google Sheets for a bird's-eye view; the macro tab is the
-   *  same data, live and interactive, inside the editor. */
+   *  item/recipe — "1" if that room includes it, blank otherwise, and "Q" for
+   *  a character who GIVES a quest in that room (still non-blank, so any
+   *  count-the-filled-cells formula keeps working). Meant to be opened in
+   *  Google Sheets for a bird's-eye view; the macro tab is the same data,
+   *  live and interactive, inside the editor. */
   private exportMacrodesignCsv(): void {
     const m = this.deriveMacroMatrix();
     const header = [
@@ -1767,11 +1839,14 @@ class EditorShell {
       ...MACRO_CAT_ORDER.flatMap((cat) => m.cols[cat].map((x) => `${MACRO_CAT_SINGULAR[cat]}: ${x.label}`)),
     ];
     const rows = [header];
-    const cell = (present: boolean) => (present ? "1" : "");
+    const cellFor = (row: MacroRoomRow, cat: MacroCat, key: string) => {
+      if (!row.present[cat].has(key)) return "";
+      return cat === "character" && row.quests.has(key) ? "Q" : "1";
+    };
     for (const row of m.rows) {
       rows.push([
         String(row.order), row.roomId, row.name,
-        ...MACRO_CAT_ORDER.flatMap((cat) => m.cols[cat].map((x) => cell(row.present[cat].has(x.key)))),
+        ...MACRO_CAT_ORDER.flatMap((cat) => m.cols[cat].map((x) => cellFor(row, cat, x.key))),
       ]);
     }
 
@@ -2048,7 +2123,12 @@ class EditorShell {
         : el("p", { className: "pp-hint" },
             "Live content — derives from actual room data every render. Click a cell to inspect it, " +
             "or click a room name to open it in the room editor. Start a draft to plan changes without " +
-            "touching content.")
+            "touching content."),
+      el("p", { className: "pp-hint" },
+        el("b", { style: "color:#ffd166" }, "?"),
+        " on a character cell = that NPC gives a quest in that room (plain fill = dialog only). " +
+        "Click it for what the quest asks, pays, and whether the thing it wants is obtainable " +
+        "before it's asked for.")
     );
 
     const filteredM = this.applyMacroFilter(m);
@@ -2381,6 +2461,9 @@ class EditorShell {
     const meta = MACRO_CAT_META[cat];
     const livePresent = row.present[cat].has(col.key);
     const change = draft?.changes.find((c) => c.roomId === row.roomId && c.cat === cat && c.key === col.key);
+    // A character who GIVES a quest in this room reads differently from one
+    // who's only here to talk — same "?" the game draws over an open trade.
+    const quest = cat === "character" ? row.quests.get(col.key) : undefined;
     let bg = "#161226", border = "#1e192e";
     let glyph: HTMLElement | null = null;
     if (change) {
@@ -2394,11 +2477,23 @@ class EditorShell {
     } else if (livePresent) {
       bg = first ? meta.accent : `${meta.accent}66`;
       border = first ? "#ffd166" : `${meta.accent}33`;
+      if (quest) {
+        // Dark on the solid first-use fill, gold on the dim reused fill —
+        // either way the marker stays legible against what's under it.
+        glyph = el("span", {
+          style: `color:${first ? "#12101c" : "#ffd166"};font-size:11px;font-weight:700;line-height:1`,
+        }, "?");
+      }
     }
+    const questTitle = quest
+      ? quest.kind === "trade"
+        ? ` — quest: wants ${quest.wantsItem} ×${quest.wantsCount ?? 1}`
+        : ` — quest: ${quest.tracks?.what} in ${quest.tracks?.roomId}`
+      : livePresent && cat === "character" ? " — dialog only" : "";
     const cell = el("div", {
       style: `width:${w - 2}px;height:${h - 2}px;margin:1px;border-radius:3px;display:flex;` +
         `align-items:center;justify-content:center;background:${bg};border:1px solid ${border};cursor:pointer`,
-      title: `${col.label} × ${row.name}`,
+      title: `${col.label} × ${row.name}${questTitle}`,
       onclick: () => {
         if (draft) this.toggleMacroChange(draft, row.roomId, cat, col.key, livePresent);
         else { this.macroFocus = { roomId: row.roomId, cat, key: col.key }; this.renderTab(); }
@@ -2506,6 +2601,90 @@ class EditorShell {
     return wrap;
   }
 
+  /** The quest a character gives in the focused room: what it asks, what it
+   *  pays, which dialog stages exist — plus the check that matters at macro
+   *  level, whether the thing it asks for is obtainable BEFORE it's asked
+   *  for. */
+  private macroQuestPanelEl(m: MacroMatrix, quest: MacroQuest, focusRow: MacroRoomRow): HTMLElement {
+    const c = this.store.content;
+    const itemName = (id: string) => c.items.find((i) => i.id === id)?.name || id;
+    const roomAt = (order: number) => m.rows.find((r) => r.order === order);
+
+    const rewards = [
+      ...quest.rewardItems.map((r) => `${itemName(r.item)} ×${r.count}`),
+      ...quest.rewardRecipes,
+    ];
+    const lines: HTMLElement[] = [
+      el("div", { style: "display:flex;gap:8px;align-items:baseline;margin:3px 0" },
+        el("span", { style: "color:#8f87ad;font-size:10px;width:64px;flex:none" }, "asks for"),
+        el("span", { style: "font-size:11px" },
+          quest.kind === "trade"
+            ? `${itemName(quest.wantsItem ?? "")} ×${quest.wantsCount ?? 1}`
+            : `${quest.tracks?.what} — in ${quest.tracks?.roomId}`)),
+      el("div", { style: "display:flex;gap:8px;align-items:baseline;margin:3px 0" },
+        el("span", { style: "color:#8f87ad;font-size:10px;width:64px;flex:none" }, "pays"),
+        el("span", { style: "font-size:11px" }, rewards.length ? rewards.join(", ") : "nothing")),
+      el("div", { style: "display:flex;gap:8px;align-items:baseline;margin:3px 0" },
+        el("span", { style: "color:#8f87ad;font-size:10px;width:64px;flex:none" }, "dialog"),
+        el("span", { style: "font-size:11px" },
+          quest.dialogStages.length
+            ? quest.dialogStages.join(" → ")
+            : "none written yet")),
+    ];
+
+    // ---- setup check ----
+    let verdict = "", tone = "#8f87ad";
+    if (quest.kind === "trade" && quest.wantsItem) {
+      const item = quest.wantsItem;
+      const direct = m.itemSourceOrder.get(item);
+      const craftOrders = c.recipes
+        .filter((r) => r.output === item)
+        .map((r) => m.recipeOrder.get(r.id))
+        .filter((o): o is number => o !== undefined);
+      const craft = craftOrders.length ? Math.min(...craftOrders) : undefined;
+      const candidates = [direct, craft].filter((o): o is number => o !== undefined);
+      const best = candidates.length ? Math.min(...candidates) : undefined;
+      const how = best !== undefined && craft === best && (direct === undefined || craft < direct)
+        ? "craftable" : "obtainable";
+      if (best === undefined) {
+        verdict = `✗ nothing in the campaign provides ${itemName(item)} — this quest can't be finished`;
+        tone = "#ff9db4";
+      } else if (best < focusRow.order) {
+        verdict = `✓ ${itemName(item)} ${how} from ${roomAt(best)?.name} (level ${best}) — set up ${focusRow.order - best} level(s) before it's asked for`;
+        tone = "#5ad1a5";
+      } else if (best === focusRow.order) {
+        verdict = `● ${itemName(item)} only becomes ${how} in this same room — self-contained, nothing earlier teaches it`;
+        tone = "#ffd166";
+      } else {
+        verdict = `✗ asked at level ${focusRow.order}, but ${itemName(item)} isn't ${how} until ${roomAt(best)?.name} (level ${best})`;
+        tone = "#ff9db4";
+      }
+    } else if (quest.tracks) {
+      const target = m.rows.find((r) => r.roomId === quest.tracks!.roomId);
+      if (!target) {
+        verdict = `✗ tracks "${quest.tracks.roomId}", which isn't in the campaign`;
+        tone = "#ff9db4";
+      } else if (target.order > focusRow.order) {
+        verdict = `✗ asked at level ${focusRow.order}, but it tracks ${target.name} (level ${target.order}) — a room the player hasn't reached yet`;
+        tone = "#ff9db4";
+      } else {
+        verdict = target.order === focusRow.order
+          ? `● tracks this same room — solvable on the spot`
+          : `✓ tracks ${target.name} (level ${target.order}), already behind the player`;
+        tone = target.order === focusRow.order ? "#ffd166" : "#5ad1a5";
+      }
+    }
+
+    return el("div", {
+      style: "margin:10px 0;padding:10px;background:#161226;border:1px solid #3a3550;border-radius:6px",
+    },
+      el("div", { style: "color:#ffd166;font-weight:700;margin-bottom:4px" },
+        `Quest here — ${quest.kind === "trade" ? "Item Trade" : "Room Progress"}`),
+      ...lines,
+      el("div", { style: `margin-top:7px;font-size:11px;color:${tone}` }, verdict)
+    );
+  }
+
   private macroDrilldownEl(m: MacroMatrix, focus: { roomId: string; cat: MacroCat; key: string }): HTMLElement {
     const col = m.cols[focus.cat].find((c) => c.key === focus.key);
     if (!col) return el("div", {});
@@ -2537,13 +2716,15 @@ class EditorShell {
         ...m.rows.map((r) => {
           const used = r.present[focus.cat].has(focus.key);
           const isFocus = r.roomId === focus.roomId;
+          const hasQuest = focus.cat === "character" && r.quests.has(focus.key);
           return el("span", {
             style: "display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:10px;font-size:10px;" +
               `cursor:pointer;background:${used ? meta.accent + "33" : "#161226"};` +
               `border:1px solid ${isFocus ? "#ffd166" : used ? meta.accent + "55" : "#241f36"};` +
               `color:${used ? "#d8d2ec" : "#8f87ad"}`,
+            ...(hasQuest ? { title: "gives a quest here" } : {}),
             onclick: () => { this.macroFocus = { ...focus, roomId: r.roomId }; this.renderTab(); },
-          }, r.name);
+          }, hasQuest ? `${r.name} ?` : r.name);
         })
       ),
       el("p", { className: "pp-hint" },
@@ -2555,6 +2736,8 @@ class EditorShell {
     );
 
     const focusRow = m.rows[focusRowIdx];
+    const focusQuest = focusRow && focus.cat === "character" ? focusRow.quests.get(focus.key) : undefined;
+    if (focusRow && focusQuest) wrap.append(this.macroQuestPanelEl(m, focusQuest, focusRow));
     if (focusRow) {
       const btns = [
         el("button", {
