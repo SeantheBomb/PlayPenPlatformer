@@ -119,16 +119,39 @@ describe("layer resolution", () => {
 });
 
 describe("shipped defaults", () => {
-  it("the bundled set is art-free, so shipping parallax changes nothing for players", () => {
+  // This used to assert the bundled file was art-free, which is how parallax
+  // shipped inert. Real art has since been published into it (2026-09-09), so
+  // that assertion now just means "the artist may never publish a backdrop".
+  // What's still worth pinning is that the shipped file actually RESOLVES —
+  // a malformed one would throw in the render loop on every frame.
+  it("the bundled layers file resolves cleanly for every room", () => {
     const file = bundledLayers as unknown as LayersFile;
-    const layers = Object.values(file.sets).flatMap((s) => s.layers);
-    expect(layers.length).toBeGreaterThan(0);
-    for (const l of layers) {
-      expect(l.sprite).toBeUndefined();
-      expect(l.props ?? []).toHaveLength(0);
+    expect(Object.keys(file.sets).length).toBeGreaterThan(0);
+    for (const set of Object.values(file.sets)) {
+      expect(Array.isArray(set.layers)).toBe(true);
+      for (const l of set.layers) expect(typeof l.id).toBe("string");
     }
-    expect(resolveRoomLayers(contentWith(file), "orientation").behind).toHaveLength(0);
-    expect(resolveRoomLayers(contentWith(file), "orientation").front).toHaveLength(0);
+    for (const roomId of ["orientation", "mess_hall", "the_long_run"]) {
+      const r = resolveRoomLayers(contentWith(file), roomId);
+      expect(Array.isArray(r.behind)).toBe(true);
+      expect(Array.isArray(r.front)).toBe(true);
+      // Anything that resolves must be drawable — art or props, never a
+      // blank layer the renderer would still iterate every frame.
+      for (const l of [...r.behind, ...r.front]) {
+        expect(!!l.sprite || !!l.props?.some((p) => p.sprite)).toBe(true);
+      }
+    }
+  });
+
+  it("a layer set with no art still renders exactly like no parallax", () => {
+    // The property the art-free assertion above was really protecting.
+    const bare: LayersFile = {
+      defaultSetId: "s",
+      sets: { s: set("s", [{ id: "far" }, { id: "mid", props: [] }]) },
+      rooms: {},
+    };
+    expect(resolveRoomLayers(contentWith(bare), "orientation").behind).toHaveLength(0);
+    expect(resolveRoomLayers(contentWith(bare), "orientation").front).toHaveLength(0);
   });
 
   it("the near preset is a front layer that protects readability by default", () => {

@@ -360,9 +360,12 @@ republishing/re-saving from the editor is still the fix for those.
   (`functions/api/_artscope.js` treats layers.json as fully artist-owned;
   `_merge.js` merges it per nested key like game.json). Don't "tidy" this onto
   RoomDef — it would widen the artist write surface to level data.
-- **The shipped set is art-free on purpose**, so adding parallax changed
-  nothing for players until art lands; layers with no sprite and no props are
-  dropped in `resolveRoomLayers`. `tests/parallax.test.ts` pins that, plus the
+- **Layers with no sprite and no props are dropped** in `resolveRoomLayers`,
+  which is how parallax shipped inert (the bundled set started art-free and
+  changed nothing for players until art landed — real art arrived 2026-09-09,
+  so don't re-add a test asserting `content/layers.json` has no sprites; that
+  would mean the artist can never publish a backdrop). `tests/parallax.test.ts`
+  pins the drop rule, that the shipped file resolves for every room, and the
   binding/override/defaults semantics — keep it green.
 - **Placeholder strips are GENERATED, not committed** (`src/studio/
   placeholders.ts`, "✨ Add placeholder set"): drawn on a canvas in the
