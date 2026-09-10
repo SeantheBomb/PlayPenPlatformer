@@ -895,6 +895,13 @@ export function drawParallaxLayers(
     const scrollX = layer.scrollX ?? 0.5, scrollY = layer.scrollY ?? 0.3;
     const baseX = camX * (1 - scrollX) + (layer.driftX ?? 0) * t;
     const baseY = camY * (1 - scrollY) + (layer.driftY ?? 0) * t + (layer.offsetY ?? 0);
+    // Props take the layer's parallax but NOT its drift. Drift is a texture
+    // scroll for the repeating strip (clouds sliding past); a prop is a
+    // landmark placed at a spot on purpose. Drifting one moves it further
+    // from that spot every second and never brings it back — the strip hides
+    // this because it wraps, but a prop just sails away and is gone.
+    const propBaseX = camX * (1 - scrollX);
+    const propBaseY = camY * (1 - scrollY) + (layer.offsetY ?? 0);
 
     // A front layer that fades around the player renders offscreen first so
     // the hole can be punched with destination-out, then composites in one go.
@@ -925,7 +932,7 @@ export function drawParallaxLayers(
     for (const prop of layer.props ?? []) {
       const pimg = prop.sprite ? getImage(prop.sprite) : null;
       if (!pimg) continue;
-      const px = prop.x + baseX, py = prop.y + baseY;
+      const px = prop.x + propBaseX, py = prop.y + propBaseY;
       if (px + prop.w < camX || px > camX + viewW || py + prop.h < camY || py > camY + viewH) continue;
       const pa = prop.opacity ?? 1;
       if (pa <= 0) continue;

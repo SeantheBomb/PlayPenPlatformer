@@ -373,6 +373,15 @@ republishing/re-saving from the editor is still the fix for those.
   VERTICALLY (`PLACEHOLDER_WRAP_Y`) because a layer with scrollY near 1
   barely moves relative to the world, so a 360-tall strip would otherwise
   run out below the first screen in a tall room (Mess Hall is 896px).
+- **Props take a layer's parallax but NOT its drift** (2026-09-09 fix). Drift is
+  a texture scroll for the repeating strip (clouds sliding past) and the strip
+  hides it by wrapping; a prop is a landmark placed at a spot on purpose, so
+  drifting one moves it further from that spot every second and never brings it
+  back — after 2 minutes on a driftX -3 layer it's 350px gone, in the studio AND
+  in the shipped game. `drawParallaxLayers` therefore computes a separate
+  drift-free `propBaseX/Y`, and the studio's hit-test/drag uses the same anchor
+  (`propAnchor` in environments.ts) so grabbing lines up with drawing. Keep those
+  two in step if you touch either.
 - Foreground (`plane: "front"`) draws over the player but UNDER interaction
   prompts, and defaults to `fadeNearPlayer` (a soft radial hole punched around
   the player via an offscreen destination-out composite) so foreground art can
@@ -387,6 +396,11 @@ republishing/re-saving from the editor is still the fix for those.
   as a worst case across every room bound to the set. Thresholds are
   deliberately loose (8px shortfall, 6× repeat) — warning about a 2px gap just
   teaches her to ignore the panel.
+- **The studio previews the set being EDITED, not the room's bound set**
+  (`resolveLayerSet` in layers.ts, `previewLayers` in environments.ts). Resolving
+  by room meant a set not yet bound anywhere previewed as whatever that room did
+  use — so nothing you added to a new set ever appeared. When the previewed room
+  doesn't use the set, the preview says so rather than pretending.
 - Edited in the Art Studio's **Environments** tab (`src/studio/environments.ts`):
   set list → layer stack (six knobs + far/mid/near depth presets) → live preview
   that pans a real room at the player's own `runSpeed`, drag-scrubs, drags props,

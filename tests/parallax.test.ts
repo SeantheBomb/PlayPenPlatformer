@@ -6,7 +6,7 @@
 //      changes NOTHING for players until the artist actually fills it in.
 import { describe, expect, it } from "vitest";
 import type { Content, LayersFile } from "../src/data/types";
-import { resolveRoomLayers, setIdForRoom, withLayerDefaults, DEPTH_PRESETS } from "../src/game/layers";
+import { resolveLayerSet, resolveRoomLayers, setIdForRoom, withLayerDefaults, DEPTH_PRESETS } from "../src/game/layers";
 import bundledLayers from "../content/layers.json";
 
 const px = (n: string) => `data:image/png;base64,${n}`;
@@ -139,5 +139,42 @@ describe("shipped defaults", () => {
   it("presets get further-away layers moving slower than nearer ones", () => {
     expect(DEPTH_PRESETS.far.scrollX!).toBeLessThan(DEPTH_PRESETS.mid.scrollX!);
     expect(DEPTH_PRESETS.mid.scrollX!).toBeLessThan(DEPTH_PRESETS.near.scrollX!);
+  });
+});
+
+describe("resolving an explicit set", () => {
+  // The Art Studio previews the set being EDITED, not whichever set the
+  // previewed room happens to be bound to — otherwise a set that isn't bound
+  // anywhere yet silently previews as someone else's art, and nothing you add
+  // to it ever appears (Sean, 2026-09-09: "I don't see it there").
+  const set = {
+    id: "s", name: "s",
+    layers: [
+      { id: "far", sprite: px("far"), opacity: 1 },
+      { id: "fore", sprite: px("fore"), plane: "front" as const },
+    ],
+  };
+
+  it("resolves a set that no room is bound to", () => {
+    const r = resolveLayerSet(set);
+    expect(r.behind.map((l) => l.id)).toEqual(["far"]);
+    expect(r.front.map((l) => l.id)).toEqual(["fore"]);
+  });
+
+  it("applies the previewed room's overrides to it", () => {
+    const r = resolveLayerSet(set, { far: { opacity: 0.3 } });
+    expect(r.behind[0].opacity).toBe(0.3);
+  });
+
+  it("keeps a props-only layer, so adding a prop makes the layer appear", () => {
+    const r = resolveLayerSet({
+      id: "s", name: "s",
+      layers: [{ id: "far", props: [{ id: "p", sprite: px("p"), x: 0, y: 0, w: 8, h: 8 }] }],
+    });
+    expect(r.behind).toHaveLength(1);
+  });
+
+  it("survives an undefined set (deleted while being edited)", () => {
+    expect(resolveLayerSet(undefined)).toEqual({ behind: [], front: [] });
   });
 });

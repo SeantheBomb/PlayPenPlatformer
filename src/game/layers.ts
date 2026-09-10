@@ -5,7 +5,7 @@
 //
 // Layers are cosmetic-only by construction (see ParallaxLayer in types.ts).
 // Nothing here is read by the simulation.
-import type { Content, LayersFile, ParallaxLayer } from "../data/types";
+import type { Content, LayerSet, LayersFile, ParallaxLayer } from "../data/types";
 
 /** Every knob's default, in one place — a layer authored before a field
  *  existed (or a set hand-written without it) still renders sanely. */
@@ -63,26 +63,39 @@ export function setIdForRoom(layersFile: LayersFile | undefined, roomId: string)
 }
 
 /**
- * Resolve a room's drawable layers: set lookup -> per-layer overrides ->
- * defaults -> split by plane. Layers with no sprite AND no props are dropped
- * here, which is what makes the shipped (art-free) default set render exactly
- * like the game did before parallax existed.
+ * Resolve an explicit set (rather than whichever one a room is bound to):
+ * overrides -> defaults -> split by plane. The Art Studio previews the set
+ * being EDITED through this, which matters because a set that isn't bound to
+ * any room yet would otherwise preview as whatever the previewed room does
+ * use — silently showing someone else's art while you work.
  */
-export function resolveRoomLayers(content: Content, roomId: string): ResolvedLayers {
-  const file = content.layers;
-  const setId = setIdForRoom(file, roomId);
-  if (!setId) return EMPTY;
-  const set = file.sets[setId];
-  if (!set?.layers?.length) return { behind: [], front: [], setId };
-  const overrides = file.rooms?.[roomId]?.overrides ?? {};
-
+export function resolveLayerSet(
+  set: LayerSet | undefined,
+  overrides: Record<string, Partial<ParallaxLayer>> = {}
+): { behind: ParallaxLayer[]; front: ParallaxLayer[] } {
   const behind: ParallaxLayer[] = [];
   const front: ParallaxLayer[] = [];
-  for (const raw of set.layers) {
+  for (const raw of set?.layers ?? []) {
     const merged = withLayerDefaults({ ...raw, ...stripUndefined(overrides[raw.id] ?? {}) });
     const hasArt = !!merged.sprite || !!merged.props?.some((p) => p.sprite);
     if (!hasArt || merged.opacity <= 0) continue;
     (merged.plane === "front" ? front : behind).push(merged);
   }
-  return { behind, front, setId };
+  return { behind, front };
+}
+
+/**
+ * Resolve a room's drawable layers: set lookup -> per-layer overrides ->
+ * defaults -> split by plane. Layers with no sprite AND no props are dropped,
+ * which is what makes the shipped (art-free) default set render exactly like
+ * the game did before parallax existed.
+ */
+export function resolveRoomLayers(content: Content, roomId: string): ResolvedLayers {
+  const file = content.layers;
+  const setId = setIdForRoom(file, roomId);
+  if (!setId) return EMPTY;
+  return {
+    ...resolveLayerSet(file.sets[setId], file.rooms?.[roomId]?.overrides ?? {}),
+    setId,
+  };
 }

@@ -10,7 +10,7 @@ import type { LayersFile, LayerSet, ParallaxLayer, LayerProp, RoomDef } from "..
 import { el, toast } from "../editor/forms";
 import { TileMap } from "../engine/tilemap";
 import { drawBackdrop, drawMap, drawParallaxLayers } from "../engine/renderer";
-import { DEPTH_PRESETS, resolveRoomLayers, setIdForRoom } from "../game/layers";
+import { DEPTH_PRESETS, resolveLayerSet, setIdForRoom } from "../game/layers";
 import { VIEW_H, VIEW_W } from "../game/game";
 import { importFiles } from "./importers";
 import { makePlaceholderSet, makePlaceholderStrip, PLACEHOLDER_WRAP_Y, type PlaceholderDepth } from "./placeholders";
@@ -332,6 +332,7 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
     set.layers.forEach((layer, i) => stack.append(layerCard(ctx, set, layer, i, {
       roomId: () => roomSelect.value,
       roomOnly: () => roomOnly,
+      camera: () => ({ camX: currentCam(), camY }),
       onStructureChange: () => { rerenderStack(); refreshMeta(); rebindPreview(); },
     })));
     stack.append(el(
@@ -395,7 +396,18 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
   let camY = 0;
   let dragging: { startX: number; startCam: number; prop: LayerProp | null; layer: ParallaxLayer | null; offX: number; offY: number } | null = null;
 
-  const rebindPreview = () => { previewNote.textContent = ""; };
+  const rebindPreview = () => {
+    // The preview always shows THIS set, even in a room that doesn't use it —
+    // otherwise a set you haven't bound anywhere yet would preview as whatever
+    // that room does use, silently showing someone else's art. Say so.
+    const roomId = roomSelect.value;
+    const bound = setIdForRoom(file(ctx.store), roomId) === setId;
+    previewNote.textContent = bound
+      ? ""
+      : `${ctx.store.content.rooms[roomId]?.name ?? roomId} doesn't use this set — showing it here anyway so you can work. ` +
+        `Bind it below to make it real.`;
+    previewNote.className = bound ? "st-hint" : "st-note";
+  };
 
   playPauseBtn.onclick = () => {
     panning = !panning;
@@ -439,11 +451,9 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
       const sx = ((e.clientX - rect.left) / rect.width) * VIEW_W;
       const sy = ((e.clientY - rect.top) / rect.height) * VIEW_H;
       const camX = currentCam();
-      const l = dragging.layer;
-      const baseX = camX * (1 - (l.scrollX ?? 0.5));
-      const baseY = camY * (1 - (l.scrollY ?? 0.3)) + (l.offsetY ?? 0);
-      dragging.prop.x = Math.round(camX + sx - baseX - dragging.offX);
-      dragging.prop.y = Math.round(camY + sy - baseY - dragging.offY);
+      const anchor = propAnchor(dragging.layer, camX, camY);
+      dragging.prop.x = Math.round(camX + sx - anchor.x - dragging.offX);
+      dragging.prop.y = Math.round(camY + sy - anchor.y - dragging.offY);
       previewNote.textContent = `Prop at ${dragging.prop.x}, ${dragging.prop.y}`;
     } else {
       const dx = (e.clientX - dragging.startX) / rect.width * VIEW_W;
@@ -453,7 +463,7 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
     }
   });
   const endDrag = () => {
-    if (dragging?.prop) void save(ctx);
+    if (dragging?.prop) { void save(ctx); rebindPreview(); }
     dragging = null;
     previewCanvas.style.cursor = "grab";
   };
@@ -479,7 +489,7 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (panning) panT += dt;
-    drawPreview(ctx, previewCanvas, roomSelect.value, currentCam(), camY, now / 1000);
+    drawPreview(ctx, previewCanvas, set, roomSelect.value, currentCam(), camY, now / 1000);
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
@@ -491,35 +501,55 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
 
   rerenderStack();
   rerenderRooms();
+  rebindPreview(); // say up-front if this room doesn't actually use this set
   return wrap;
+}
+
+/** Where a layer's PROPS are anchored: parallax, no drift (see the prop
+ *  branch of drawParallaxLayers — this must stay in step with it, or props
+ *  are grabbable somewhere other than where they're drawn). */
+function propAnchor(layer: ParallaxLayer, camX: number, camY: number): { x: number; y: number } {
+  return {
+    x: camX * (1 - (layer.scrollX ?? 0.5)),
+    y: camY * (1 - (layer.scrollY ?? 0.3)) + (layer.offsetY ?? 0),
+  };
 }
 
 /** Which prop (if any) is under a preview click, plus the grab offset. */
 function hitProp(
   ctx: EnvContext, set: LayerSet, roomId: string, camX: number, camY: number, sx: number, sy: number
 ): { prop: LayerProp; layer: ParallaxLayer; offX: number; offY: number } | null {
-  const resolved = resolveRoomLayers(ctx.store.content, roomId);
+  const resolved = previewLayers(ctx, set, roomId);
   const drawn = [...resolved.behind, ...resolved.front];
   // Topmost first, so a prop drawn over another grabs first.
   for (let i = drawn.length - 1; i >= 0; i--) {
-    const layer = set.layers.find((l) => l.id === drawn[i].id);
+    const shown = drawn[i];
+    // Hit-test against the RESOLVED layer (overrides applied, as drawn), but
+    // hand back the original so edits write to the set, not to a copy.
+    const layer = set.layers.find((l) => l.id === shown.id);
     if (!layer) continue;
-    const baseX = camX * (1 - (layer.scrollX ?? 0.5));
-    const baseY = camY * (1 - (layer.scrollY ?? 0.3)) + (layer.offsetY ?? 0);
+    const anchor = propAnchor(shown, camX, camY);
     for (const prop of [...(layer.props ?? [])].reverse()) {
-      const px = prop.x + baseX - camX, py = prop.y + baseY - camY;
+      const px = prop.x + anchor.x - camX, py = prop.y + anchor.y - camY;
       if (sx >= px && sx <= px + prop.w && sy >= py && sy <= py + prop.h) {
-        return { prop, layer, offX: sx - px, offY: sy - py };
+        return { prop, layer: shown, offX: sx - px, offY: sy - py };
       }
     }
   }
   return null;
 }
 
+/** The layers the preview should draw: always the set being EDITED, with the
+ *  previewed room's overrides applied. */
+function previewLayers(ctx: EnvContext, set: LayerSet, roomId: string) {
+  return resolveLayerSet(set, file(ctx.store).rooms?.[roomId]?.overrides ?? {});
+}
+
 /** One preview frame: the real room, drawn by the real renderer, with the
  *  layers resolved exactly as the game resolves them. */
 function drawPreview(
-  ctx: EnvContext, cv: HTMLCanvasElement, roomId: string, camX: number, camY: number, t: number
+  ctx: EnvContext, cv: HTMLCanvasElement, set: LayerSet, roomId: string,
+  camX: number, camY: number, t: number
 ): void {
   const c = cv.getContext("2d");
   const content = ctx.store.content;
@@ -529,7 +559,7 @@ function drawPreview(
   c.clearRect(0, 0, cv.width, cv.height);
   c.imageSmoothingEnabled = false;
   const map = new TileMap(room, content.tiles);
-  const layers = resolveRoomLayers(content, roomId);
+  const layers = previewLayers(ctx, set, roomId);
   // A stand-in for the player, so the foreground readability guard is visible.
   const px = camX + VIEW_W / 2, py = camY + VIEW_H * 0.62;
 
@@ -550,6 +580,8 @@ function drawPreview(
 interface LayerCardHooks {
   roomId: () => string;
   roomOnly: () => boolean;
+  /** Where the preview is currently looking, so a new prop lands in frame. */
+  camera: () => { camX: number; camY: number };
   onStructureChange: () => void;
 }
 
@@ -873,13 +905,25 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
         input.onchange = async () => {
           const result = await importFiles([...(input.files ?? [])]);
           if (result.errors.length) { toast(result.errors[0]); return; }
-          for (const uri of result.frames) {
+          // Land new props in the middle of what the preview is showing —
+          // a fixed world position is off-screen as soon as the camera has
+          // moved, which reads as "adding a prop did nothing". Sits above
+          // the player stand-in so a front-layer prop isn't immediately
+          // swallowed by the fade-around-the-player guard.
+          const { camX, camY } = hooks.camera();
+          const anchor = propAnchor(layer, camX, camY);
+          for (const [i, uri] of result.frames.entries()) {
             const size = await imageDims(uri);
-            props.push({ id: uid("prop"), sprite: uri, x: 120, y: 120, w: size.w, h: size.h });
+            props.push({
+              id: uid("prop"), sprite: uri, w: size.w, h: size.h,
+              // Stagger multiples so they don't land in one unclickable stack.
+              x: Math.round(camX + VIEW_W / 2 - anchor.x - size.w / 2 + i * 24),
+              y: Math.round(camY + VIEW_H * 0.35 - anchor.y - size.h / 2 + i * 24),
+            });
           }
           await save(ctx);
           hooks.onStructureChange();
-          toast(`Added ${result.frames.length} prop${result.frames.length === 1 ? "" : "s"} — drag them in the preview.`);
+          toast(`Added ${result.frames.length} prop${result.frames.length === 1 ? "" : "s"} in the middle of the preview — drag to place.`);
         };
         input.click();
       },
