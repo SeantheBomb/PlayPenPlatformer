@@ -6,7 +6,8 @@
     "style": "block",
     "solid": true,
     "element": "stone",
-    "color": "#3d3a52"
+    "color": "#3d3a52",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAAXNSR0IArs4c6QAAAGZJREFUKJFjfN3Gz4ABft78yHJVHFP86fmXLBBpdImTDPI8DE/Pv0QTP/OXjQnTGPxgOGhg+Xnz49OTWCSenn955i8bpjjjCxPs4S3XjCN+INJoEmf+ssnhiJ9BGEp0iAdc4Y0rfgDd9DL3RH/Q2gAAAABJRU5ErkJggg=="
   },
   {
     "id": "platform",
@@ -16,7 +17,8 @@
     "oneWay": true,
     "element": "metal",
     "conductive": true,
-    "color": "#7a6f9b"
+    "color": "#7a6f9b",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAADVJREFUOI1jfGEi/p+BTPD0/EsGFhiDHHDmLxsDE7m2w8DAG8B4lpnh/5m/bJSaMwpGwQADAHWaDOaxunacAAAAAElFTkSuQmCC"
   },
   {
     "id": "spikes",
