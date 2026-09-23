@@ -26,12 +26,17 @@ export function currentFrame(s: SpriteFields): string | null {
   return s.sprite ?? null;
 }
 
-/** Draw a custom sprite if one is set and loaded. Returns true if drawn. */
+/** One cell of an image split into cols×rows equal slices. */
+export interface SpriteRegion { col: number; row: number; cols: number; rows: number }
+
+/** Draw a custom sprite if one is set and loaded. Returns true if drawn.
+ *  With `region`, only that slice of the image is drawn into the box. */
 export function drawSprite(
   ctx: CanvasRenderingContext2D,
   s: SpriteFields,
   x: number, y: number, w: number, h: number,
-  facing = 1
+  facing = 1,
+  region?: SpriteRegion
 ): boolean {
   const uri = currentFrame(s);
   if (!uri) return false;
@@ -39,7 +44,10 @@ export function drawSprite(
   if (!img) return false; // still loading — procedural fallback this frame
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  if (facing < 0) {
+  if (region && (region.cols > 1 || region.rows > 1)) {
+    const sw = img.naturalWidth / region.cols, sh = img.naturalHeight / region.rows;
+    ctx.drawImage(img, region.col * sw, region.row * sh, sw, sh, x, y, w, h);
+  } else if (facing < 0) {
     ctx.translate(x + w, y);
     ctx.scale(-1, 1);
     ctx.drawImage(img, 0, 0, w, h);
@@ -48,6 +56,40 @@ export function drawSprite(
   }
   ctx.restore();
   return true;
+}
+
+// ---- World-aligned tile patterns (see TileDef.spriteSpanX) ----
+
+export const MAX_TILE_SPAN = 8;
+
+export interface TilePattern { spanX: number; spanY: number; offsetX: number; offsetY: number }
+
+const posMod = (a: number, n: number) => ((a % n) + n) % n;
+
+/** A tile's pattern settings, normalized (spans clamped to 1..MAX_TILE_SPAN,
+ *  offsets wrapped into 0..span-1) — tolerant of hand-edited/stale values. */
+export function tilePattern(def: Partial<TileDef>): TilePattern {
+  const span = (v: number | undefined) => Math.max(1, Math.min(MAX_TILE_SPAN, Math.floor(Number(v) || 1)));
+  const spanX = span(def.spriteSpanX), spanY = span(def.spriteSpanY);
+  return {
+    spanX, spanY,
+    offsetX: posMod(Math.floor(Number(def.spriteOffsetX) || 0), spanX),
+    offsetY: posMod(Math.floor(Number(def.spriteOffsetY) || 0), spanY),
+  };
+}
+
+/** Which slice of a pattern sprite the tile at world tile (tx, ty) shows.
+ *  Negative coords wrap correctly (posMod), so the pattern is continuous
+ *  everywhere. Null for a plain one-image-per-tile def. */
+export function tilePatternCell(def: Partial<TileDef>, tx: number, ty: number): SpriteRegion | null {
+  const p = tilePattern(def);
+  if (p.spanX === 1 && p.spanY === 1) return null;
+  return {
+    col: posMod(tx - p.offsetX, p.spanX),
+    row: posMod(ty - p.offsetY, p.spanY),
+    cols: p.spanX,
+    rows: p.spanY,
+  };
 }
 
 /** Entity kinds drawEntityPreview knows how to draw — kept in sync with
@@ -298,7 +340,12 @@ export function drawTile(
   capped = false,
   gooNeighbors?: GooNeighbors
 ): void {
-  if (drawSprite(ctx, def, px, py, TILE, TILE)) return;
+  // px/py are world pixels for every in-room caller (drawMap, grate-fluid
+  // overlay, placed springs), which is what lets a pattern sprite pick its
+  // slice from position alone — no per-tile state, so transformed/flowing
+  // tiles line up automatically.
+  const region = tilePatternCell(def, Math.floor(px / TILE), Math.floor(py / TILE)) ?? undefined;
+  if (drawSprite(ctx, def, px, py, TILE, TILE, 1, region)) return;
   const c = def.color;
   switch (def.style) {
     case "block": {

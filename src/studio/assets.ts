@@ -11,7 +11,9 @@ import type {
 import {
   currentFrame, drawBlob, drawEntityPreview, drawItemIcon, drawNpcAvatar,
   drawTile, getImage, PREVIEWABLE_ALT_ENTITY_KINDS, PREVIEWABLE_ENTITY_KINDS,
+  tilePattern, type TilePattern,
 } from "../engine/renderer";
+import { TILE } from "../engine/tilemap";
 
 export type AssetGroup = "Tiles" | "Items" | "Enemies" | "Characters" | "Objects";
 export const GROUP_ORDER: AssetGroup[] = ["Characters", "Tiles", "Objects", "Items", "Enemies"];
@@ -46,6 +48,31 @@ export interface ArtAsset {
    *  when no custom alt art is set yet, so the second-look slot is never
    *  just a blank swatch. */
   drawAlt?(ctx: CanvasRenderingContext2D, x: number, y: number, cell: number): void;
+  /** Tiles only: world-aligned pattern layout (one image spread across a
+   *  block of tiles — see TileDef.spriteSpanX). */
+  pattern?: AssetPattern;
+}
+
+export interface AssetPattern {
+  read(): TilePattern;
+  /** Applies immediately in memory (previews redraw at once) and saves. */
+  write(p: TilePattern): Promise<void>;
+  /** The tile's in-WORLD look across a cols×rows block whose top-left is
+   *  world tile (tx0, ty0), each tile drawn tilePx big — the real drawTile
+   *  path, so what this shows is exactly what the game shows. */
+  drawWorld(ctx: CanvasRenderingContext2D, x: number, y: number, tilePx: number,
+    cols: number, rows: number, tx0?: number, ty0?: number): void;
+  /** The PROCEDURAL look repeated over the pattern block (ignores custom
+   *  art) — the built-in editors' starting point for a pattern. */
+  drawProceduralBlock(ctx: CanvasRenderingContext2D, x: number, y: number, tilePx: number): void;
+}
+
+/** The size (in-game px) one image covers: the drawn box, times the
+ *  pattern span for pattern tiles. */
+export function artBox(a: ArtAsset): { w: number; h: number; spanX: number; spanY: number } {
+  const p = a.pattern?.read();
+  const spanX = p?.spanX ?? 1, spanY = p?.spanY ?? 1;
+  return { w: a.drawnW * spanX, h: a.drawnH * spanY, spanX, spanY };
 }
 
 export function assetStatus(a: ArtAsset): "needs-art" | "custom" | "animated" {
@@ -250,20 +277,69 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   }
 
   // ---- Tiles ----
+  const writePattern = (t: TileDef, p: TilePattern) => {
+    // 1/0 are the defaults — delete rather than store them, so a plain tile
+    // stays exactly as it was before patterns existed.
+    const set = (k: "spriteSpanX" | "spriteSpanY" | "spriteOffsetX" | "spriteOffsetY", v: number, dflt: number) => {
+      if (v === dflt) delete t[k];
+      else t[k] = v;
+    };
+    set("spriteSpanX", p.spanX, 1);
+    set("spriteSpanY", p.spanY, 1);
+    set("spriteOffsetX", p.spanX > 1 ? p.offsetX : 0, 0);
+    set("spriteOffsetY", p.spanY > 1 ? p.offsetY : 0, 0);
+  };
   for (const t of c.tiles) {
+    const pattern: AssetPattern = {
+      read: () => tilePattern(t),
+      write: async (p) => { writePattern(t, p); await saveArr("tiles.json", c.tiles); },
+      drawWorld: (ctx, x, y, tilePx, cols, rows, tx0 = 0, ty0 = 0) => {
+        const animT = performance.now() / 1000;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(tilePx / TILE, tilePx / TILE);
+        ctx.translate(-tx0 * TILE, -ty0 * TILE);
+        for (let r = 0; r < rows; r++) {
+          for (let col = 0; col < cols; col++) drawTile(ctx, t, (tx0 + col) * TILE, (ty0 + r) * TILE, animT);
+        }
+        ctx.restore();
+      },
+      drawProceduralBlock: (ctx, x, y, tilePx) => {
+        const p = tilePattern(t);
+        const plain = { ...t, sprite: undefined, spriteFrames: undefined };
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(tilePx / TILE, tilePx / TILE);
+        for (let r = 0; r < p.spanY; r++) {
+          for (let col = 0; col < p.spanX; col++) drawTile(ctx, plain, col * TILE, r * TILE, 0.4);
+        }
+        ctx.restore();
+      },
+    };
     assets.push({
       key: `tile:${t.id}`, group: "Tiles", label: t.name, sublabel: `tile '${t.char}'`,
       drawnW: 16, drawnH: 16, animatable: true,
       read: () => spriteArt(t),
       write: async (art) => { applySpriteArt(t, art, false); await saveArr("tiles.json", c.tiles); },
-      clear: async () => { applySpriteArt(t, { frames: [], fps: 6 }, false); await saveArr("tiles.json", c.tiles); },
+      // "Built-in look" means all of it — the pattern layout goes too.
+      clear: async () => {
+        applySpriteArt(t, { frames: [], fps: 6 }, false);
+        writePattern(t, { spanX: 1, spanY: 1, offsetX: 0, offsetY: 0 });
+        await saveArr("tiles.json", c.tiles);
+      },
       drawCurrent: (ctx, x, y, cell) => {
+        // A pattern tile's thumbnail is its whole design (what she drew),
+        // not whichever single slice world tile (0,0) happens to show.
+        const uri = currentFrame(t);
+        const p = tilePattern(t);
+        if (uri && (p.spanX > 1 || p.spanY > 1) && drawUri(ctx, uri, x, y, cell)) return;
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(cell / 16, cell / 16);
         drawTile(ctx, t, 0, 0, performance.now() / 1000);
         ctx.restore();
       },
+      pattern,
     });
   }
 

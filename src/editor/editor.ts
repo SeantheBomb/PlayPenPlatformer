@@ -20,7 +20,13 @@ import { renderSessionsTab } from "./sessions";
 import { renderReportsTab } from "./reports";
 import { diffBundles, summarizeDiff, type FileMap } from "../../functions/api/_merge.js";
 
-const SPRITE_KEYS = ["sprite", "spriteFrames", "spriteFps", "portraits"];
+// Art-owned fields, edited through the sprite panel / Art Studio rather
+// than as raw form fields (the pattern layout is dialed in with a live
+// preview on the studio's tile page).
+const SPRITE_KEYS = [
+  "sprite", "spriteFrames", "spriteFps", "portraits",
+  "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
+];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
 
 // Full field schemas — every def shows every knob the engine supports, not

@@ -228,6 +228,17 @@ export interface SpriteFields {
 }
 
 export interface TileDef extends SpriteFields {
+  /** World-aligned PATTERN tiling (art-owned, Art Studio → tile page): one
+   *  sprite image spread across a spanX×spanY block of tiles. Each placed
+   *  tile is still 16×16 and draws the slice for its own world position
+   *  ((tx − offsetX) mod spanX, (ty − offsetY) mod spanY), so neighbours join
+   *  up into the whole design. Offsets are in whole tiles. All default to
+   *  1/0 = today's one-image-per-tile behavior; purely cosmetic (nothing in
+   *  the sim reads them). See tilePatternCell in renderer.ts. */
+  spriteSpanX?: number;
+  spriteSpanY?: number;
+  spriteOffsetX?: number;
+  spriteOffsetY?: number;
   id: string;
   char: string;
   name: string;

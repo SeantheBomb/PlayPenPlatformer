@@ -40,6 +40,13 @@ export interface SvgEditorOptions {
    *  PNGs), the editor rasterizes this and converts it into editable
    *  colored blocks — tweaking the current look is the whole point. */
   seedDraw?: (ctx: CanvasRenderingContext2D, x: number, y: number, cell: number) => void;
+  /** Guide lines every N logical units — where each in-game tile's slice
+   *  of a world-aligned tile pattern begins/ends. */
+  tileLines?: { everyX: number; everyY: number };
+  /** Preview the art REPEATED as it tiles across the world. */
+  tiledPreview?: boolean;
+  /** Extra explanatory note shown under the title. */
+  note?: string;
 }
 
 const SHAPES_ATTR = "data-pp-shapes";
@@ -102,7 +109,8 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
   const grid = el("canvas", {
     className: "st-svggrid", width: W * SCALE, height: H * SCALE,
   }) as HTMLCanvasElement;
-  const preview = el("canvas", { className: "pp-pixpreview", width: 64, height: 64 }) as HTMLCanvasElement;
+  const PREV = opts.tiledPreview ? 128 : 64;
+  const preview = el("canvas", { className: "pp-pixpreview", width: PREV, height: PREV }) as HTMLCanvasElement;
   const frameStrip = el("div", { className: "pp-framestrip" });
   const toolRow = el("div", { className: "st-row" });
   const paletteRow = el("div", { className: "pp-paletterow" });
@@ -113,6 +121,7 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
     el(
       "div", { className: "pp-pixpanel" },
       el("b", {}, `Shape editor — ${opts.title} (${W}×${H})`),
+      opts.note ? el("div", { className: "st-note" }, opts.note) : el("span", {}),
       loadedForeign ? el("div", { className: "st-note" },
         "This art wasn't made in this editor — you're editing a copy. Shapes I understood were kept" +
         (droppedForeign ? `; ${droppedForeign} thing(s) I couldn't read were left out.` : ".") +
@@ -128,7 +137,7 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
       el("div", { className: "pp-pixcols" },
         el("div", {}, grid, hintLine),
         el("div", { className: "pp-pixside" },
-          el("span", { className: "pp-hint" }, "preview"),
+          el("span", { className: "pp-hint" }, opts.tiledPreview ? "preview — repeated like in the world" : "preview"),
           preview,
           opts.multiFrame ? el("span", { className: "pp-hint" }, "frames") : el("span", {}),
           opts.multiFrame ? frameStrip : el("span", {}),
@@ -383,6 +392,20 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
       ctx.stroke();
     }
     ctx.restore();
+    if (opts.tileLines) {
+      // Each in-game tile's slice of the pattern (guide only, not saved).
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,209,102,0.7)";
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1.5;
+      for (let x = opts.tileLines.everyX; x < W - 0.01; x += opts.tileLines.everyX) {
+        ctx.beginPath(); ctx.moveTo(x * SCALE, 0); ctx.lineTo(x * SCALE, H * SCALE); ctx.stroke();
+      }
+      for (let y = opts.tileLines.everyY; y < H - 0.01; y += opts.tileLines.everyY) {
+        ctx.beginPath(); ctx.moveTo(0, y * SCALE); ctx.lineTo(W * SCALE, y * SCALE); ctx.stroke();
+      }
+      ctx.restore();
+    }
     // selection box + resize handle
     if (selected >= 0 && shapes()[selected]) {
       const bb = bounds(shapes()[selected]);
@@ -402,10 +425,28 @@ export function openSvgEditor(opts: SvgEditorOptions): void {
 
   function paintPreview(): void {
     const ctx = preview.getContext("2d")!;
-    ctx.clearRect(0, 0, 64, 64);
-    const s = Math.min(64 / W, 64 / H);
+    ctx.clearRect(0, 0, PREV, PREV);
+    if (opts.tiledPreview) {
+      // 2 repeats along the longer side; clip each copy to its own box so
+      // anything drawn past the edge shows exactly as the game crops it.
+      const s = PREV / (Math.max(W, H) * 2);
+      for (let ry = 0; ry * H * s < PREV; ry++) {
+        for (let rx = 0; rx * W * s < PREV; rx++) {
+          ctx.save();
+          ctx.translate(rx * W * s, ry * H * s);
+          ctx.scale(s, s);
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.clip();
+          for (const sh of shapes()) drawShape(ctx, sh);
+          ctx.restore();
+        }
+      }
+      return;
+    }
+    const s = Math.min(PREV / W, PREV / H);
     ctx.save();
-    ctx.translate((64 - W * s) / 2, (64 - H * s) / 2);
+    ctx.translate((PREV - W * s) / 2, (PREV - H * s) / 2);
     ctx.scale(s, s);
     for (const sh of shapes()) drawShape(ctx, sh);
     ctx.restore();

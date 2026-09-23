@@ -3,7 +3,7 @@
 import { el } from "./forms";
 
 type Cell = string; // css color, "" = transparent
-type Frame = Cell[]; // size*size cells
+type Frame = Cell[]; // GW*GH cells, row-major
 
 const PALETTE = [
   "#000000", "#ffffff", "#9aa7b8", "#57536e", "#3d3a52",
@@ -22,7 +22,18 @@ export function rasterize(size: number, draw: (ctx: CanvasRenderingContext2D) =>
 
 export interface PixelEditorOptions {
   title: string;
-  size?: number; // grid size (default 16)
+  size?: number; // square grid size (default 16)
+  /** Non-square grid (overrides size per axis) — e.g. a 2×1 tile pattern. */
+  width?: number;
+  height?: number;
+  /** Draw stronger guide lines every N cells — where each in-game tile's
+   *  slice of a world-aligned tile pattern begins/ends. */
+  tileLines?: { everyX: number; everyY: number };
+  /** Preview the art REPEATED (as it tiles across the world) instead of a
+   *  single copy, so seams show up while painting. */
+  tiledPreview?: boolean;
+  /** Extra explanatory line under the title. */
+  note?: string;
   frames: string[]; // existing data-URIs to load ([] for new)
   fps: number;
   multiFrame: boolean;
@@ -30,8 +41,9 @@ export interface PixelEditorOptions {
 }
 
 export function openPixelEditor(opts: PixelEditorOptions): void {
-  const size = opts.size ?? 16;
-  const CELL = Math.max(10, Math.floor(320 / size));
+  const GW = opts.width ?? opts.size ?? 16;
+  const GH = opts.height ?? opts.size ?? 16;
+  const CELL = Math.max(3, Math.floor(320 / Math.max(GW, GH)));
   let frames: Frame[] = [];
   let current = 0;
   let color = "#ffd166";
@@ -39,7 +51,7 @@ export function openPixelEditor(opts: PixelEditorOptions): void {
   let fps = opts.fps || 6;
   let painting = false;
 
-  const blankFrame = (): Frame => new Array(size * size).fill("");
+  const blankFrame = (): Frame => new Array(GW * GH).fill("");
 
   // ---- Load existing frames (draw data-URI to canvas, read pixels) ----
   const loadFrame = (uri: string): Promise<Frame> =>
@@ -47,14 +59,14 @@ export function openPixelEditor(opts: PixelEditorOptions): void {
       const img = new Image();
       img.onload = () => {
         const cv = document.createElement("canvas");
-        cv.width = size;
-        cv.height = size;
+        cv.width = GW;
+        cv.height = GH;
         const c2 = cv.getContext("2d")!;
         c2.imageSmoothingEnabled = false;
-        c2.drawImage(img, 0, 0, size, size);
-        const data = c2.getImageData(0, 0, size, size).data;
+        c2.drawImage(img, 0, 0, GW, GH);
+        const data = c2.getImageData(0, 0, GW, GH).data;
         const frame = blankFrame();
-        for (let i = 0; i < size * size; i++) {
+        for (let i = 0; i < GW * GH; i++) {
           const a = data[i * 4 + 3];
           if (a > 20) {
             frame[i] = `rgba(${data[i * 4]},${data[i * 4 + 1]},${data[i * 4 + 2]},${(a / 255).toFixed(2)})`;
@@ -68,45 +80,63 @@ export function openPixelEditor(opts: PixelEditorOptions): void {
 
   const frameToUri = (frame: Frame): string => {
     const cv = document.createElement("canvas");
-    cv.width = size;
-    cv.height = size;
+    cv.width = GW;
+    cv.height = GH;
     const c2 = cv.getContext("2d")!;
-    for (let i = 0; i < size * size; i++) {
+    for (let i = 0; i < GW * GH; i++) {
       if (!frame[i]) continue;
       c2.fillStyle = frame[i];
-      c2.fillRect(i % size, Math.floor(i / size), 1, 1);
+      c2.fillRect(i % GW, Math.floor(i / GW), 1, 1);
     }
     return cv.toDataURL("image/png");
   };
 
   // ---- DOM ----
   const gridCanvas = el("canvas", {
-    width: size * CELL, height: size * CELL, className: "pp-pixgrid",
+    width: GW * CELL, height: GH * CELL, className: "pp-pixgrid",
   });
-  const previewCanvas = el("canvas", { width: 64, height: 64, className: "pp-pixpreview" });
+  const PREV = opts.tiledPreview ? 128 : 64;
+  const previewCanvas = el("canvas", { width: PREV, height: PREV, className: "pp-pixpreview" });
   const frameStrip = el("div", { className: "pp-framestrip" });
   const paletteRow = el("div", { className: "pp-paletterow" });
 
   const drawGrid = () => {
     const ctx = gridCanvas.getContext("2d")!;
-    ctx.clearRect(0, 0, size * CELL, size * CELL);
+    ctx.clearRect(0, 0, GW * CELL, GH * CELL);
     // checker background
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
+    for (let y = 0; y < GH; y++) {
+      for (let x = 0; x < GW; x++) {
         ctx.fillStyle = (x + y) % 2 ? "#221e30" : "#1a1626";
         ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
       }
     }
     const frame = frames[current];
-    for (let i = 0; i < size * size; i++) {
+    for (let i = 0; i < GW * GH; i++) {
       if (!frame[i]) continue;
       ctx.fillStyle = frame[i];
-      ctx.fillRect((i % size) * CELL, Math.floor(i / size) * CELL, CELL, CELL);
+      ctx.fillRect((i % GW) * CELL, Math.floor(i / GW) * CELL, CELL, CELL);
     }
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
-    for (let i = 0; i <= size; i++) {
-      ctx.beginPath(); ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, size * CELL); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, i * CELL); ctx.lineTo(size * CELL, i * CELL); ctx.stroke();
+    for (let i = 0; i <= GW; i++) {
+      ctx.beginPath(); ctx.moveTo(i * CELL, 0); ctx.lineTo(i * CELL, GH * CELL); ctx.stroke();
+    }
+    for (let i = 0; i <= GH; i++) {
+      ctx.beginPath(); ctx.moveTo(0, i * CELL); ctx.lineTo(GW * CELL, i * CELL); ctx.stroke();
+    }
+    if (opts.tileLines) {
+      // Each in-game tile's slice of the pattern — gold, dashed, so it
+      // reads as a guide and not as part of the art.
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,209,102,0.7)";
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1.5;
+      for (let x = opts.tileLines.everyX; x < GW; x += opts.tileLines.everyX) {
+        ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, GH * CELL); ctx.stroke();
+      }
+      for (let y = opts.tileLines.everyY; y < GH; y += opts.tileLines.everyY) {
+        ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(GW * CELL, y * CELL); ctx.stroke();
+      }
+      ctx.restore();
     }
   };
 
@@ -172,8 +202,8 @@ export function openPixelEditor(opts: PixelEditorOptions): void {
     const r = gridCanvas.getBoundingClientRect();
     const x = Math.floor((e.clientX - r.left) / CELL);
     const y = Math.floor((e.clientY - r.top) / CELL);
-    if (x < 0 || y < 0 || x >= size || y >= size) return;
-    frames[current][y * size + x] = erasing ? "" : color;
+    if (x < 0 || y < 0 || x >= GW || y >= GH) return;
+    frames[current][y * GW + x] = erasing ? "" : color;
     drawGrid();
   };
   gridCanvas.addEventListener("mousedown", (e) => { painting = true; paintCell(e); });
@@ -184,17 +214,26 @@ export function openPixelEditor(opts: PixelEditorOptions): void {
   const previewTimer = window.setInterval(() => {
     const pc = previewCanvas.getContext("2d")!;
     pc.imageSmoothingEnabled = false;
-    pc.clearRect(0, 0, 64, 64);
+    pc.clearRect(0, 0, PREV, PREV);
     const idx = opts.multiFrame && frames.length > 0
       ? Math.floor((performance.now() / 1000) * fps) % frames.length
       : current;
     const f = frames[idx];
     if (!f) return;
-    const s = 64 / size;
-    for (let i = 0; i < size * size; i++) {
-      if (!f[i]) continue;
-      pc.fillStyle = f[i];
-      pc.fillRect((i % size) * s, Math.floor(i / size) * s, s, s);
+    // Tiled: 2 repeats along the longer side, so every seam is visible.
+    const reps = opts.tiledPreview ? 2 : 1;
+    const s = PREV / (Math.max(GW, GH) * reps);
+    const repsX = opts.tiledPreview ? Math.ceil(PREV / (GW * s)) : 1;
+    const repsY = opts.tiledPreview ? Math.ceil(PREV / (GH * s)) : 1;
+    for (let ry = 0; ry < repsY; ry++) {
+      for (let rx = 0; rx < repsX; rx++) {
+        const ox = rx * GW * s, oy = ry * GH * s;
+        for (let i = 0; i < GW * GH; i++) {
+          if (!f[i]) continue;
+          pc.fillStyle = f[i];
+          pc.fillRect(ox + (i % GW) * s, oy + Math.floor(i / GW) * s, s, s);
+        }
+      }
     }
   }, 80);
 
@@ -216,10 +255,11 @@ export function openPixelEditor(opts: PixelEditorOptions): void {
         opts.title,
         el("span", {}, "")
       ),
+      opts.note ? el("div", { className: "pp-hint", style: "max-width:520px;margin-top:4px" }, opts.note) : null,
       el("div", { className: "pp-pixcols" },
         el("div", {}, gridCanvas, paletteRow),
         el("div", { className: "pp-pixside" },
-          el("div", { className: "pp-hint" }, "preview"),
+          el("div", { className: "pp-hint" }, opts.tiledPreview ? "preview — repeated like in the world" : "preview"),
           previewCanvas,
           opts.multiFrame
             ? el("div", { className: "pp-hint", style: "margin-top:8px" }, "frames · fps:")

@@ -10,6 +10,9 @@
 //                                         open door — see room.ts)
 //   - portrait                           (NPC dialog face, room entities)
 //   - portraits                          (game.json antagonist emotions)
+//   - spriteSpanX/Y, spriteOffsetX/Y     (tile world-pattern layout — which
+//                                         slice of the image each placed
+//                                         tile shows; cosmetic only)
 //
 // Scopes:
 //   - id-keyed arrays (tiles/items/enemies/entities): per entry by id.
@@ -19,7 +22,10 @@
 //     without an npcId are not art-publishable — the studio edits them as
 //     def-level art (entities.json) instead.
 
-export const SPRITE_FIELDS = ["sprite", "spriteFrames", "spriteFps", "spriteAlt", "portrait"];
+export const SPRITE_FIELDS = [
+  "sprite", "spriteFrames", "spriteFps", "spriteAlt", "portrait",
+  "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
+];
 const ART_ARRAY_FILES = ["tiles.json", "items.json", "enemies.json", "entities.json"];
 
 // layers.json (parallax backdrops) is wholly artist-owned — every field in it

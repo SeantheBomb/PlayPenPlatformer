@@ -12,7 +12,9 @@ import type { Game } from "../game/game";
 import { el, toast } from "../editor/forms";
 import { openPixelEditor } from "../editor/pixeleditor";
 import { getImage } from "../engine/renderer";
-import { buildAssets, assetStatus, GROUP_ORDER, type ArtAsset, type AssetGroup } from "./assets";
+import { TILE } from "../engine/tilemap";
+import { artBox, buildAssets, assetStatus, GROUP_ORDER, type ArtAsset, type AssetGroup } from "./assets";
+import { patternPanel } from "./tilepattern";
 import { importFiles, sliceStrip, imageSize } from "./importers";
 import { downloadFrame, downloadStrip, downloadContactSheet } from "./exporters";
 import { openSvgEditor, rasterizeSeedTight } from "./svgeditor";
@@ -63,7 +65,7 @@ const CSS = `
 .st-previewcol { flex:none; }
 .st-previewbig { border-radius:8px; background:
   repeating-conic-gradient(#221c38 0% 25%, #2a2342 0% 50%) 0 0 / 16px 16px; image-rendering:pixelated; }
-.st-zoomrow { display:flex; gap:10px; align-items:flex-end; margin-top:8px; }
+.st-zoomrow { display:flex; gap:10px; align-items:flex-end; margin-top:8px; flex-wrap:wrap; }
 .st-drop { border:2px dashed #4a4070; border-radius:10px; padding:22px; text-align:center;
   color:#bfb6dd; cursor:pointer; transition:border-color .15s; }
 .st-drop.st-over { border-color:#ffd166; color:#ffd166; background:#241d3c; }
@@ -155,6 +157,9 @@ class Studio {
   private pixelResMult = new Map<string, number>();
   /** Import feedback that must survive the post-import re-render. */
   private pendingNotes: { key: string; notes: string[]; errors: string[] } | null = null;
+  /** A tile image whose size fits several pattern layouts, just imported —
+   *  the pattern panel asks which one she meant (never guessed). */
+  private pendingLayout: { key: string; w: number; h: number } | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -183,8 +188,18 @@ class Studio {
 
   // ================= RENDER =================
 
+  private lastRendered = "";
+
   render(): void {
     stopEnvironmentPreview(); // never leave a rAF loop drawing into a detached canvas
+    // Re-rendering the SAME page (a setting changed, art saved) keeps her
+    // scroll position — tweaking a control near the bottom must not jump
+    // the page back to the top. Navigating somewhere new starts at the top.
+    const here = `${this.view}|${this.selectedKey}|${this.layerSetId}`;
+    const prevScroll = here === this.lastRendered
+      ? (this.root.querySelector(".st-root") as HTMLElement | null)?.scrollTop ?? 0
+      : 0;
+    this.lastRendered = here;
     this.root.replaceChildren();
     const shell = el("div", { className: "st-root" }, el("div", { className: "st-shell" }));
     const inner = shell.firstChild as HTMLElement;
@@ -197,6 +212,7 @@ class Studio {
     else if (this.view === "detail" && this.asset(this.selectedKey)) inner.append(this.detailView(this.asset(this.selectedKey)!));
     else inner.append(this.galleryView());
     this.repaintCanvases();
+    if (prevScroll) shell.scrollTop = prevScroll;
   }
 
   private header(): HTMLElement {
@@ -374,7 +390,12 @@ class Studio {
       "div", { className: "st-cardasset", onclick: () => { this.selectedKey = a.key; this.view = "detail"; this.render(); } },
       cv,
       el("span", { className: "st-name" }, a.label),
-      el("span", { className: "st-dim" }, `drawn at ${a.drawnW}×${a.drawnH}`),
+      el("span", { className: "st-dim" }, (() => {
+        const b = artBox(a);
+        return b.spanX > 1 || b.spanY > 1
+          ? `${a.drawnW}×${a.drawnH} tiles · ${b.spanX}×${b.spanY} pattern`
+          : `drawn at ${a.drawnW}×${a.drawnH}`;
+      })()),
       el("span", { className: `st-status ${status}` }, statusLabel)
     );
   }
@@ -410,10 +431,27 @@ class Studio {
       el("span", { className: "st-hint" }, a.sublabel ?? "")
     ));
 
+    // Tiles: the pattern panel comes first — it decides how big the art is,
+    // which everything below (zoom, editors, sizes) follows.
+    if (a.pattern) {
+      const justImported = this.pendingLayout?.key === a.key ? this.pendingLayout : null;
+      wrap.append(patternPanel({
+        asset: a,
+        content: this.store.content,
+        changed: () => this.render(),
+        playRoom: (roomId) => this.tryInGame(roomId),
+        repeatArtToFill: () => this.repeatArtToFill(a),
+        justImported: justImported ? { w: justImported.w, h: justImported.h } : null,
+        dismissImport: () => { this.pendingLayout = null; },
+      }));
+    }
+    const box = artBox(a);
+    const isPattern = box.spanX > 1 || box.spanY > 1;
+
     // Big preview at the in-game box, shown at 3 zooms so stretching and
     // detail are obvious before she ever hits play.
     const zoomRow = el("div", { className: "st-zoomrow" });
-    for (const z of [2, 4, 8]) {
+    for (const z of isPattern ? [1, 2, 4] : [2, 4, 8]) {
       // Two earlier attempts at this both broke on assets whose procedural
       // look deliberately draws OUTSIDE its nominal box — checkpoint's
       // flag reaches ~2x its own declared width, brazier's halo extends
@@ -430,17 +468,27 @@ class Studio {
       // inside it — so extra canvas room actually becomes extra headroom
       // around the content instead of just re-scaling it back down.
       // PAD=2 covers the worst case seen (brazier's halo needs ~1.9x).
-      const cell = Math.max(a.drawnW, a.drawnH) * z;
-      const PAD = 2;
+      const cell = Math.max(box.w, box.h) * z;
+      const PAD = isPattern ? 1 : 2; // tiles never draw outside their box
       const side = cell * PAD;
       const cv = el("canvas", {
         className: "st-previewbig", width: side, height: side,
         style: "max-width:200px;max-height:200px",
-        title: `${z}× zoom of the in-game ${a.drawnW}×${a.drawnH} box`,
+        title: isPattern
+          ? `${z}× zoom of one full copy of the pattern (${box.spanX}×${box.spanY} tiles), assembled from the pieces the game draws`
+          : `${z}× zoom of the in-game ${a.drawnW}×${a.drawnH} box`,
       }) as HTMLCanvasElement;
       (cv as unknown as { ppDraw: () => void }).ppDraw = () => {
         const ctx = cv.getContext("2d")!;
         ctx.clearRect(0, 0, cv.width, cv.height);
+        if (isPattern && a.pattern) {
+          // Through the real per-tile slicing, starting at the world tile
+          // whose piece is the image's top-left — so a wrong-sized image
+          // shows here exactly as wrong as it would in a room.
+          const pt = a.pattern.read();
+          a.pattern.drawWorld(ctx, 0, 0, TILE * z, pt.spanX, pt.spanY, pt.offsetX, pt.offsetY);
+          return;
+        }
         const current = a.read();
         const uri = this.animFrame(current);
         if (uri) {
@@ -450,7 +498,7 @@ class Studio {
             // (matching real in-game rendering exactly, distortion and
             // all), just centered within the padded canvas instead of
             // filling it — the canvas is a viewport, not the box.
-            const bw = a.drawnW * z, bh = a.drawnH * z;
+            const bw = box.w * z, bh = box.h * z;
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(img, (cv.width - bw) / 2, (cv.height - bh) / 2, bw, bh);
             return;
@@ -461,8 +509,9 @@ class Studio {
       zoomRow.append(el("div", {}, cv, el("div", { className: "st-hint", style: "text-align:center" }, `${z}×`)));
     }
     wrap.append(el("div", { className: "st-card" },
-      el("div", { className: "st-hint" },
-        `The game draws this in a ${a.drawnW}×${a.drawnH} box. Any resolution works — art is fitted to the box (higher res = crisper on screen). Match the ${a.drawnW}:${a.drawnH} shape to avoid stretching.`),
+      el("div", { className: "st-hint" }, isPattern
+        ? `One copy of your pattern covers ${box.spanX}×${box.spanY} tiles (${box.w}×${box.h} at 1×). Any resolution works — ${box.w * 2}×${box.h * 2} or bigger just looks crisper. Keep the ${box.spanX}:${box.spanY} shape so each tile's piece stays square.`
+        : `The game draws this in a ${a.drawnW}×${a.drawnH} box. Any resolution works — art is fitted to the box (higher res = crisper on screen). Match the ${a.drawnW}:${a.drawnH} shape to avoid stretching.`),
       zoomRow));
 
     // Frames + fps
@@ -528,7 +577,8 @@ class Studio {
         const dims = await imageSize(uri);
         if (dims && confirm(
           `This image is ${dims.w}×${dims.h} — it looks like an animation strip of ${count} frames of ${dims.h}×${dims.h}.\n\n` +
-          `OK = split it into ${count} animation frames\nCancel = keep it as one still image`
+          `OK = split it into ${count} animation frames\nCancel = keep it as one still image` +
+          (a.pattern ? " (e.g. a wide pattern spread across several tiles — you'll be asked next)" : "")
         )) {
           result.frames = await sliceStrip(uri, count);
           result.notes.push(`Split into ${count} frames.`);
@@ -542,6 +592,12 @@ class Studio {
       }
       await a.write({ ...a.read(), frames, fps: a.read().fps });
       this.dirty = true;
+      if (a.pattern) {
+        // A 32×32 image on a 16×16 tile could be extra detail OR a 2×2
+        // pattern — ambiguous by nature, so ask instead of guessing.
+        const dims = await imageSize(frames[0]);
+        this.pendingLayout = dims ? { key: a.key, w: dims.w, h: dims.h } : null;
+      }
       toast("Art saved to your draft — hit “Try in game” to see it live.");
       this.refresh();
     };
@@ -563,16 +619,17 @@ class Studio {
     wrap.append(drop, notes);
 
     // Built-in editors + downloads + revert
-    const mult = this.pixelResMult.get(a.key) ?? 1;
+    const mults = [1, 2, 4].filter((m) => m === 1 || Math.max(box.w, box.h) * m <= 128);
+    const mult = mults.includes(this.pixelResMult.get(a.key) ?? 1) ? (this.pixelResMult.get(a.key) ?? 1) : 1;
     const resSelect = el(
       "select", {
         className: "st-chip",
         title: "Draw at higher resolution for extra detail — the game fits it into the box either way, so a higher resolution just looks crisper on screen",
         onchange: (ev: Event) => this.pixelResMult.set(a.key, Number((ev.target as HTMLSelectElement).value)),
       },
-      ...[1, 2, 4].map((m) => el(
+      ...mults.map((m) => el(
         "option", { value: m, selected: mult === m },
-        `${m}× (${a.drawnW * m}×${a.drawnH * m}px)`
+        `${m}× (${box.w * m}×${box.h * m}px)`
       ))
     );
     wrap.append(el("div", { className: "st-row", style: "margin-top:12px" },
@@ -710,6 +767,9 @@ class Studio {
 
   private openPixelFor(a: ArtAsset): void {
     const art = a.read();
+    const box = artBox(a);
+    const isPattern = box.spanX > 1 || box.spanY > 1;
+    if (a.pattern && isPattern) return this.openPixelForPattern(a);
     const size = Math.max(a.drawnW, a.drawnH, 16) * (this.pixelResMult.get(a.key) ?? 1);
     const hiRes = art.frames.some((f) => {
       if (f.startsWith("data:image/svg")) return true;
@@ -738,6 +798,51 @@ class Studio {
       frames: seed,
       fps: art.fps,
       multiFrame: a.animatable,
+      // Tiles repeat edge to edge in every room — show that while painting.
+      tiledPreview: !!a.pattern,
+      onSave: (frames, fps) => {
+        void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
+      },
+    });
+  }
+
+  /** Pixel editor for a pattern tile: a grid the size of one full copy of
+   *  the pattern, gold guides where each in-game tile's piece falls, and a
+   *  preview that repeats it the way rooms will. */
+  private openPixelForPattern(a: ArtAsset): void {
+    const art = a.read();
+    const box = artBox(a);
+    const mult = this.pixelResMult.get(a.key) ?? 1;
+    const GW = box.w * mult, GH = box.h * mult;
+    const hiRes = art.frames.some((f) => {
+      if (f.startsWith("data:image/svg")) return true;
+      const img = getImage(f);
+      return !!img && (img.naturalWidth > GW || img.naturalHeight > GH);
+    });
+    if (hiRes && !confirm(
+      `This art is bigger than the pixel editor's ${GW}×${GH} grid — editing here will flatten it to ${GW}×${GH} when saved.\n\n` +
+      `Tip: pick a higher resolution next to the editor button first.\n` +
+      `Your original file on your computer is untouched either way. Continue?`
+    )) return;
+    let seed = art.frames;
+    if (!seed.length) {
+      // Start from the built-in look repeated over the whole block.
+      const cv = document.createElement("canvas");
+      cv.width = GW;
+      cv.height = GH;
+      a.pattern!.drawProceduralBlock(cv.getContext("2d")!, 0, 0, TILE * mult);
+      seed = [cv.toDataURL("image/png")];
+    }
+    openPixelEditor({
+      title: `${a.label} — ${box.spanX}×${box.spanY} pattern (${GW}×${GH})`,
+      width: GW,
+      height: GH,
+      frames: seed,
+      fps: art.fps,
+      multiFrame: a.animatable,
+      tileLines: { everyX: TILE * mult, everyY: TILE * mult },
+      tiledPreview: true,
+      note: `This canvas is one full copy of the pattern. The gold dashed lines show where each 16×16 tile's piece begins — anything you paint crosses into the neighbouring tile in the game. The preview on the right repeats it like a wall does.`,
       onSave: (frames, fps) => {
         void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
       },
@@ -746,18 +851,64 @@ class Studio {
 
   private openShapesFor(a: ArtAsset): void {
     const art = a.read();
+    const box = artBox(a);
+    const isPattern = !!a.pattern && (box.spanX > 1 || box.spanY > 1);
     openSvgEditor({
-      title: a.label,
-      width: a.drawnW,
-      height: a.drawnH,
+      title: isPattern ? `${a.label} — ${box.spanX}×${box.spanY} pattern` : a.label,
+      width: box.w,
+      height: box.h,
       frames: art.frames,
       fps: art.fps,
       multiFrame: a.animatable,
-      seedDraw: (ctx, x, y, cell) => a.drawCurrent(ctx, x, y, cell),
+      seedDraw: isPattern && !art.frames.length
+        // Built-in look repeated over the whole block, fitted into the
+        // square cell the vectorizer hands over (centered, like drawCurrent).
+        ? (ctx, x, y, cell) => {
+          const tilePx = cell / Math.max(box.spanX, box.spanY);
+          a.pattern!.drawProceduralBlock(ctx,
+            x + (cell - tilePx * box.spanX) / 2, y + (cell - tilePx * box.spanY) / 2, tilePx);
+        }
+        : (ctx, x, y, cell) => a.drawCurrent(ctx, x, y, cell),
+      tileLines: isPattern ? { everyX: TILE, everyY: TILE } : undefined,
+      tiledPreview: !!a.pattern,
+      note: isPattern
+        ? "This canvas is one full copy of the pattern. Gold dashed lines = where each 16×16 tile's piece begins. The preview repeats it like a wall does."
+        : undefined,
       onSave: (frames, fps) => {
         void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
       },
     });
+  }
+
+  /** Rebuild every frame as the current image repeated across the pattern
+   *  block, at the image's own resolution — turns a one-tile image into a
+   *  full-size pattern she can then vary piece by piece. */
+  private async repeatArtToFill(a: ArtAsset): Promise<void> {
+    const art = a.read();
+    const box = artBox(a);
+    const out: string[] = [];
+    for (const uri of art.frames) {
+      const img = await new Promise<HTMLImageElement | null>((res) => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = () => res(null);
+        i.src = uri;
+      });
+      if (!img) return void toast("Couldn't read the current art to repeat it.", false);
+      const cv = document.createElement("canvas");
+      cv.width = img.naturalWidth * box.spanX;
+      cv.height = img.naturalHeight * box.spanY;
+      const g = cv.getContext("2d")!;
+      g.imageSmoothingEnabled = false;
+      for (let r = 0; r < box.spanY; r++) {
+        for (let c = 0; c < box.spanX; c++) g.drawImage(img, c * img.naturalWidth, r * img.naturalHeight);
+      }
+      out.push(cv.toDataURL("image/png"));
+    }
+    await a.write({ ...art, frames: out });
+    this.dirty = true;
+    toast(`Your art now fills the whole ${box.spanX}×${box.spanY} pattern — it looks the same in-game until you change a piece.`);
+    this.refresh();
   }
 
   // ---- Actions ----

@@ -58,6 +58,19 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `foreignObject` hard-rejected — it would taint the canvas and break bug-report
   screenshots). The studio's shape editor round-trips its own SVGs via a
   `data-pp-shapes` attribute; foreign SVGs get best-effort primitive import.
+- **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
+  + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
+  the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,
+  pinned by `tests/tile-pattern.test.ts`), so it needs no per-tile state and
+  transformed/flowing tiles line up automatically. Every in-room `drawTile`
+  caller must pass world pixel coords — a caller drawing at a local 0,0 gets
+  slice (0,0), which is only acceptable for thumbnails. The four fields are art
+  fields (`SPRITE_FIELDS` in `_artscope.js`; hidden from editor forms via
+  `SPRITE_KEYS`). A 32×32 import on a 16×16 tile is genuinely ambiguous (extra
+  detail vs 2×2 pattern), so the studio ASKS (`layoutOptions`, ≥16px square
+  whole-pixel pieces only) — never guess it. Previews in `src/studio/
+  tilepattern.ts` draw through the real `drawTile`/`drawMap`, never a
+  re-implementation.
 - **Published content is the primary source of truth** (Sean's standing directive —
   the published bundle wholesale-wins over bundled per array entry via
   `mergeArrayById`, so a stale published copy silently masks any repo change to the
