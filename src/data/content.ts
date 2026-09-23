@@ -4,6 +4,7 @@
 //   2. Browser: localStorage overlay (editor writes here) over bundled defaults
 //   3. Bundled defaults: content/*.json imported at build time
 import type { Content, RoomDef } from "./types";
+import { diffBundles, mergeBundles, summarizeDiff } from "../../functions/api/_merge.js";
 
 declare global {
   interface Window {
@@ -159,6 +160,33 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   return out;
 }
 
+/**
+ * Rebase a local browser draft onto a newer published version, git-style:
+ * 3-way merge with the draft's base, so anything the draft didn't change
+ * picks up the newer publish and anything it did change keeps the local
+ * value. Same merge rules as the server's publish merge (_merge.js). All
+ * three sides are normalized through `mergedFiles` first so schema-default
+ * gaps in an old draft don't read as "local edits" that mask live changes.
+ */
+export function rebaseDraft(
+  base: Record<string, unknown>,
+  live: Record<string, unknown>,
+  draft: Record<string, unknown>,
+  deleted: Iterable<string> = []
+): { files: Record<string, unknown>; hasLocalChanges: boolean; incoming: string[] } {
+  const b = mergedFiles({ ...BUNDLED, ...base });
+  const l = mergedFiles({ ...BUNDLED, ...live });
+  const dRaw: Record<string, unknown> = { ...BUNDLED, ...draft };
+  for (const rel of deleted) delete dRaw[rel];
+  const d = mergedFiles(dRaw);
+  const files = mergeBundles(b, l, d);
+  return {
+    files,
+    hasLocalChanges: diffBundles(l, files).length > 0,
+    incoming: summarizeDiff(diffBundles(d, files), 40),
+  };
+}
+
 export function isElectron(): boolean {
   return !!window.playpenFS;
 }
@@ -177,6 +205,50 @@ export class ContentStore {
    *  in the publish tab so a forgotten old draft doesn't silently ship stale
    *  values on every future publish (see `mergedFiles`' limits above). */
   overlayFileNames: string[] = [];
+  /** What happened to the local draft on load when live had moved past its
+   *  base (surfaced in the publish tab). null = nothing to rebase. */
+  rebaseInfo:
+    | { ok: true; from: string; to: string; incoming: string[]; absorbed: boolean }
+    | { ok: false; from: string; to: string }
+    | null = null;
+
+  /** If someone published since this draft's base, pull their work into the
+   *  draft now (3-way, local edits win overlaps) so non-conflicting changes
+   *  show up on reload without discarding the draft. */
+  private async rebaseOntoLive(liveFiles: Record<string, unknown> | null): Promise<void> {
+    const from = this.overlayBaseId;
+    const to = this.publishedInfo?.id;
+    if (!liveFiles || !from || !to || from === to) return;
+    let baseFiles: Record<string, unknown> | null = null;
+    try {
+      const res = await fetch(`/api/content?id=${encodeURIComponent(from)}`);
+      if (res.ok) baseFiles = ((await res.json()) as { files: Record<string, unknown> }).files;
+    } catch { /* offline — keep the draft as-is */ }
+    if (!baseFiles) {
+      // Base pruned from history (or unreachable): can't tell which draft
+      // values are edits vs stale copies, so the draft keeps winning wholesale.
+      this.rebaseInfo = { ok: false, from, to };
+      return;
+    }
+    const r = rebaseDraft(baseFiles, liveFiles, this.files, this.deletedInOverlay);
+    this.files = r.files;
+    for (const rel of [...this.deletedInOverlay]) {
+      if (rel in this.files) this.deletedInOverlay.delete(rel);
+    }
+    this.rebaseInfo = { ok: true, from, to, incoming: r.incoming, absorbed: !r.hasLocalChanges };
+    if (r.hasLocalChanges) {
+      this.overlayBaseId = to;
+      this.persistOverlay();
+    } else {
+      // Nothing local left that live doesn't already have — drop the draft.
+      this.clearOverlay();
+    }
+    console.info(
+      `[content] rebased local draft ${from} -> ${to}` +
+      (r.incoming.length ? `; pulled in:\n  ${r.incoming.join("\n  ")}` : "; nothing new from live") +
+      (r.hasLocalChanges ? "" : " (draft fully published — cleared)")
+    );
+  }
 
   async load(): Promise<Content> {
     this.files = bundledFiles();
@@ -193,6 +265,7 @@ export class ContentStore {
     } else {
       // Published content (Sean's editor pushes) sits between the bundled
       // defaults and any local editing draft: bundled < published < draft.
+      let liveFiles: Record<string, unknown> | null = null;
       try {
         const res = await fetch("/api/content", { cache: "no-store" });
         if (res.ok) {
@@ -202,6 +275,7 @@ export class ContentStore {
           };
           if (pub?.files) {
             Object.assign(this.files, pub.files);
+            liveFiles = pub.files;
             this.publishedInfo = {
               id: pub.id, publishedAt: pub.publishedAt, note: pub.note,
             };
@@ -225,6 +299,7 @@ export class ContentStore {
             delete this.files[rel];
             this.deletedInOverlay.add(rel);
           }
+          await this.rebaseOntoLive(liveFiles);
         }
       } catch (e) {
         console.error("Bad content overlay in localStorage; ignoring.", e);
@@ -274,15 +349,24 @@ export class ContentStore {
     );
   }
 
+  /** The local draft's fork point (null = no draft, or a pre-tracking draft). */
+  get draftBaseId(): string | null {
+    return this.overlayBaseId;
+  }
+
   /** Base version id to send with a publish (draft's fork point, else the
    *  version this session loaded — e.g. publishing with no local edits). */
   publishBaseId(): string | null {
     return this.overlayBaseId ?? this.publishedInfo?.id ?? null;
   }
 
-  /** After a successful publish, the draft's new base is what we just made
-   *  live — a later publish should merge relative to it. */
-  markPublished(id: string): void {
+  /** After a successful publish. A fast-forward publish made live exactly
+   *  this draft, so it becomes the new base. A MERGED publish did not — live
+   *  also holds someone else's work the draft lacks — so the base stays put
+   *  and the next load rebases that work in (moving the base here would make
+   *  the draft's stale copies of their entries look like local edits). */
+  markPublished(id: string, merged: boolean): void {
+    if (merged) return;
     this.overlayBaseId = id;
     if (localStorage.getItem(LS_KEY)) this.persistOverlay();
   }

@@ -16,7 +16,18 @@ const INDEX_KEY = "index";
 const LIVE_KEY = "live";
 const MAX_VERSIONS = 30;
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ request, env }) {
+  // ?id=v… returns one past version — public like live, since every version
+  // was live (public) once. Browser drafts need their base version to rebase
+  // onto newer publishes on load (ContentStore.load / rebaseDraft).
+  const id = new URL(request.url).searchParams.get("id");
+  if (id) {
+    const record = await env.CONTENT.get(`ver:${id}`);
+    if (!record) return json({ ok: false, error: "unknown version" }, 404);
+    return new Response(record, {
+      headers: { "content-type": "application/json", "cache-control": "public, max-age=86400" },
+    });
+  }
   const live = await env.CONTENT.get(LIVE_KEY);
   if (!live) return json({ ok: false, error: "nothing published yet" }, 404);
   return new Response(live, {

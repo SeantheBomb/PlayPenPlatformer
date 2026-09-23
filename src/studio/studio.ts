@@ -974,14 +974,17 @@ class Studio {
         headers: { "x-artist-password": pass, "content-type": "application/json" },
         body: JSON.stringify({ files: this.store.allFiles(), note: "art update from the studio" }),
       });
-      const data = (await res.json()) as { ok: boolean; id?: string; error?: string; changes?: string[] };
+      const data = (await res.json()) as {
+        ok: boolean; id?: string; error?: string; changes?: string[]; merged?: boolean;
+      };
       if (!data.ok) {
         toast(res.status === 401
           ? "The password didn't work — check it with Sean (it may have changed)."
           : `Publish failed: ${data.error ?? "unknown error"}`, false);
         return;
       }
-      this.store.markPublished(data.id!);
+      // Art publishes are always overlaid onto live server-side (merged).
+      this.store.markPublished(data.id!, data.merged ?? true);
       this.dirty = false;
       const what = data.changes?.length ? ` (${data.changes.slice(0, 3).join("; ")}${data.changes.length > 3 ? "…" : ""})` : "";
       toast(`🎉 Published! Everyone gets your art on their next load${what}`);

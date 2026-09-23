@@ -98,6 +98,17 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   "review changes" before publishing). A pre-feature browser draft has no baseId
   stamp and still publishes wholesale — clearing the local draft once (after its
   work is published) upgrades it.
+- **Drafts rebase on load (2026-09-23)**: when live has moved past a browser
+  draft's baseId, `ContentStore.load` fetches the base via public
+  `GET /api/content?id=v…` and runs `rebaseDraft` (same `_merge.js` rules, all
+  three sides normalized through `mergedFiles` over BUNDLED) — others'
+  non-conflicting publishes show up on reload, local edits win overlaps, and a
+  draft with nothing left that live lacks is cleared. `markPublished(id, merged)`
+  only moves the base on a fast-forward publish; after a MERGED publish the base
+  stays so the next load pulls the other side's work in (moving it would make
+  the draft's stale copies look like local edits). Pinned by
+  `tests/draft-rebase.test.ts`. A base pruned past MAX_VERSIONS can't rebase —
+  the publish tab says so.
 - Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`
   (add `-- --clear` to delete pulled reports from KV once they're fixed).
 - Anonymous gameplay telemetry (room attempts/completions/durations, deaths,

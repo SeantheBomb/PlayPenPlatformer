@@ -810,16 +810,33 @@ class EditorShell {
           : "This session loaded no published version (bundled/local content only).")
     );
 
+    const rb = this.store.rebaseInfo;
+    if (rb?.ok) {
+      panel.append(
+        el("p", { className: "pp-hint", style: "color:#9be8b0" },
+          rb.absorbed
+            ? `Your local draft was already fully published — cleared it and loaded live ${rb.to}.`
+            : `Newer publish ${rb.to} merged into your local draft on load (your edits win anything you both touched).`),
+        ...(rb.incoming.length ? [summaryLines(rb.incoming)] : [])
+      );
+    } else if (rb && !rb.ok) {
+      panel.append(el("p", { className: "pp-hint", style: "color:#ffd166" },
+        `⚠ Live moved to ${rb.to} but your draft's base ${rb.from} is gone from history, so newer ` +
+        "published changes couldn't be merged in — your draft is showing its own copy of everything."));
+    }
+
     if (this.store.overlayFileNames.length > 0) {
       panel.append(
         el("div", {
           style: "background:#3a2a1e;border:1px solid #7a5638;border-radius:4px;padding:8px;margin:8px 0",
         },
           el("p", { style: "margin:0 0 6px;color:#ffd166" },
-            `⚠ This browser has a local editing draft overriding: ${this.store.overlayFileNames.join(", ")}. ` +
-            "It sits on top of published/bundled content forever, in every future publish — including for " +
-            "fields a later code update changed, if this draft still has the old value. If you didn't mean " +
-            "to keep old edits to these files, clear the draft below before publishing."),
+            this.store.draftBaseId
+              ? "This browser has a local editing draft. Newer publishes merge into it automatically " +
+                "on reload; only what you changed overrides them. Clear it to discard your unpublished edits."
+              : `⚠ This browser has an old-format local draft overriding: ${this.store.overlayFileNames.join(", ")}. ` +
+                "It predates merge tracking, so it masks newer publishes wholesale. If its work is already " +
+                "published, clear it below."),
           el("button", {
             className: "pp-btn",
             onclick: () => {
@@ -975,7 +992,7 @@ class EditorShell {
                 out.ok
               );
               if (out.ok && out.id) {
-                this.store.markPublished(out.id);
+                this.store.markPublished(out.id, !!out.merged);
                 reviewEl.replaceChildren();
                 loadHistory();
               }
