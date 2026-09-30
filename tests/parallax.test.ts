@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Content, LayersFile } from "../src/data/types";
 import { resolveLayerSet, resolveRoomLayers, setIdForRoom, withLayerDefaults, DEPTH_PRESETS } from "../src/game/layers";
 import bundledLayers from "../content/layers.json";
+import { propPosition } from "../src/engine/renderer";
 
 const px = (n: string) => `data:image/png;base64,${n}`;
 
@@ -199,5 +200,66 @@ describe("resolving an explicit set", () => {
 
   it("survives an undefined set (deleted while being edited)", () => {
     expect(resolveLayerSet(undefined)).toEqual({ behind: [], front: [] });
+  });
+});
+
+describe("prop drift (per prop, 2026-09-30)", () => {
+  // Casey asked for each prop to have its own drift. The layer's drift must
+  // still never move props (that's the bug where placed props sailed off
+  // forever); a prop's OWN drift wraps around the view instead.
+  const layer = { scrollX: 0.5, scrollY: 0.3, offsetY: 0 };
+  const VW = 640, VH = 360;
+  const prop = (over: Record<string, number> = {}) => ({ x: 300, y: 100, w: 40, h: 20, ...over });
+
+  it("a prop without drift sits at its parallax anchor forever", () => {
+    for (const t of [0, 10, 1000]) {
+      expect(propPosition(prop(), layer, 0, 0, VW, VH, t)).toEqual({ x: 300, y: 100 });
+    }
+  });
+
+  it("a prop without drift is never wrapped into view from off-screen", () => {
+    // Placed far off in a wide room: must stay there, not appear on screen.
+    expect(propPosition(prop({ x: 2000 }), layer, 0, 0, VW, VH, 5).x).toBe(2000);
+  });
+
+  it("the layer's drift is ignored — only the prop's own drift moves it", () => {
+    const withLayerDrift = { ...layer, driftX: -30 } as typeof layer;
+    expect(propPosition(prop(), withLayerDrift, 0, 0, VW, VH, 60).x).toBe(300);
+  });
+
+  it("moves by its own drift while on screen", () => {
+    expect(propPosition(prop({ driftX: -5 }), layer, 0, 0, VW, VH, 10).x).toBe(250);
+  });
+
+  it("loops: leaves the left edge and comes back in on the right", () => {
+    // After 400s at -5px/s it has travelled 2000px — never lost.
+    for (const t of [0, 61, 70, 400, 9999]) {
+      const { x } = propPosition(prop({ driftX: -5 }), layer, 0, 0, VW, VH, t);
+      expect(x).toBeGreaterThanOrEqual(-40);
+      expect(x).toBeLessThan(VW);
+    }
+    // Just past the left edge it reappears on the right.
+    const gone = propPosition(prop({ driftX: -5 }), layer, 0, 0, VW, VH, 69).x; // 300-345 = -45
+    expect(gone).toBeGreaterThan(VW - 10);
+  });
+
+  it("wraps relative to the camera, so parallax still applies", () => {
+    const camX = 500;
+    const { x } = propPosition(prop({ driftX: -5 }), layer, camX, 0, VW, VH, 9999);
+    expect(x - camX).toBeGreaterThanOrEqual(-40);
+    expect(x - camX).toBeLessThan(VW);
+  });
+
+  it("vertical drift wraps vertically and leaves x anchored", () => {
+    const { x, y } = propPosition(prop({ driftY: 7 }), layer, 0, 0, VW, VH, 9999);
+    expect(x).toBe(300);
+    expect(y).toBeGreaterThanOrEqual(-20);
+    expect(y).toBeLessThan(VH);
+  });
+
+  it("is a pure function of t, so replays draw identically", () => {
+    const a = propPosition(prop({ driftX: -3, driftY: 2 }), layer, 120, 40, VW, VH, 123.4);
+    const b = propPosition(prop({ driftX: -3, driftY: 2 }), layer, 120, 40, VW, VH, 123.4);
+    expect(a).toEqual(b);
   });
 });

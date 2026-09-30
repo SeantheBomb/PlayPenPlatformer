@@ -912,6 +912,34 @@ function maskContext(w: number, h: number): CanvasRenderingContext2D | null {
 }
 
 /**
+ * Where a parallax PROP draws, in world coords — the single implementation,
+ * shared by drawParallaxLayers and the Art Studio's hit-test/drag so a prop
+ * is always grabbable exactly where it's drawn.
+ *
+ * Props take their layer's parallax but never the layer's drift (a strip hides
+ * endless drift by wrapping; a landmark just sails away). A prop can carry its
+ * OWN drift; when it does, that axis wraps around the view with a period of
+ * view + prop size, so it leaves one edge and comes back in on the other —
+ * clouds and birds cycle through the scene rather than vanishing. Parallax
+ * still applies on top, and `t` is the cosmetic clock, so it's deterministic.
+ */
+export function propPosition(
+  prop: { x: number; y: number; w: number; h: number; driftX?: number; driftY?: number },
+  layer: Pick<ParallaxLayer, "scrollX" | "scrollY" | "offsetY">,
+  camX: number, camY: number, viewW: number, viewH: number, t: number
+): { x: number; y: number } {
+  let x = prop.x + camX * (1 - (layer.scrollX ?? 0.5)) + (prop.driftX ?? 0) * t;
+  let y = prop.y + camY * (1 - (layer.scrollY ?? 0.3)) + (layer.offsetY ?? 0) + (prop.driftY ?? 0) * t;
+  const wrap = (screen: number, size: number, view: number) => {
+    const span = view + size;
+    return ((((screen + size) % span) + span) % span) - size; // into [-size, view)
+  };
+  if (prop.driftX) x = camX + wrap(x - camX, prop.w, viewW);
+  if (prop.driftY) y = camY + wrap(y - camY, prop.h, viewH);
+  return { x, y };
+}
+
+/**
  * Draw one plane's worth of parallax layers. Called INSIDE the camera
  * transform (like drawBackdrop), so everything here is computed in world
  * coordinates.
@@ -942,13 +970,6 @@ export function drawParallaxLayers(
     const scrollX = layer.scrollX ?? 0.5, scrollY = layer.scrollY ?? 0.3;
     const baseX = camX * (1 - scrollX) + (layer.driftX ?? 0) * t;
     const baseY = camY * (1 - scrollY) + (layer.driftY ?? 0) * t + (layer.offsetY ?? 0);
-    // Props take the layer's parallax but NOT its drift. Drift is a texture
-    // scroll for the repeating strip (clouds sliding past); a prop is a
-    // landmark placed at a spot on purpose. Drifting one moves it further
-    // from that spot every second and never brings it back — the strip hides
-    // this because it wraps, but a prop just sails away and is gone.
-    const propBaseX = camX * (1 - scrollX);
-    const propBaseY = camY * (1 - scrollY) + (layer.offsetY ?? 0);
 
     // A front layer that fades around the player renders offscreen first so
     // the hole can be punched with destination-out, then composites in one go.
@@ -979,7 +1000,8 @@ export function drawParallaxLayers(
     for (const prop of layer.props ?? []) {
       const pimg = prop.sprite ? getImage(prop.sprite) : null;
       if (!pimg) continue;
-      const px = prop.x + propBaseX, py = prop.y + propBaseY;
+      // Layer drift never moves a prop; its own drift wraps — see propPosition.
+      const { x: px, y: py } = propPosition(prop, layer, camX, camY, viewW, viewH, t);
       if (px + prop.w < camX || px > camX + viewW || py + prop.h < camY || py > camY + viewH) continue;
       const pa = prop.opacity ?? 1;
       if (pa <= 0) continue;

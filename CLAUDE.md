@@ -400,15 +400,19 @@ republishing/re-saving from the editor is still the fix for those.
   VERTICALLY (`PLACEHOLDER_WRAP_Y`) because a layer with scrollY near 1
   barely moves relative to the world, so a 360-tall strip would otherwise
   run out below the first screen in a tall room (Mess Hall is 896px).
-- **Props take a layer's parallax but NOT its drift** (2026-09-09 fix). Drift is
-  a texture scroll for the repeating strip (clouds sliding past) and the strip
-  hides it by wrapping; a prop is a landmark placed at a spot on purpose, so
-  drifting one moves it further from that spot every second and never brings it
-  back — after 2 minutes on a driftX -3 layer it's 350px gone, in the studio AND
-  in the shipped game. `drawParallaxLayers` therefore computes a separate
-  drift-free `propBaseX/Y`, and the studio's hit-test/drag uses the same anchor
-  (`propAnchor` in environments.ts) so grabbing lines up with drawing. Keep those
-  two in step if you touch either.
+- **Props take a layer's parallax but NEVER the layer's drift** (2026-09-09 fix).
+  Drift is a texture scroll for the repeating strip, which hides it by wrapping;
+  a prop given the layer's drift just sailed off forever (350px gone after 2 min
+  on a driftX -3 layer). **Each prop may carry its OWN `driftX/driftY`** (Casey's
+  ask, 2026-09-30), and a drifting axis WRAPS around the view (period view +
+  prop size) so it exits one edge and re-enters the other — its placed x/y only
+  sets the phase of that loop. A prop with no drift is never wrapped (an
+  off-screen landmark stays off-screen). `propPosition` in renderer.ts is the
+  ONE implementation — drawParallaxLayers and the studio's hit-test both call
+  it, and the studio drag inverts it (subtracting the prop's own drift at the
+  same `previewClock()` the preview draws with). Pinned in
+  `tests/parallax.test.ts` ("prop drift"). Don't reintroduce a second copy of
+  the prop-position math.
 - Foreground (`plane: "front"`) draws over the player but UNDER interaction
   prompts, and defaults to `fadeNearPlayer` (a soft radial hole punched around
   the player via an offscreen destination-out composite) so foreground art can

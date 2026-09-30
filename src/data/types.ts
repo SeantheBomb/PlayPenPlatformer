@@ -573,6 +573,13 @@ export interface LayerProp {
   h: number;
   flip?: boolean;
   opacity?: number;
+  /** The prop's OWN ambient motion, px/sec (Casey's ask, 2026-09-30) — the
+   *  layer's drift deliberately never applies to props. A drifting prop wraps
+   *  around the view (exits one edge, re-enters the other) instead of sailing
+   *  off forever, so its placed position sets where it is in that cycle rather
+   *  than a fixed spot. Unset/0 = a static landmark, as before. */
+  driftX?: number;
+  driftY?: number;
 }
 
 export interface LayerSet {

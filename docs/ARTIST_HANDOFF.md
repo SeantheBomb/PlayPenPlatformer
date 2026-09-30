@@ -237,7 +237,12 @@ That dresses all eleven rooms.
 
 **Props** are one-off objects on a layer — a pipe, a poster, a cloud. Drop image
 files in, then just **drag them around directly in the preview**. They move with
-their layer's parallax like everything else on that plane.
+their layer's parallax like everything else on that plane, but ignore the layer's
+drift — instead **each prop has its own Drifts ↔ / ↕ sliders**. Leave them at 0 for
+something that stays put (a pipe, a poster). Give one some drift and it loops
+across the screen — out one edge, back in the other — which is what you want for
+clouds, birds, dust, or anything passing through; where you drop it just sets
+where it starts in the loop.
 
 **Want to see it working before you draw anything?** Hit **✨ Add placeholder
 set**. It generates rough stand-in art for all three planes — distant silos,

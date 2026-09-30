@@ -9,7 +9,7 @@ import type { ContentStore } from "../data/content";
 import type { LayersFile, LayerSet, ParallaxLayer, LayerProp, RoomDef } from "../data/types";
 import { el, toast } from "../editor/forms";
 import { TileMap } from "../engine/tilemap";
-import { drawBackdrop, drawMap, drawParallaxLayers } from "../engine/renderer";
+import { drawBackdrop, drawMap, drawParallaxLayers, propPosition } from "../engine/renderer";
 import { DEPTH_PRESETS, resolveLayerSet, setIdForRoom } from "../game/layers";
 import { VIEW_H, VIEW_W } from "../game/game";
 import { importFiles } from "./importers";
@@ -32,6 +32,10 @@ export interface EnvContext {
 /** Every live preview mounts a rAF loop; the view swap has to stop them or
  *  they pile up and keep drawing into detached canvases. */
 let stopPreview: (() => void) | null = null;
+
+/** The preview's cosmetic clock. Drawing and hit-testing must read the same
+ *  one, or a prop with its own drift is grabbable somewhere it isn't drawn. */
+const previewClock = () => performance.now() / 1000;
 export function stopEnvironmentPreview(): void {
   stopPreview?.();
   stopPreview = null;
@@ -451,9 +455,13 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
       const sx = ((e.clientX - rect.left) / rect.width) * VIEW_W;
       const sy = ((e.clientY - rect.top) / rect.height) * VIEW_H;
       const camX = currentCam();
+      // Inverse of propPosition: pick the stored x/y that puts the prop under
+      // the cursor right now. Its own drift is subtracted out, so a drifting
+      // prop is dropped where you let go and carries on drifting from there.
       const anchor = propAnchor(dragging.layer, camX, camY);
-      dragging.prop.x = Math.round(camX + sx - anchor.x - dragging.offX);
-      dragging.prop.y = Math.round(camY + sy - anchor.y - dragging.offY);
+      const t = previewClock();
+      dragging.prop.x = Math.round(camX + sx - anchor.x - dragging.offX - (dragging.prop.driftX ?? 0) * t);
+      dragging.prop.y = Math.round(camY + sy - anchor.y - dragging.offY - (dragging.prop.driftY ?? 0) * t);
       previewNote.textContent = `Prop at ${dragging.prop.x}, ${dragging.prop.y}`;
     } else {
       const dx = (e.clientX - dragging.startX) / rect.width * VIEW_W;
@@ -489,7 +497,7 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (panning) panT += dt;
-    drawPreview(ctx, previewCanvas, set, roomSelect.value, currentCam(), camY, now / 1000);
+    drawPreview(ctx, previewCanvas, set, roomSelect.value, currentCam(), camY, previewClock());
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
@@ -505,9 +513,9 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
   return wrap;
 }
 
-/** Where a layer's PROPS are anchored: parallax, no drift (see the prop
- *  branch of drawParallaxLayers — this must stay in step with it, or props
- *  are grabbable somewhere other than where they're drawn). */
+/** A layer's drift-free prop anchor (parallax only) — the part of
+ *  propPosition that doesn't depend on the prop itself. Used to invert it
+ *  when placing or dragging; hit-testing calls propPosition directly. */
 function propAnchor(layer: ParallaxLayer, camX: number, camY: number): { x: number; y: number } {
   return {
     x: camX * (1 - (layer.scrollX ?? 0.5)),
@@ -528,9 +536,10 @@ function hitProp(
     // hand back the original so edits write to the set, not to a copy.
     const layer = set.layers.find((l) => l.id === shown.id);
     if (!layer) continue;
-    const anchor = propAnchor(shown, camX, camY);
+    const t = previewClock();
     for (const prop of [...(layer.props ?? [])].reverse()) {
-      const px = prop.x + anchor.x - camX, py = prop.y + anchor.y - camY;
+      const pos = propPosition(prop, shown, camX, camY, VIEW_W, VIEW_H, t);
+      const px = pos.x - camX, py = pos.y - camY;
       if (sx >= px && sx <= px + prop.w && sy >= py && sy <= py + prop.h) {
         return { prop, layer: shown, offX: sx - px, offY: sy - py };
       }
@@ -933,7 +942,11 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
     box.append(el("div", { className: "st-hint" }, "None yet."));
     return box;
   }
-  const grid = el("div", { className: "st-frames" });
+  box.append(el("div", { className: "st-hint", style: "margin-bottom:6px" },
+    "Each prop can drift on its own — the layer's drift never moves props. A drifting prop loops: " +
+    "it leaves one edge of the screen and comes back in on the other, so where you drop it just sets " +
+    "where it starts in that loop. Leave both at 0 for something that stays put."));
+  const list = el("div", {});
   for (const p of props) {
     const cell = el("div", { className: "st-frame", title: `${p.w}×${p.h} at ${p.x}, ${p.y}` });
     const c = el("canvas", { width: 44, height: 44 }) as HTMLCanvasElement;
@@ -955,9 +968,31 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
         hooks.onStructureChange();
       },
     }, "✕"));
-    grid.append(cell);
+    // Per-prop drift. Saves on every move like the layer sliders; the preview
+    // reads content live, so the prop starts drifting as you drag the slider.
+    const driftSlider = (label: string, key: "driftX" | "driftY") => {
+      const out = el("span", { className: "st-hint", style: "min-width:58px" }, `${p[key] ?? 0} px/s`);
+      return el("div", { className: "st-row", style: "margin:0" },
+        el("span", { className: "st-hint", style: "min-width:62px" }, label),
+        el("input", {
+          type: "range", min: -60, max: 60, step: 1, value: p[key] ?? 0, style: "flex:1;max-width:220px",
+          oninput: async (e: Event) => {
+            const v = Number((e.target as HTMLInputElement).value);
+            out.textContent = `${v} px/s`;
+            if (v) p[key] = v;
+            else delete p[key]; // 0 = static landmark; keep the saved prop clean
+            await save(ctx);
+          },
+        }),
+        out);
+    };
+    list.append(el("div", { className: "st-row", style: "align-items:center;gap:12px" },
+      cell,
+      el("div", { style: "flex:1;min-width:220px" },
+        driftSlider("Drifts ↔", "driftX"),
+        driftSlider("Drifts ↕", "driftY"))));
   }
-  box.append(grid);
+  box.append(list);
   return box;
 }
 
