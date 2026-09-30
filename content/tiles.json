@@ -7,7 +7,7 @@
     "solid": true,
     "element": "stone",
     "color": "#3d3a52",
-    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAAXNSR0IArs4c6QAAAGZJREFUKJFjfN3Gz4ABft78yHJVHFP86fmXLBBpdImTDPI8DE/Pv0QTP/OXjQnTGPxgOGhg+Xnz49OTWCSenn955i8bpjjjCxPs4S3XjCN+INJoEmf+ssnhiJ9BGEp0iAdc4Y0rfgDd9DL3RH/Q2gAAAABJRU5ErkJggg=="
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAAXNSR0IArs4c6QAAAQtJREFUSIndVsEOwiAMBQIcTORg4s3f8W+8+Mcz2S5Od5hxMWMJHqowt+GmKzPunboB79FSWuh2t19SQ2rI4hSM1WZ9MRTs8yElHihuYHJ97TFJwOAN0k4lQojizdG8op2T7f9CPwWi6NRe3wvYuA/A7jzIK5rFsR1eiI/1GtTXNINP9j3TMHQIjNn+IAEUSPE4avYm/1CA78FCvAQ54CFDlFhvRo/EL9I0rADiJSi1caUCEVAqgH2SEAVNIRcixc0NtQQBpKAMOlE4zOAe2LZeaNfnMAXa7RtZYKJ+EM6JGWSR4ua/Gw63r1R4i2kx6rRtlXYC1pKCltrADDlYps3oFbAavmV11V5eizvJsGeNEPWbuAAAAABJRU5ErkJggg=="
   },
   {
     "id": "platform",
@@ -18,7 +18,7 @@
     "element": "metal",
     "conductive": true,
     "color": "#7a6f9b",
-    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAADVJREFUOI1jfGEi/p+BTPD0/EsGFhiDHHDmLxsDE7m2w8DAG8B4lpnh/5m/bJSaMwpGwQADAHWaDOaxunacAAAAAElFTkSuQmCC"
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAMFJREFUOI3FkcEKgkAURY9Sq4hAsRBq1w+07x/CTd+gX9sPtGsxqDQQUpsgW9TT0UoRhc5q7n2PuW/eEIRRHoRRzpuu2hKRqjMAnu9i6ia0SrBbu1qwzTStElJ1rqR7votWSUWbWNvdPjcbrvey6C0XANziGADHnxdBAJm+9H/CqG5MxuVZkgVzUmGYJf71go8dZPoCwNSZFZ78zCN71expWes/gVZJkSpIet0XZJJhJvhm/kpuvOB0PFgAq/Um76Kf0Zdj19XRYoYAAAAASUVORK5CYII="
   },
   {
     "id": "spikes",
@@ -28,7 +28,8 @@
     "damage": 1,
     "element": "metal",
     "conductive": true,
-    "color": "#c84b6a"
+    "color": "#c84b6a",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAJRJREFUOI1jYEADyvqO/9HF8MkxoSsIT/HCqhCXHBO6whevP+JyAFY5FAO6+osZGBgYGNRMtDAU4pKDG6Cs7/j/7NXrDAwMDAyS0oIoTsUnx4hsmoV3NFzixNalRMuhAIpigYGBgUFWWwqn4djkMAwgFWAY8P3rD5yKsclR3wUUG/Dz6x+cirHJDUIvfH79CadibHIArmo+IiwkKO8AAAAASUVORK5CYII="
   },
   {
     "id": "cracked",
@@ -40,7 +41,8 @@
     "brittle": true,
     "shattersTo": "",
     "color": "#57536e",
-    "meltsTo": "lava"
+    "meltsTo": "lava",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAR1JREFUOI2Nkr1qwlAYhp+T1sHBIUqlxEEQBMFJZ7N5CYHsHXsHHR16Bb2KQC6hWzqnUyAgCB3aQUjOkCFjuvSkJ/++2+H9+X7OJ55enrEeHhmN7goG8PXzrT9FIjPudbMSLK0FYRSXyv12U3KJzABIZV4Eni/E6e21qKcrUR9SmQNgKPPSWnC+XAeNurkMUDgedjdV11EG6DMPYb2at3dQb0/HfrupcCqkEhBGMcfDjlTmnUEA58u13FejA/52obepV52ZEwCm5vg/QF9cGMW8f3w2zGEUt/6UUbuumzA1x9U7aBuh7Sb0YpUR+oRt6DykLuHMnJDKnERmZWXFCQDbdQqdWK/mjRHqRoDA84Vhuw6B54s+s+LqZtt1+AV6bJOZNves3wAAAABJRU5ErkJggg=="
   },
   {
     "id": "spring",
@@ -76,7 +78,8 @@
     "flammable": true,
     "burnTime": 2.2,
     "burnsTo": "",
-    "color": "#b08757"
+    "color": "#b08757",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAATdJREFUOI2lkj9rg1AUxX/KW4QGOpghUEOnQIcSUnBNNVuXfoHS75Dv061fxIerUMeAQwhKJjMIBty0Q/IS/1UCPdt7775z7j3nal/rVaXfP3IrymwHgB+mlPkBASC9gOVi3Cj0w5Q4SnpJpjMLgP02Rft4mVT6yKTMD4PK+sjs3MVRgli9vyG9AH1kXhS14tgptuZdAgDt8/W5+qvVWyCWizG05ge4xVjpBQg/TBuX125+Bj9PZ9bJA8e1kV7QeABwXLujVje6zA9oxfEUY1P5hO/zWSnVyRUqo7gSPEyMxmM9NkXSZ7aQXkAcJZ3oKqMY9OBC4Lg2tOYdgvQCHNemzHb4YYoosx3S37Dfpmflu86n9uzK9DhKENLfAGDNnxpFKgUlUEfdn8sq97VKKx3lU32t/73Kv4pxjG8YkCPKAAAAAElFTkSuQmCC"
   },
   {
     "id": "ice",
