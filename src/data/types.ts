@@ -407,6 +407,11 @@ export interface TauntDef {
   emotion?: WardenEmotion; // portrait face shown with the banner (default smug)
   roomId?: string; // filter for room_enter
   itemId?: string; // filter for craft_item
+  /** Deleted from the Writers Studio. A tombstone rather than a splice:
+   *  both the bundled-defaults merge and the writer publish scope treat an
+   *  ABSENT taunt as "keep the existing one", so removal has to be stated.
+   *  Never fires; the studio lists it under "Removed" with a restore. */
+  removed?: boolean;
 }
 
 // ---- Rooms ----

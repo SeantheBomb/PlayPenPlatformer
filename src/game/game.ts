@@ -516,11 +516,14 @@ export class Game {
     // Begin recording before loadRoom so the first room marker lands inside
     // the new session (also cleanly ends any session still open).
     if (!this.replay) recorder.begin(this, roomId);
+    // The welcome goes first: taunts play in the order they're fired, and
+    // loadRoom fires the room's own entry line — firing game_start after it
+    // had the first room's line greeting the player before the welcome did.
+    this.taunts.fire("game_start");
     this.loadRoom(roomId);
     this.state.checkpoint = {
       roomId, x: this.roomRt.spawnX, y: this.roomRt.spawnY,
     };
-    this.taunts.fire("game_start");
   }
 
   /** Just the room-construction step: a fresh RoomRuntime rebuilt from
@@ -740,7 +743,8 @@ export class Game {
   }
 
   private updatePlay(dt: number): void {
-    this.taunts.update();
+    // A resident or a note is talking: the Warden waits (see TauntManager.update).
+    this.taunts.update(this.overlay === "dialog" || this.overlay === "note" || this.overlay === "npcConfirm");
     this.emitTorchEmbers(dt);
     this.checkCraftReady();
     while (this.toasts.length && simNow() - this.toasts[0].bornAt > TOAST_MS) {
@@ -2060,10 +2064,10 @@ export class Game {
       this.input.scheme === "touch" ? "tap a slot to hold it" :
       "Q cycle · F use";
     drawHotbar(ctx, this.state, VIEW_H, hud, hotbarHint, uiScale);
-    drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W, hud.bannerTopOffset);
+    if (!this.taunts.held) drawTauntBanner(ctx, this.taunts, this.content.game.antagonist, VIEW_W, hud.bannerTopOffset);
     if (this.toasts.length > 0) {
       // Below the taunt banner when one's up, else in its spot.
-      const toastY = this.taunts.active ? hud.bannerTopOffset + 50 : hud.bannerTopOffset;
+      const toastY = this.taunts.active && !this.taunts.held ? hud.bannerTopOffset + 50 : hud.bannerTopOffset;
       const toast = this.toasts[0];
       const item = this.state.item(toast.itemId);
       drawToast(ctx, toast, VIEW_W, toastY, (c, cx, cy, s) => {

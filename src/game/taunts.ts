@@ -34,6 +34,7 @@ export class TauntManager {
   fire(trigger: TauntTrigger, ctx: { roomId?: string; itemId?: string } = {}): void {
     const now = simNow();
     for (const t of this.taunts) {
+      if (t.removed) continue; // deleted from the Writers Studio (a tombstone, see TauntDef)
       if (t.trigger !== trigger) continue;
       if (t.roomId && t.roomId !== ctx.roomId) continue;
       if (t.itemId && t.itemId !== ctx.itemId) continue;
@@ -50,8 +51,32 @@ export class TauntManager {
     this.queue.push({ line, emotion });
   }
 
-  update(): void {
+  /** Sim time the banner was put on hold, or null when it isn't. */
+  private heldAt: number | null = null;
+
+  /** True while a dialog/note box is open — the banner neither draws nor
+   *  advances. */
+  get held(): boolean {
+    return this.heldAt !== null;
+  }
+
+  /**
+   * `hold` = a dialog or note box is open. The Warden waits his turn rather
+   * than talking over a resident (Sean, 2026-10-01: "they should queue"):
+   * nothing new is dequeued, and a line already on screen is paused — its
+   * clock shifted forward by the time held, so it resumes mid-line with its
+   * full reading time intact. Pure simNow arithmetic, so replays agree.
+   */
+  update(hold = false): void {
     const now = simNow();
+    if (hold) {
+      if (this.heldAt === null) this.heldAt = now;
+      return;
+    }
+    if (this.heldAt !== null) {
+      if (this.active) this.active.shownAt += now - this.heldAt;
+      this.heldAt = null;
+    }
     if (this.active && now - this.active.shownAt > this.active.duration) {
       this.active = null;
     }
@@ -80,5 +105,6 @@ export class TauntManager {
     this.lastFired.clear();
     this.queue.length = 0;
     this.active = null;
+    this.heldAt = null;
   }
 }

@@ -16,7 +16,9 @@
 //                 he has since moved simply doesn't receive the writer's
 //                 edit (safe, silent):
 //                   text, recipe
-//   taunts.json       per id: lines, emotion, cooldownMs, chance
+//   taunts.json       per id: lines, emotion, cooldownMs, chance, removed
+//                     (a tombstone — deleting must be STATED, since a taunt
+//                     absent from the writer's copy means "keep live's")
 //   achievements.json per id: name, description, wardenLine, emotion
 //   items.json        per id: description
 //   recipes.json      per id: flavor
@@ -29,7 +31,7 @@ export const NPC_STORY_FIELDS = [
 export const NOTE_STORY_FIELDS = ["text", "recipe"];
 export const HINT_STORY_FIELDS = ["text"];
 export const STORY_ARRAY_FILES = {
-  "taunts.json": ["lines", "emotion", "cooldownMs", "chance"],
+  "taunts.json": ["lines", "emotion", "cooldownMs", "chance", "removed"],
   "achievements.json": ["name", "description", "wardenLine", "emotion"],
   "items.json": ["description"],
   "recipes.json": ["flavor"],

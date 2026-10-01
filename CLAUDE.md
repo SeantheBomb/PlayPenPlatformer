@@ -86,7 +86,23 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   banner fit (~6px/glyph, 2 lines), Subject-number rule, empty required
   slots — never blocks a save or publish. The quest form warns when a
   `wants` item isn't supplied anywhere in that room (confiscation makes that a
-  softlock); it doesn't block either.
+  softlock); it doesn't block either. Warden page (2026-10-01 feedback):
+  grouped by LEVEL by default (whole-game lines, then each room in campaign
+  order) or by trigger, with an in-place search/filter bar (level, trigger,
+  face, "only flagged") that toggles visibility instead of re-rendering so
+  the search box keeps focus. Deleting a taunt sets `TauntDef.removed` — a
+  TOMBSTONE, because both `mergeArrayById` and the writer scope read an
+  absent taunt as "keep the existing one"; `TauntManager.fire` skips it and
+  the page lists it under Removed with a restore. Pinned in
+  `tests/taunts.test.ts` + `tests/writer-publish.test.ts`.
+- **Taunt sequencing**: `newRun` fires `game_start` BEFORE `loadRoom` (which
+  fires the room's `room_enter`) — the queue plays in fire order, and the
+  other way round had the first room greeting the player before the welcome.
+  `TauntManager.update(hold)` is true while a `dialog`/`note`/`npcConfirm`
+  overlay is open: nothing new dequeues, an on-screen line pauses (its
+  `shownAt` shifts by the held time, pure simNow) and the banner isn't drawn —
+  the Warden never talks over a resident. Changes taunt RNG draw order, so
+  replays of older sessions show different banner lines (cosmetic only).
 - **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
   + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
   the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,

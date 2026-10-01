@@ -138,6 +138,29 @@ describe("overlayStoryBundle", () => {
     expect(yard.roomId).toBe("the_yard");
   });
 
+  it("deleting a taunt publishes as a tombstone, and restoring clears it", () => {
+    const removed = overlayStoryBundle(liveBundle(), {
+      "taunts.json": [{ id: "welcome", trigger: "game_start", lines: ["Hello."], removed: true }],
+    }) as any;
+    expect(removed["taunts.json"].find((t: any) => t.id === "welcome").removed).toBe(true);
+    const live2 = liveBundle() as any;
+    live2["taunts.json"][0].removed = true;
+    const restored = overlayStoryBundle(live2, {
+      "taunts.json": [{ id: "welcome", trigger: "game_start", lines: ["Hello."] }],
+    }) as any;
+    expect(restored["taunts.json"][0].removed).toBeUndefined();
+  });
+
+  it("a stale writer copy missing a taunt never deletes it", () => {
+    // Sean added "yard" after the writer last synced: her copy lacks it.
+    const out = overlayStoryBundle(liveBundle(), {
+      "taunts.json": [{ id: "welcome", trigger: "game_start", lines: ["Hello."] }],
+    }) as any;
+    const yard = out["taunts.json"].find((t: any) => t.id === "yard");
+    expect(yard).toBeDefined();
+    expect(yard.removed).toBeUndefined();
+  });
+
   it("achievements, item descriptions and recipe flavor are writer-owned text", () => {
     const writer = {
       "achievements.json": [{ id: "a1", name: "Best Friend", description: "Craft the sock puppet.", wardenLine: "You made HIM.", emotion: "proud", hidden: false, trigger: "win" }],
