@@ -498,6 +498,16 @@ republishing/re-saving from the editor is still the fix for those.
   `frameImage` falls back to the nearest earlier decoded frame so a loop never
   blanks on its first pass. The studio's `writeArt` clears every art field
   before writing, so stale per-frame timing can't outlive its frames.
+- **Strip repeats and props draw through `drawSnapped`** (2026-10-01 fix):
+  parallax/drift put repeats at fractional positions and the window-fit scale
+  is rarely whole, and canvas anti-aliases fractional image edges — so two
+  repeats that touch mathematically each half-covered the boundary pixel and
+  the backdrop showed through as a grid of seams over seamless art. Edges are
+  rounded in DEVICE space (`snapSpan`, pinned in `tests/parallax.test.ts`), so
+  one repeat ends exactly where the next begins. Don't go back to a plain
+  `drawImage` at world coords for anything that tiles. (Known, not yet fixed:
+  `drawSprite` — tile sprites — has the same issue at some window scales,
+  e.g. 9 seams per 10 tiles at 2.37×.)
 - Foreground (`plane: "front"`) draws over the player but UNDER interaction
   prompts, and defaults to `fadeNearPlayer` (a soft radial hole punched around
   the player via an offscreen destination-out composite) so foreground art can

@@ -966,6 +966,50 @@ function maskContext(w: number, h: number): CanvasRenderingContext2D | null {
   return c;
 }
 
+/** A world-space span [start, start+size) mapped through `scale`/`offset` to
+ *  whole device pixels. Pure, so the "neighbours meet exactly" guarantee is
+ *  testable: the end of one span and the start of the next are the same
+ *  rounded number, never a gap or an overlap. */
+export function snapSpan(start: number, size: number, scale: number, offset: number): [number, number] {
+  return [Math.round(start * scale + offset), Math.round((start + size) * scale + offset)];
+}
+
+/**
+ * drawImage, but with the rectangle's edges snapped to whole DEVICE pixels.
+ *
+ * Parallax and drift put strip repeats at fractional positions (camX * 0.85,
+ * drift * t), and the window-fit scale is rarely a whole number either. The
+ * canvas anti-aliases the edge of every drawn image at a fractional edge, so
+ * two repeats that touch mathematically each only half-cover the boundary
+ * pixel — and the backdrop shows through as a faint line at every repeat
+ * (Casey's sky, 2026-10-01: a grid of seams over perfectly seamless art).
+ * Rounding each edge in device space, where tile k's right edge and tile k+1's
+ * left edge are the same number, makes neighbours meet exactly. It also keeps
+ * pixel art crisp instead of half-pixel smeared at the edges.
+ *
+ * Assumes an axis-aligned transform (scale + translate), which is all the
+ * world view ever uses.
+ */
+function drawSnapped(
+  ctx: CanvasRenderingContext2D, img: CanvasImageSource,
+  x: number, y: number, w: number, h: number, flip = false
+): void {
+  const m = ctx.getTransform();
+  const [x0, x1] = snapSpan(x, w, m.a, m.e);
+  const [y0, y1] = snapSpan(y, h, m.d, m.f);
+  if (x1 === x0 || y1 === y0) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (flip) {
+    ctx.translate(x1, y0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0, x1 - x0, y1 - y0);
+  } else {
+    ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
+  }
+  ctx.restore();
+}
+
 /**
  * Where a parallax PROP draws, in world coords — the single implementation,
  * shared by drawParallaxLayers and the Art Studio's hit-test/drag so a prop
@@ -1047,7 +1091,7 @@ export function drawParallaxLayers(
       const endX = camX + viewW, endY = camY + viewH;
       for (let x = startX; x < endX; x += iw) {
         for (let y = startY; y < endY; y += ih) {
-          target.drawImage(img, x, y, iw, ih);
+          drawSnapped(target, img, x, y, iw, ih);
           if (!layer.wrapY) break;
         }
         if (layer.wrapX === false) break;
@@ -1064,13 +1108,7 @@ export function drawParallaxLayers(
       if (pa <= 0) continue;
       target.save();
       if (pa < 1) target.globalAlpha = target.globalAlpha * pa;
-      if (prop.flip) {
-        target.translate(px + prop.w, py);
-        target.scale(-1, 1);
-        target.drawImage(pimg, 0, 0, prop.w, prop.h);
-      } else {
-        target.drawImage(pimg, px, py, prop.w, prop.h);
-      }
+      drawSnapped(target, pimg, px, py, prop.w, prop.h, !!prop.flip);
       target.restore();
     }
     target.restore();

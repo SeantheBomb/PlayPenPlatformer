@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Content, LayersFile } from "../src/data/types";
 import { artFrames, hasArt, resolveLayerSet, resolveRoomLayers, setIdForRoom, withLayerDefaults, DEPTH_PRESETS } from "../src/game/layers";
 import bundledLayers from "../content/layers.json";
-import { currentFrame, currentFrameIndex, propPosition } from "../src/engine/renderer";
+import { currentFrame, currentFrameIndex, propPosition, snapSpan } from "../src/engine/renderer";
 
 const px = (n: string) => `data:image/png;base64,${n}`;
 
@@ -309,5 +309,30 @@ describe("animated strips and props (2026-10-01)", () => {
   it("a still has no frame index and returns its image", () => {
     expect(currentFrameIndex({ sprite: px("s") }, 123)).toBe(-1);
     expect(currentFrame({ sprite: px("s") }, 123)).toBe(px("s"));
+  });
+});
+
+describe("strip repeats meet exactly (no seams, 2026-10-01)", () => {
+  // Drift/parallax put repeats at fractional positions and the window-fit
+  // scale is rarely whole; drawing at fractional edges let the backdrop show
+  // through as a line at every repeat (Casey's sky grid). Edges are snapped to
+  // device pixels so one repeat ends exactly where the next begins.
+  it("consecutive repeats share an edge — no gap, no overlap — at any position and scale", () => {
+    for (const scale of [1, 1.4375, 2, 2.37, 0.75])
+      for (const offset of [0, -53.3, 12.71])
+        for (const start of [0, -12.55, 37.4, 1000.001]) {
+          const w = 64;
+          for (let k = 0; k < 20; k++) {
+            const a = snapSpan(start + k * w, w, scale, offset);
+            const b = snapSpan(start + (k + 1) * w, w, scale, offset);
+            expect(b[0]).toBe(a[1]);
+            expect(Number.isInteger(a[0]) && Number.isInteger(a[1])).toBe(true);
+          }
+        }
+  });
+
+  it("a snapped repeat stays within a pixel of its true size", () => {
+    const [x0, x1] = snapSpan(10.3, 64, 1.4375, 7.9);
+    expect(Math.abs(x1 - x0 - 64 * 1.4375)).toBeLessThanOrEqual(1);
   });
 });
