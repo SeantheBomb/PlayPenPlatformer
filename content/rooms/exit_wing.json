@@ -193,7 +193,10 @@
       "npcId": "deb",
       "avatar": "windup",
       "color": "#7fd8e8",
-      "dialogAsk": "Attempt number one. That's what this is. Nobody's ever been THIS far — so whatever happens next, the count starts with YOU. Run before the rattle."
+      "dialogAsk": "Attempt number one. That's what this is. Nobody's ever been THIS far — so whatever happens next, the count starts with YOU. Run before the rattle.",
+      "rewardItems": [],
+      "rewardRecipes": [],
+      "hiddenIfHelped": []
     },
     {
       "type": "enemy",

@@ -84,8 +84,12 @@
       "npcId": "deb",
       "avatar": "windup",
       "color": "#7fd8e8",
-      "dialogAsk": "Shh. Counting. ...41, 42 — there. The duct rattles every 43 seconds. The EXACT same rattle. Floors don't do that. I'm DEBUG.DEB. I'm not weird, I'm thorough. Run before the rattle and you'll be fine. I live down by the big box room now. Everyone's got their corner. Nobody visits.",
-      "dialogAfter": "...41, 42. Go. GO."
+      "dialogAsk": "Did you bring him here? The Warden? Why would you do that! I’ve been hiding. Last time he found me… I can’t talk about it. You need to find your own hiding spot.",
+      "dialogAfter": "...41, 42. Go. GO.",
+      "rewardItems": [],
+      "rewardRecipes": [],
+      "requiresHelped": [],
+      "hiddenIfHelped": []
     },
     {
       "type": "source",

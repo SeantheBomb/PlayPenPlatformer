@@ -5,8 +5,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Good morning, Subject #67! Welcome to the PlayPen. Snack time is never.",
-      "Ah, you're awake. Orientation is self-guided. It's always been self-guided. Don't think about the 'always.'"
+      "Rise and shine, Subject #67! Welcome to the PlayPen. Your playtime has just begun. ",
+      "Don’t mind the lack of a door. I’m on my way to let you out."
     ],
     "emotion": "smug"
   },
@@ -17,7 +17,7 @@
     "cooldownMs": 999999999,
     "chance": 1,
     "lines": [
-      "First day! I love first days. I've seen... hm. Let's call it 'several.'"
+      ""
     ],
     "emotion": "bored"
   },
@@ -28,7 +28,8 @@
     "cooldownMs": 999999999,
     "chance": 1,
     "lines": [
-      "Lost and Found! Mostly Lost. We don't really do Found."
+      "I thought I told you to stay put. It’s okay. I like the chase.",
+      " Don’t talk to that creature over there, they’ll only slow you down. "
     ],
     "emotion": "smug"
   },
@@ -39,7 +40,7 @@
     "cooldownMs": 999999999,
     "chance": 1,
     "lines": [
-      "The Blanket Fort. The residents built it themselves. I allowed it, which is basically the same as building it."
+      "I’ve been looking for something in there. Now that you’re in there too, I can kill two birds with one stone. "
     ],
     "emotion": "annoyed"
   },
@@ -137,7 +138,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Oh no. Anyway — you respawn. We recycle subjects here. Very eco-friendly."
+      "Don’t be afraid, only I’m allowed to end you. All other deaths are just for fun. "
     ],
     "emotion": "gleeful"
   },
@@ -173,7 +174,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "You MADE something? Noting 'exhibits tool use' on your chart. ...Your chart is getting interesting. I hate an interesting chart."
+      "Oh goodie, you’re a clever one. Just like 66. Stay right there. I’m on my way to deliver orientation. Oh how number 66 loved orientation."
     ],
     "emotion": "shocked"
   },

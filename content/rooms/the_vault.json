@@ -128,7 +128,10 @@
       "dialogAsk": "Oh. It's you. Good — someone should see this. This is the one room I never beat. 4,072 attempts. I counted. I count everything. There's a cog back with the supply pile — my hands shake too much this close to the box to carry small parts. Bring it here and I'll give you something I'm tired of building.",
       "dialogConfirm": "That's it. That's the last piece. You hold it. My hands — see?",
       "dialogDone": "Take this instead — I've built four thousand of them, this one's yours. Spin it till the air bites, zap the box, and NEVER be the metal it's touching. ...4,073. Huh. The room didn't win this time. Somebody write that down.",
-      "dialogAfter": "Still standing. The room knows it too."
+      "dialogAfter": "Still standing. The room knows it too.",
+      "rewardRecipes": [],
+      "requiresHelped": [],
+      "hiddenIfHelped": []
     },
     {
       "type": "npc",
