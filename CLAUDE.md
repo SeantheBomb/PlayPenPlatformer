@@ -61,7 +61,10 @@ solutions where possible. Tools are element carriers, not player stat powerups.
 - **Writers Studio (`?write`, 2026-09-30)**: the writer-facing surface
   (`src/studio/writers.ts` + `characters.ts`/`warden.ts`/`lore.ts`), gated by
   the `WRITER_PASSWORD` Pages secret (third credential; `/api/writer` checks
-  it, `content.js` branches artist → writer → editor). Publishing with it goes
+  it, `content.js` branches artist → writer → editor). **Pages secrets only
+  reach NEW deployments** — after `wrangler pages secret put`, redeploy (a
+  plain `npm run build` + `npx wrangler pages deploy dist --project-name=
+  playpen --branch=master` is enough) or the login keeps rejecting. Publishing with it goes
   through `functions/api/_writerscope.js` — STORY ONLY, overlaid onto live:
   NPC entities by `npcId` (name, the four `dialog*` slots, `wants`/`roomQuest`/
   `rewardItems`/`rewardRecipes`, `requiresHelped`/`hiddenIfHelped` — Sean's
