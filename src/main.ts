@@ -75,29 +75,37 @@ async function boot() {
   });
   if (new URLSearchParams(location.search).has("editor")) toggleEditor();
 
-  // ---- Art Studio (?art) — the artist's home, see src/studio/ ----
-  // Unlike the editor there's no hotkey: the artist gets a link, and while
-  // she's in art mode a persistent 🎨 button toggles studio <-> game so
-  // "try it, tweak it, try again" never needs any keyboard knowledge.
-  if (new URLSearchParams(location.search).has("art")) {
+  // ---- Studios: Art (?art) and Writers (?write) — see src/studio/ ----
+  // Unlike the editor there's no hotkey: a collaborator gets a link, and
+  // while they're in studio mode a persistent button toggles studio <-> game
+  // so "try it, tweak it, try again" never needs any keyboard knowledge.
+  // Both studios share one shell (src/studio/shell.ts) and this mount; the
+  // server enforces each one's publish scope.
+  const mountStudio = (
+    label: string,
+    load: () => Promise<{
+      openStudio: (root: HTMLElement, s: typeof store, g: typeof game) => void;
+      closeStudio: (root: HTMLElement) => void;
+    }>
+  ) => {
     let studioOpen = false;
-    let studioModule: typeof import("./studio/studio") | null = null;
+    let studioModule: Awaited<ReturnType<typeof load>> | null = null;
     const studioRoot = document.createElement("div");
     studioRoot.id = "studio-root";
     studioRoot.style.cssText = "position:absolute;inset:0;z-index:20;display:none";
     document.body.append(studioRoot);
     const studioBtn = document.createElement("button");
-    studioBtn.textContent = "🎨 Back to studio";
+    studioBtn.textContent = label;
     studioBtn.style.cssText =
       "position:fixed;top:10px;right:10px;z-index:30;display:none;" +
       "background:#1c1730;color:#ffd166;border:1px solid #4a4070;border-radius:8px;" +
       "padding:8px 14px;font:14px system-ui;cursor:pointer";
     document.body.append(studioBtn);
     const toggleStudio = async () => {
-      if (!studioModule) studioModule = await import("./studio/studio");
+      if (!studioModule) studioModule = await load();
       studioOpen = !studioOpen;
       if (studioOpen) {
-        recorder.devFlag = true; // artist iteration, not organic play
+        recorder.devFlag = true; // collaborator iteration, not organic play
         game.pause();
         studioRoot.style.display = "block";
         studioBtn.style.display = "none";
@@ -106,7 +114,7 @@ async function boot() {
         studioModule.closeStudio(studioRoot);
         studioRoot.style.display = "none";
         studioBtn.style.display = "block";
-        game.setContent(store.content); // her draft art, live in the game
+        game.setContent(store.content); // the draft, live in the game
         game.resume();
         canvas.focus();
       }
@@ -114,19 +122,22 @@ async function boot() {
     studioBtn.onclick = () => void toggleStudio();
     window.addEventListener("pp-studio-close", (e) => {
       if (!studioOpen) return;
-      // "Play this room" from the Environments preview: warp there so she
-      // lands on the layers she's tuning instead of wherever the run was.
+      // "Play this room" from a studio: warp there so they land on the
+      // thing they're working on instead of wherever the run was.
       const roomId = (e as CustomEvent<{ roomId?: string } | undefined>).detail?.roomId;
       void toggleStudio().then(() => {
         if (roomId && content.rooms[roomId]) {
-          recorder.taint("studio-preview"); // artist iteration, not organic play
+          recorder.taint("studio-preview"); // not organic play
           if (game.scene !== "play") game.newRun(roomId);
           else game.loadRoom(roomId);
         }
       });
     });
     void toggleStudio();
-  }
+  };
+  const params = new URLSearchParams(location.search);
+  if (params.has("art")) mountStudio("🎨 Back to studio", () => import("./studio/studio"));
+  else if (params.has("write")) mountStudio("✍ Back to studio", () => import("./studio/writers"));
 
   // ---- Shareable deep links: ?room=<id> or ?room=<id>&checkpoint=<id> ----
   // Jumps straight into a room (or a specific checkpoint within it),

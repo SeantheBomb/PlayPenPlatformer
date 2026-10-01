@@ -49,6 +49,198 @@ function npcLook(content: Content, npcId: string): { avatar: NpcAvatar; color: s
   return null;
 }
 
+
+/** What the shared quest/gating forms need from whoever hosts them — the
+ *  editor's modal (undo snapshot + room dirty + repaint) or the Writers
+ *  Studio (save to the draft). `mutate` re-renders the host after a
+ *  structural change; `edited` is the light path for a keystroke. */
+export interface QuestFormCtx {
+  sel: RoomEntity;
+  content: Content;
+  roomId: string;
+  mutate: (fn: () => void) => void;
+  edited: () => void;
+}
+
+export function questField(label: string, control: HTMLElement, hint?: string): HTMLElement {
+  return el("div", { className: "pp-questfield" },
+    el("div", { className: "pp-questfieldlabel" }, label),
+    control,
+    hint ? el("div", { className: "pp-questfieldhint" }, hint) : el("span", {})
+  );
+}
+
+// ---------- Quest & Rewards ----------
+export function questTabEl(ctx: QuestFormCtx): HTMLElement {
+  const { sel, content } = ctx;
+  const itemIds = content.items.map((i) => i.id);
+  const recipeIds = content.recipes.map((r) => r.id);
+  const roomIds = Object.keys(content.rooms);
+  const opt = (value: string, label: string, selected: boolean) =>
+    el("option", { value, ...(selected ? { selected: true } : {}) }, label);
+
+  const mode = sel.roomQuest ? "roomProgress" : sel.wants ? "trade" : "none";
+  const modeRow = el("div", { className: "pp-questsegmented" },
+    ...(["none", "trade", "roomProgress"] as const).map((m) => el("span", {
+      className: "pp-questseg" + (m === mode ? " pp-active" : ""),
+      onclick: () => ctx.mutate(() => {
+        delete sel.wants;
+        delete sel.roomQuest;
+        if (m === "trade") sel.wants = { item: itemIds[0] ?? "", count: 1 };
+        if (m === "roomProgress") sel.roomQuest = { roomId: ctx.roomId, tileId: content.tiles[0]?.id };
+      }),
+    }, m === "none" ? "None" : m === "trade" ? "Item Trade" : "Room Progress"))
+  );
+
+  const body: HTMLElement[] = [questField("Quest type", modeRow)];
+
+  if (mode === "trade" && sel.wants) {
+    const wants = sel.wants;
+    body.push(questField("Wants", el("div", { className: "pp-questrow" },
+      el("select", {
+        onchange: (e) => ctx.mutate(() => { wants.item = (e.target as HTMLSelectElement).value; }),
+      }, ...itemIds.map((id) => opt(id, id, id === wants.item))),
+      el("span", {}, "×"),
+      el("input", {
+        type: "number", value: wants.count, min: "1", step: "1",
+        oninput: (e) => {
+          const n = parseInt((e.target as HTMLInputElement).value, 10);
+          if (!Number.isNaN(n) && n > 0) { wants.count = n; ctx.edited(); }
+        },
+      })
+    )));
+  }
+
+  if (mode === "roomProgress" && sel.roomQuest) {
+    const rq = sel.roomQuest;
+    const enemyIds = content.enemies.map((e) => e.id);
+    const trackMode = rq.enemyId ? "enemy" : rq.entityType ? "entity" : "tile";
+    body.push(
+      questField("Room", el("select", {
+        onchange: (e) => ctx.mutate(() => { rq.roomId = (e.target as HTMLSelectElement).value; }),
+      }, ...roomIds.map((id) => opt(id, id, id === rq.roomId)))),
+      questField("Tracking", el("select", {
+        onchange: (e) => ctx.mutate(() => {
+          const v = (e.target as HTMLSelectElement).value;
+          delete rq.tileId; delete rq.entityType; delete rq.entityField; delete rq.enemyId;
+          if (v === "tile") rq.tileId = content.tiles[0]?.id ?? "";
+          else if (v === "entity") { rq.entityType = "brazier"; rq.entityField = "lit"; }
+          else rq.enemyId = enemyIds[0] ?? "";
+        }),
+      },
+        opt("tile", "Tile (popped / burned / melted...)", trackMode === "tile"),
+        opt("entity", "Entity (open / lit)", trackMode === "entity"),
+        opt("enemy", "Enemy (destroyed)", trackMode === "enemy"),
+      ))
+    );
+    if (trackMode === "tile") {
+      body.push(questField("Tile id", el("select", {
+        onchange: (e) => ctx.mutate(() => { rq.tileId = (e.target as HTMLSelectElement).value; }),
+      }, ...content.tiles.map((t) => opt(t.id, `${t.id} — ${t.name}`, t.id === rq.tileId)))));
+    } else if (trackMode === "entity") {
+      body.push(
+        questField("Entity type", el("select", {
+          onchange: (e) => ctx.mutate(() => { rq.entityType = (e.target as HTMLSelectElement).value; }),
+        }, ...ENTITY_PROGRESS_TYPES.map((t) => opt(t, t, t === rq.entityType)))),
+        questField("Field", el("select", {
+          onchange: (e) => ctx.mutate(() => { rq.entityField = (e.target as HTMLSelectElement).value as "open" | "lit"; }),
+        },
+          opt("open", "open", rq.entityField === "open"),
+          opt("lit", "lit", rq.entityField === "lit"),
+        ))
+      );
+    } else {
+      body.push(questField("Enemy", el("select", {
+        onchange: (e) => ctx.mutate(() => { rq.enemyId = (e.target as HTMLSelectElement).value; }),
+      }, ...enemyIds.map((id) => opt(id, id, id === rq.enemyId))),
+        "Stuns wear off, so only destroyed enemies count — a killed enemy stays gone for the rest of the run."));
+    }
+    const targetRoom = content.rooms[rq.roomId];
+    const progress = targetRoom
+      ? (rq.tileId
+          ? tileProgress(targetRoom, content, emptyRoomMutations(), rq.tileId)
+          : rq.enemyId
+            ? enemyProgress(targetRoom, emptyRoomMutations(), rq.enemyId)
+            : entityProgress(targetRoom, emptyRoomMutations(), rq.entityType ?? "", rq.entityField ?? "open"))
+      : { total: 0, done: 0 };
+    body.push(el("p", { className: "pp-hint" },
+      `${progress.done} / ${progress.total} in "${rq.roomId}" as authored (a fresh run, no progress applied)`));
+  }
+
+  const rewardItems = sel.rewardItems ?? (sel.rewardItems = []);
+  const rewardRows = rewardItems.map((r, i) => el("div", { className: "pp-questrow" },
+    el("select", {
+      onchange: (e) => ctx.mutate(() => { r.item = (e.target as HTMLSelectElement).value; }),
+    }, ...itemIds.map((id) => opt(id, id, id === r.item))),
+    el("span", {}, "×"),
+    el("input", {
+      type: "number", value: r.count, min: "1", step: "1",
+      oninput: (e) => {
+        const n = parseInt((e.target as HTMLInputElement).value, 10);
+        if (!Number.isNaN(n) && n > 0) { r.count = n; ctx.edited(); }
+      },
+    }),
+    el("span", { className: "pp-questclose", onclick: () => ctx.mutate(() => { rewardItems.splice(i, 1); }) }, "✕"),
+  ));
+  const rewardRecipes = sel.rewardRecipes ?? (sel.rewardRecipes = []);
+  const recipeRows = rewardRecipes.map((rid, i) => el("div", { className: "pp-questrow" },
+    el("select", {
+      onchange: (e) => ctx.mutate(() => { rewardRecipes[i] = (e.target as HTMLSelectElement).value; }),
+    }, ...recipeIds.map((id) => opt(id, id, id === rid))),
+    el("span", { className: "pp-questclose", onclick: () => ctx.mutate(() => { rewardRecipes.splice(i, 1); }) }, "✕"),
+  ));
+  body.push(questField("Rewards", el("div", {}, ...rewardRows, ...recipeRows,
+    el("div", { className: "pp-btnrow" },
+      el("button", { className: "pp-btn", onclick: () => ctx.mutate(() => { rewardItems.push({ item: itemIds[0] ?? "", count: 1 }); }) }, "+ reward item"),
+      el("button", { className: "pp-btn", onclick: () => ctx.mutate(() => { rewardRecipes.push(recipeIds[0] ?? ""); }) }, "+ reward recipe"),
+    ))));
+
+  return el("div", {}, ...body);
+}
+
+// ---------- Spawn Gating ----------
+export function gatingTabEl(ctx: QuestFormCtx): HTMLElement {
+  const { sel, content } = ctx;
+  const ids = allNpcIds(content).filter((id) => id !== sel.npcId);
+  const requiresHelped = sel.requiresHelped ?? (sel.requiresHelped = []);
+  const hiddenIfHelped = sel.hiddenIfHelped ?? (sel.hiddenIfHelped = []);
+  const chipList = (arr: string[]) => el("div", { className: "pp-chiplist" },
+    ...(ids.length === 0
+      ? [el("span", { className: "pp-hint" }, "no other NPCs have an npcId set yet")]
+      : ids.map((id) => {
+          const look = npcLook(content, id);
+          const cv = el("canvas", { width: 18, height: 18 }) as HTMLCanvasElement;
+          if (look) {
+            const ctx = cv.getContext("2d");
+            if (ctx) {
+              const s2 = 16 / 16;
+              drawNpcAvatar(ctx, look.avatar, (18 - 12 * s2) / 2, (18 - 16 * s2) / 2, 12 * s2, 16 * s2, look.color, 1, { t: 0.4 });
+            }
+          }
+          return el("label", { className: "pp-chip" },
+            el("input", {
+              type: "checkbox", ...(arr.includes(id) ? { checked: true } : {}),
+              onchange: (e) => ctx.mutate(() => {
+                const checked = (e.target as HTMLInputElement).checked;
+                const i = arr.indexOf(id);
+                if (checked && i === -1) arr.push(id);
+                if (!checked && i !== -1) arr.splice(i, 1);
+              }),
+            }),
+            cv, id,
+          );
+        })
+    ),
+  );
+  return el("div", {},
+    questField("Requires helped", chipList(requiresHelped),
+      "Only spawns once every checked NPC has been helped this run."),
+    questField("Hidden if helped", chipList(hiddenIfHelped),
+      "Skipped if any checked NPC has already been helped — the solo-scene fallback."),
+  );
+}
+
+
 export function openQuestBuilder(opts: QuestBuilderOptions): void {
   const { entity: sel, content } = opts;
   // Back-fill fields authored before this panel existed (or by hand-editing
@@ -127,20 +319,18 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
     );
   }
 
+  const ctx: QuestFormCtx = {
+    sel, content, roomId: opts.roomId, mutate,
+    edited: () => { opts.onBeforeChange(); opts.onChange(); },
+  };
+
   function tabContentEl(): HTMLElement {
     if (tab === "character") return characterTabEl();
     if (tab === "dialog") return dialogTabEl();
-    if (tab === "quest") return questTabEl();
-    return gatingTabEl();
+    if (tab === "quest") return questTabEl(ctx);
+    return gatingTabEl(ctx);
   }
 
-  function fieldWrap(label: string, control: HTMLElement, hint?: string): HTMLElement {
-    return el("div", { className: "pp-questfield" },
-      el("div", { className: "pp-questfieldlabel" }, label),
-      control,
-      hint ? el("div", { className: "pp-questfieldhint" }, hint) : el("span", {})
-    );
-  }
 
   // ---------- Character ----------
   function characterTabEl(): HTMLElement {
@@ -177,13 +367,13 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
       })
     );
     return el("div", {},
-      fieldWrap("Display name", nameInput),
-      fieldWrap("npcId — cast identity", npcIdInput,
+      questField("Display name", nameInput),
+      questField("npcId — cast identity", npcIdInput,
         "Ties every room's copy of this NPC together — quests, portraits, and \"requires helped\" gates " +
         `all key off this.${otherIds.length ? ` Existing: ${otherIds.join(", ")}.` : ""}`),
       el("datalist", { id: npcIdListId }, ...allNpcIds(content).map((id) => el("option", { value: id }))),
-      fieldWrap("Avatar", avatarSwatches),
-      fieldWrap("Color", el("div", { className: "pp-questcolorrow" }, colorPicker,
+      questField("Avatar", avatarSwatches),
+      questField("Color", el("div", { className: "pp-questcolorrow" }, colorPicker,
         el("span", { className: "pp-hint" }, sel.color ?? "#8f87ad")))
     );
   }
@@ -204,7 +394,7 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
       })
     );
     const areas = DIALOG_STAGES.map((st) =>
-      fieldWrap(st.label, el("textarea", {
+      questField(st.label, el("textarea", {
         rows: 3, value: sel[st.key] ?? "",
         oninput: (e) => {
           (sel as unknown as Record<string, string>)[st.key] = (e.target as HTMLTextAreaElement).value;
@@ -213,174 +403,6 @@ export function openQuestBuilder(opts: QuestBuilderOptions): void {
       }), st.hint)
     );
     return el("div", {}, stagesRow, ...areas);
-  }
-
-  // ---------- Quest & Rewards ----------
-  function questTabEl(): HTMLElement {
-    const itemIds = content.items.map((i) => i.id);
-    const recipeIds = content.recipes.map((r) => r.id);
-    const roomIds = Object.keys(content.rooms);
-    const opt = (value: string, label: string, selected: boolean) =>
-      el("option", { value, ...(selected ? { selected: true } : {}) }, label);
-
-    const mode = sel.roomQuest ? "roomProgress" : sel.wants ? "trade" : "none";
-    const modeRow = el("div", { className: "pp-questsegmented" },
-      ...(["none", "trade", "roomProgress"] as const).map((m) => el("span", {
-        className: "pp-questseg" + (m === mode ? " pp-active" : ""),
-        onclick: () => mutate(() => {
-          delete sel.wants;
-          delete sel.roomQuest;
-          if (m === "trade") sel.wants = { item: itemIds[0] ?? "", count: 1 };
-          if (m === "roomProgress") sel.roomQuest = { roomId: opts.roomId, tileId: content.tiles[0]?.id };
-        }),
-      }, m === "none" ? "None" : m === "trade" ? "Item Trade" : "Room Progress"))
-    );
-
-    const body: HTMLElement[] = [fieldWrap("Quest type", modeRow)];
-
-    if (mode === "trade" && sel.wants) {
-      const wants = sel.wants;
-      body.push(fieldWrap("Wants", el("div", { className: "pp-questrow" },
-        el("select", {
-          onchange: (e) => mutate(() => { wants.item = (e.target as HTMLSelectElement).value; }),
-        }, ...itemIds.map((id) => opt(id, id, id === wants.item))),
-        el("span", {}, "×"),
-        el("input", {
-          type: "number", value: wants.count, min: "1", step: "1",
-          oninput: (e) => {
-            const n = parseInt((e.target as HTMLInputElement).value, 10);
-            if (!Number.isNaN(n) && n > 0) { wants.count = n; opts.onBeforeChange(); opts.onChange(); }
-          },
-        })
-      )));
-    }
-
-    if (mode === "roomProgress" && sel.roomQuest) {
-      const rq = sel.roomQuest;
-      const enemyIds = content.enemies.map((e) => e.id);
-      const trackMode = rq.enemyId ? "enemy" : rq.entityType ? "entity" : "tile";
-      body.push(
-        fieldWrap("Room", el("select", {
-          onchange: (e) => mutate(() => { rq.roomId = (e.target as HTMLSelectElement).value; }),
-        }, ...roomIds.map((id) => opt(id, id, id === rq.roomId)))),
-        fieldWrap("Tracking", el("select", {
-          onchange: (e) => mutate(() => {
-            const v = (e.target as HTMLSelectElement).value;
-            delete rq.tileId; delete rq.entityType; delete rq.entityField; delete rq.enemyId;
-            if (v === "tile") rq.tileId = content.tiles[0]?.id ?? "";
-            else if (v === "entity") { rq.entityType = "brazier"; rq.entityField = "lit"; }
-            else rq.enemyId = enemyIds[0] ?? "";
-          }),
-        },
-          opt("tile", "Tile (popped / burned / melted...)", trackMode === "tile"),
-          opt("entity", "Entity (open / lit)", trackMode === "entity"),
-          opt("enemy", "Enemy (destroyed)", trackMode === "enemy"),
-        ))
-      );
-      if (trackMode === "tile") {
-        body.push(fieldWrap("Tile id", el("select", {
-          onchange: (e) => mutate(() => { rq.tileId = (e.target as HTMLSelectElement).value; }),
-        }, ...content.tiles.map((t) => opt(t.id, `${t.id} — ${t.name}`, t.id === rq.tileId)))));
-      } else if (trackMode === "entity") {
-        body.push(
-          fieldWrap("Entity type", el("select", {
-            onchange: (e) => mutate(() => { rq.entityType = (e.target as HTMLSelectElement).value; }),
-          }, ...ENTITY_PROGRESS_TYPES.map((t) => opt(t, t, t === rq.entityType)))),
-          fieldWrap("Field", el("select", {
-            onchange: (e) => mutate(() => { rq.entityField = (e.target as HTMLSelectElement).value as "open" | "lit"; }),
-          },
-            opt("open", "open", rq.entityField === "open"),
-            opt("lit", "lit", rq.entityField === "lit"),
-          ))
-        );
-      } else {
-        body.push(fieldWrap("Enemy", el("select", {
-          onchange: (e) => mutate(() => { rq.enemyId = (e.target as HTMLSelectElement).value; }),
-        }, ...enemyIds.map((id) => opt(id, id, id === rq.enemyId))),
-          "Stuns wear off, so only destroyed enemies count — a killed enemy stays gone for the rest of the run."));
-      }
-      const targetRoom = content.rooms[rq.roomId];
-      const progress = targetRoom
-        ? (rq.tileId
-            ? tileProgress(targetRoom, content, emptyRoomMutations(), rq.tileId)
-            : rq.enemyId
-              ? enemyProgress(targetRoom, emptyRoomMutations(), rq.enemyId)
-              : entityProgress(targetRoom, emptyRoomMutations(), rq.entityType ?? "", rq.entityField ?? "open"))
-        : { total: 0, done: 0 };
-      body.push(el("p", { className: "pp-hint" },
-        `${progress.done} / ${progress.total} in "${rq.roomId}" as authored (a fresh run, no progress applied)`));
-    }
-
-    const rewardItems = sel.rewardItems ?? (sel.rewardItems = []);
-    const rewardRows = rewardItems.map((r, i) => el("div", { className: "pp-questrow" },
-      el("select", {
-        onchange: (e) => mutate(() => { r.item = (e.target as HTMLSelectElement).value; }),
-      }, ...itemIds.map((id) => opt(id, id, id === r.item))),
-      el("span", {}, "×"),
-      el("input", {
-        type: "number", value: r.count, min: "1", step: "1",
-        oninput: (e) => {
-          const n = parseInt((e.target as HTMLInputElement).value, 10);
-          if (!Number.isNaN(n) && n > 0) { r.count = n; opts.onBeforeChange(); opts.onChange(); }
-        },
-      }),
-      el("span", { className: "pp-questclose", onclick: () => mutate(() => { rewardItems.splice(i, 1); }) }, "✕"),
-    ));
-    const rewardRecipes = sel.rewardRecipes ?? (sel.rewardRecipes = []);
-    const recipeRows = rewardRecipes.map((rid, i) => el("div", { className: "pp-questrow" },
-      el("select", {
-        onchange: (e) => mutate(() => { rewardRecipes[i] = (e.target as HTMLSelectElement).value; }),
-      }, ...recipeIds.map((id) => opt(id, id, id === rid))),
-      el("span", { className: "pp-questclose", onclick: () => mutate(() => { rewardRecipes.splice(i, 1); }) }, "✕"),
-    ));
-    body.push(fieldWrap("Rewards", el("div", {}, ...rewardRows, ...recipeRows,
-      el("div", { className: "pp-btnrow" },
-        el("button", { className: "pp-btn", onclick: () => mutate(() => { rewardItems.push({ item: itemIds[0] ?? "", count: 1 }); }) }, "+ reward item"),
-        el("button", { className: "pp-btn", onclick: () => mutate(() => { rewardRecipes.push(recipeIds[0] ?? ""); }) }, "+ reward recipe"),
-      ))));
-
-    return el("div", {}, ...body);
-  }
-
-  // ---------- Spawn Gating ----------
-  function gatingTabEl(): HTMLElement {
-    const ids = allNpcIds(content).filter((id) => id !== sel.npcId);
-    const requiresHelped = sel.requiresHelped ?? (sel.requiresHelped = []);
-    const hiddenIfHelped = sel.hiddenIfHelped ?? (sel.hiddenIfHelped = []);
-    const chipList = (arr: string[]) => el("div", { className: "pp-chiplist" },
-      ...(ids.length === 0
-        ? [el("span", { className: "pp-hint" }, "no other NPCs have an npcId set yet")]
-        : ids.map((id) => {
-            const look = npcLook(content, id);
-            const cv = el("canvas", { width: 18, height: 18 }) as HTMLCanvasElement;
-            if (look) {
-              const ctx = cv.getContext("2d");
-              if (ctx) {
-                const s2 = 16 / 16;
-                drawNpcAvatar(ctx, look.avatar, (18 - 12 * s2) / 2, (18 - 16 * s2) / 2, 12 * s2, 16 * s2, look.color, 1, { t: 0.4 });
-              }
-            }
-            return el("label", { className: "pp-chip" },
-              el("input", {
-                type: "checkbox", ...(arr.includes(id) ? { checked: true } : {}),
-                onchange: (e) => mutate(() => {
-                  const checked = (e.target as HTMLInputElement).checked;
-                  const i = arr.indexOf(id);
-                  if (checked && i === -1) arr.push(id);
-                  if (!checked && i !== -1) arr.splice(i, 1);
-                }),
-              }),
-              cv, id,
-            );
-          })
-      ),
-    );
-    return el("div", {},
-      fieldWrap("Requires helped", chipList(requiresHelped),
-        "Only spawns once every checked NPC has been helped this run."),
-      fieldWrap("Hidden if helped", chipList(hiddenIfHelped),
-        "Skipped if any checked NPC has already been helped — the solo-scene fallback."),
-    );
   }
 
   render();

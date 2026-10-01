@@ -161,9 +161,17 @@ export function drawHotbar(
   ctx.fillText(hint, hud.hotbarLeftOffset, viewH - hud.hotbarBottomOffset * uiScale - 4);
 }
 
+/** What the banner needs from whoever's driving it. TauntManager satisfies
+ *  this in play; the Writers Studio feeds a hand-rolled one so a taunt line
+ *  previews through the REAL banner (typewriter and all), never a copy. */
+export interface BannerState {
+  active: { line: string; emotion: WardenEmotion } | null;
+  visibleText(): string;
+}
+
 export function drawTauntBanner(
   ctx: CanvasRenderingContext2D,
-  taunts: TauntManager,
+  taunts: BannerState | TauntManager,
   antagonist: {
     name: string;
     color: string;

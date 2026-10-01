@@ -11,6 +11,7 @@
 // (or a pruned one) keeps the old wholesale-replace behavior.
 import { mergeBundles, diffBundles, summarizeDiff } from "./_merge.js";
 import { overlayArtBundle } from "./_artscope.js";
+import { overlayStoryBundle } from "./_writerscope.js";
 
 const INDEX_KEY = "index";
 const LIVE_KEY = "live";
@@ -40,13 +41,16 @@ export async function onRequestGet({ request, env }) {
 }
 
 export async function onRequestPost({ request, env }) {
-  // Two credentials, two very different publish scopes: the editor password
-  // publishes everything (with 3-way merge); the artist password publishes
-  // ART ONLY — the server overlays just sprite/portrait fields onto live,
-  // so an artist publish can never touch gameplay data or clobber a
-  // concurrent design edit. See _artscope.js.
+  // Three credentials, three publish scopes: the editor password publishes
+  // everything (with 3-way merge); the artist password publishes ART ONLY
+  // (_artscope.js overlays just sprite/portrait fields onto live); the
+  // writer password publishes STORY ONLY (_writerscope.js overlays dialog,
+  // quests, taunts, notes and descriptions). Scoped publishes start from
+  // live by construction, so they can never touch anything outside their
+  // fields or clobber a concurrent design edit.
   const isArtist = !checkArtistPassword(request, env);
-  const denied = isArtist ? null : checkPassword(request, env);
+  const isWriter = !isArtist && !checkWriterPassword(request, env);
+  const denied = isArtist || isWriter ? null : checkPassword(request, env);
   if (denied) return denied;
   let body;
   try {
@@ -64,10 +68,12 @@ export async function onRequestPost({ request, env }) {
 
   let files = body.files;
   let merged = false;
-  if (isArtist) {
+  if (isArtist || isWriter) {
     if (!live) return json({ ok: false, error: "nothing published yet" }, 409);
-    files = overlayArtBundle(live.files, body.files);
-    merged = true; // art publishes always start from live by construction
+    files = isArtist
+      ? overlayArtBundle(live.files, body.files)
+      : overlayStoryBundle(live.files, body.files);
+    merged = true; // scoped publishes always start from live by construction
   } else if (live && baseId && baseId !== live.id) {
     // Someone published since this draft's base — merge their work in.
     const baseRaw = await env.CONTENT.get(`ver:${baseId}`);
@@ -81,7 +87,7 @@ export async function onRequestPost({ request, env }) {
   const changes = summarizeDiff(diffBundles(live?.files ?? {}, files));
 
   const id = `v${Date.now()}`;
-  const note = (isArtist ? "🎨 " : "") + String(body.note ?? "").slice(0, 200);
+  const note = (isArtist ? "🎨 " : isWriter ? "✍ " : "") + String(body.note ?? "").slice(0, 200);
   const record = JSON.stringify({
     id,
     publishedAt: new Date().toISOString(),
@@ -121,6 +127,15 @@ export function checkPassword(request, env) {
 export function checkArtistPassword(request, env) {
   const given = request.headers.get("x-artist-password") ?? "";
   if (!env.ARTIST_PASSWORD || given !== env.ARTIST_PASSWORD) {
+    return json({ ok: false, error: "wrong password" }, 401);
+  }
+  return null;
+}
+
+/** The writer's own credential — grants story-scoped publishing only. */
+export function checkWriterPassword(request, env) {
+  const given = request.headers.get("x-writer-password") ?? "";
+  if (!env.WRITER_PASSWORD || given !== env.WRITER_PASSWORD) {
     return json({ ok: false, error: "wrong password" }, 401);
   }
   return null;

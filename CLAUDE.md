@@ -58,6 +58,32 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `foreignObject` hard-rejected — it would taint the canvas and break bug-report
   screenshots). The studio's shape editor round-trips its own SVGs via a
   `data-pp-shapes` attribute; foreign SVGs get best-effort primitive import.
+- **Writers Studio (`?write`, 2026-09-30)**: the writer-facing surface
+  (`src/studio/writers.ts` + `characters.ts`/`warden.ts`/`lore.ts`), gated by
+  the `WRITER_PASSWORD` Pages secret (third credential; `/api/writer` checks
+  it, `content.js` branches artist → writer → editor). Publishing with it goes
+  through `functions/api/_writerscope.js` — STORY ONLY, overlaid onto live:
+  NPC entities by `npcId` (name, the four `dialog*` slots, `wants`/`roomQuest`/
+  `rewardItems`/`rewardRecipes`, `requiresHelped`/`hiddenIfHelped` — Sean's
+  "text + quest structure" call), note/hint entities by `(type, x, y)` (text,
+  recipe — they have no stable id; a note Sean has moved just doesn't receive
+  the edit), taunts/achievements/items/recipes per id (lines, emotion,
+  cooldown/chance; name/description/wardenLine/emotion; description; flavor).
+  No new entities, taunts, or files. `tests/writer-publish.test.ts` pins it.
+  Both studios share `src/studio/shell.ts` (CSS, login, scoped publish, the
+  `pp-studio-close` hand-off) and one `mountStudio` in main.ts — don't fork a
+  third copy. The quest/gating forms ARE the editor's Quest Builder tabs
+  (`questTabEl`/`gatingTabEl` exported from questbuilder.ts over a
+  `QuestFormCtx`) — fix a form bug in one place. Previews draw through the
+  REAL renderers (`drawTextOverlay`, `drawTauntBanner` via the small
+  `BannerState` interface in hud.ts), never a re-implementation; the banner
+  preview paints the finished line synchronously and only typewrites when rAF
+  runs (a throttled tab showed a blank box otherwise). Voice lint
+  (`src/studio/voice.ts`, `tests/voice.test.ts`) is SOFT — iceberg words,
+  banner fit (~6px/glyph, 2 lines), Subject-number rule, empty required
+  slots — never blocks a save or publish. The quest form warns when a
+  `wants` item isn't supplied anywhere in that room (confiscation makes that a
+  softlock); it doesn't block either.
 - **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
   + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
   the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,
