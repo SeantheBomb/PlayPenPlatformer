@@ -278,6 +278,16 @@ past. Delete the set whenever your real art is ready. (There's a ✨ Placeholder
 button on each individual layer too, if you only want a stand-in for one of
 them while you work on the others.)
 
+**Strips and props can animate**, looping just like the water and fire tiles.
+Drop a GIF, a numbered PNG sequence, or an `.aseprite` (pick a tag) on a
+layer's strip, or use **+ Add props** with one animated file — it becomes one
+animated prop, not a pile of stills. To animate a prop that started as a still,
+use its **Replace / animate…** button. A speed slider appears for anything
+animated; Aseprite's per-frame timing plays exactly as you set it until you
+move the slider. Two things to keep in mind for strips: every frame needs to be
+the same size, and each frame's left and right edges still have to line up so
+the strip repeats seamlessly.
+
 **The preview** pans a real room at the player's actual running speed, so you're
 tuning by feel rather than by numbers. Drag it to scrub the camera yourself. And
 **▶ Play this room** drops you into the real game, in that exact room, with your

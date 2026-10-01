@@ -5,11 +5,26 @@
 //
 // Layers are cosmetic-only by construction (see ParallaxLayer in types.ts).
 // Nothing here is read by the simulation.
-import type { Content, LayerSet, LayersFile, ParallaxLayer } from "../data/types";
+import type { Content, LayerSet, LayersFile, ParallaxLayer, SpriteFields } from "../data/types";
+
+/** The art fields a layer carries (SpriteFields) — no defaults; absent = no art. */
+type ArtKeys = "sprite" | "spriteFrames" | "spriteFps" | "spriteDurations" | "spriteSource";
+
+/** True when a strip or prop has any art to draw, still or animated. */
+export const hasArt = (s: SpriteFields | undefined): boolean =>
+  !!s && (!!s.sprite || !!s.spriteFrames?.length);
+
+/** Every frame of a strip/prop, in order (a still is one frame). */
+export const artFrames = (s: SpriteFields | undefined): string[] =>
+  s?.spriteFrames?.length ? s.spriteFrames : s?.sprite ? [s.sprite] : [];
+
+/** A layer draws something if its strip or any prop has art. */
+export const layerHasArt = (l: ParallaxLayer): boolean =>
+  hasArt(l) || !!l.props?.some((p) => hasArt(p));
 
 /** Every knob's default, in one place — a layer authored before a field
  *  existed (or a set hand-written without it) still renders sanely. */
-export const LAYER_DEFAULTS: Required<Omit<ParallaxLayer, "id" | "name" | "sprite" | "props">> = {
+export const LAYER_DEFAULTS: Required<Omit<ParallaxLayer, "id" | "name" | "props" | ArtKeys>> = {
   plane: "behind",
   depth: "mid",
   scrollX: 0.5,
@@ -41,8 +56,8 @@ export interface ResolvedLayers {
 const EMPTY: ResolvedLayers = { behind: [], front: [], setId: null };
 
 /** Fill in every unset knob so render code can read fields unconditionally. */
-export function withLayerDefaults(layer: ParallaxLayer): Required<Omit<ParallaxLayer, "name" | "sprite" | "props">> &
-  Pick<ParallaxLayer, "name" | "sprite" | "props"> {
+export function withLayerDefaults(layer: ParallaxLayer): Required<Omit<ParallaxLayer, "name" | "props" | ArtKeys>> &
+  Pick<ParallaxLayer, "name" | "props" | ArtKeys> {
   return { ...LAYER_DEFAULTS, ...stripUndefined(layer) } as never;
 }
 
@@ -77,8 +92,7 @@ export function resolveLayerSet(
   const front: ParallaxLayer[] = [];
   for (const raw of set?.layers ?? []) {
     const merged = withLayerDefaults({ ...raw, ...stripUndefined(overrides[raw.id] ?? {}) });
-    const hasArt = !!merged.sprite || !!merged.props?.some((p) => p.sprite);
-    if (!hasArt || merged.opacity <= 0) continue;
+    if (!layerHasArt(merged) || merged.opacity <= 0) continue;
     (merged.plane === "front" ? front : behind).push(merged);
   }
   return { behind, front };
@@ -86,9 +100,9 @@ export function resolveLayerSet(
 
 /**
  * Resolve a room's drawable layers: set lookup -> per-layer overrides ->
- * defaults -> split by plane. Layers with no sprite AND no props are dropped,
- * which is what makes the shipped (art-free) default set render exactly like
- * the game did before parallax existed.
+ * defaults -> split by plane. Layers with no art (still or animated) on the
+ * strip or any prop are dropped, which is what made the shipped art-free
+ * default set render exactly like the game did before parallax existed.
  */
 export function resolveRoomLayers(content: Content, roomId: string): ResolvedLayers {
   const file = content.layers;

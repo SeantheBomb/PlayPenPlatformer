@@ -6,13 +6,15 @@
 // (see functions/api/_artscope.js) — room bindings included, which is why
 // dressing a room never touches rooms/*.json.
 import type { ContentStore } from "../data/content";
-import type { LayersFile, LayerSet, ParallaxLayer, LayerProp, RoomDef } from "../data/types";
+import type { LayersFile, LayerSet, ParallaxLayer, LayerProp, RoomDef, SpriteFields } from "../data/types";
 import { el, toast } from "../editor/forms";
 import { TileMap } from "../engine/tilemap";
 import { drawBackdrop, drawMap, drawParallaxLayers, propPosition } from "../engine/renderer";
-import { DEPTH_PRESETS, resolveLayerSet, setIdForRoom } from "../game/layers";
+import { artFrames, DEPTH_PRESETS, hasArt, layerHasArt, resolveLayerSet, setIdForRoom } from "../game/layers";
 import { VIEW_H, VIEW_W } from "../game/game";
-import { importFiles } from "./importers";
+import { importFiles, type ImportResult } from "./importers";
+import { sourceRef, timingFor } from "./aseprite";
+import { chooseFromAseprite } from "./asepick";
 import { makePlaceholderSet, makePlaceholderStrip, PLACEHOLDER_WRAP_Y, type PlaceholderDepth } from "./placeholders";
 import { firstPassPlan, stripGuidance, type StripRoom } from "./stripadvice";
 import { openSvgEditor } from "./svgeditor";
@@ -63,12 +65,87 @@ const dataBytes = (uri?: string): number => {
 
 function setBytes(set: LayerSet): number {
   return set.layers.reduce(
-    (n, l) => n + dataBytes(l.sprite) + (l.props ?? []).reduce((m, p) => m + dataBytes(p.sprite), 0),
+    (n, l) => n + artBytes(l) + (l.props ?? []).reduce((m, p) => m + artBytes(p), 0),
     0
   );
 }
 
 const kb = (n: number) => (n < 1024 ? `${n} B` : `${Math.round(n / 1024)} KB`);
+
+/** Bytes of a strip's or prop's art — every frame, not just the first. */
+const artBytes = (s: SpriteFields | undefined) => artFrames(s).reduce((n, uri) => n + dataBytes(uri), 0);
+
+interface ArtWrite { frames: string[]; fps?: number; durations?: number[]; source?: string }
+
+/**
+ * Put still-or-animated art on a strip or prop, replacing whatever was there.
+ * Everything is cleared first so a stale per-frame timing can never outlive
+ * the frames it described (currentFrame also refuses a mismatched one, but
+ * the saved file shouldn't carry it either).
+ */
+function writeArt(t: SpriteFields, art: ArtWrite): void {
+  delete t.sprite;
+  delete t.spriteFrames;
+  delete t.spriteFps;
+  delete t.spriteDurations;
+  delete t.spriteSource;
+  if (art.frames.length > 1) {
+    t.spriteFrames = art.frames;
+    t.spriteFps = art.fps ?? 8;
+    if (art.durations && art.durations.length === art.frames.length) t.spriteDurations = art.durations;
+  } else if (art.frames.length === 1) {
+    t.sprite = art.frames[0];
+  }
+  if (art.frames.length && art.source) t.spriteSource = art.source;
+}
+
+/**
+ * An import → art for a strip or prop. An .aseprite asks which tag (or
+ * re-applies last time's silently, same as asset slots); a GIF or a numbered
+ * sequence is its frames in order. null = she cancelled the tag picker.
+ */
+async function artFromImport(
+  result: ImportResult, title: string, remembered?: string, fps = 8
+): Promise<{ art: ArtWrite; said: string } | null> {
+  if (!result.aseprite) {
+    const n = result.frames.length;
+    return { art: { frames: result.frames, fps }, said: n > 1 ? `${n} frames — loops at ${fps} frames/sec.` : "" };
+  }
+  const picked = await chooseFromAseprite(result.aseprite, { title, remembered });
+  if (!picked) return null;
+  const { choice, auto } = picked;
+  const timing = timingFor(choice.durations);
+  const name = choice.tag === null ? "the whole timeline" : `the “${choice.tag}” tag`;
+  return {
+    art: { frames: choice.frames, fps: timing.fps, durations: timing.durations, source: sourceRef(result.aseprite.fileName, choice.tag) },
+    said: auto === "remembered" ? `Re-imported ${name} — same as last time.` : `Using ${name} from “${result.aseprite.fileName}”.`,
+  };
+}
+
+/** Speed control for an animated strip/prop — same rules as asset pages:
+ *  Aseprite's per-frame timing plays as authored, and moving the slider is
+ *  the explicit switch to one even speed. */
+function speedRow(ctx: EnvContext, target: SpriteFields, label = "Speed"): HTMLElement {
+  const frames = target.spriteFrames?.length ?? 0;
+  if (frames < 2) return el("span", {});
+  const timed = !!target.spriteDurations && target.spriteDurations.length === frames;
+  const out = el("span", { className: "st-hint" },
+    timed ? "timing from Aseprite (each frame as you set it)" : `${target.spriteFps ?? 8} frames/sec`);
+  return el("div", { className: "st-row", style: "margin:4px 0" },
+    el("span", { className: "st-hint", style: "min-width:62px" }, label),
+    el("input", {
+      type: "range", min: 1, max: 24, step: 1, value: target.spriteFps ?? 8, style: "flex:1;max-width:220px",
+      title: timed ? "Moving this switches to one even speed for every frame" : "",
+      oninput: async (e: Event) => {
+        const fps = Number((e.target as HTMLInputElement).value);
+        target.spriteFps = fps;
+        delete target.spriteDurations;
+        out.textContent = `${fps} frames/sec`;
+        await save(ctx);
+      },
+    }),
+    out);
+}
 
 function roomsUsing(f: LayersFile, setId: string, roomIds: string[]): string[] {
   return roomIds.filter((id) => setIdForRoom(f, id) === setId);
@@ -104,7 +181,7 @@ export function environmentsView(ctx: EnvContext): HTMLElement {
   const grid = el("div", { className: "st-grid", style: "grid-template-columns:repeat(auto-fill,minmax(230px,1fr))" });
   for (const set of Object.values(f.sets)) {
     const used = roomsUsing(f, set.id, roomIds);
-    const withArt = set.layers.filter((l) => l.sprite || (l.props ?? []).some((p) => p.sprite)).length;
+    const withArt = set.layers.filter((l) => layerHasArt(l)).length;
     const card = el(
       "div", { className: "st-cardasset", style: "align-items:stretch;text-align:left", onclick: () => ctx.open(set.id) },
       el("canvas", { className: "st-previewbig", width: 200, height: 112, style: "width:100%;height:auto" }),
@@ -229,7 +306,7 @@ function paintSetThumb(cv: HTMLCanvasElement, set: LayerSet): void {
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.fillStyle = "#171327";
   ctx.fillRect(0, 0, cv.width, cv.height);
-  const layers = set.layers.filter((l) => l.sprite);
+  const layers = set.layers.filter((l) => hasArt(l));
   if (!layers.length) {
     ctx.fillStyle = "#5a5470";
     ctx.font = "11px system-ui, sans-serif";
@@ -632,7 +709,7 @@ function layerCard(
     if (!c) return;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, thumb.width, thumb.height);
-    if (!layer.sprite) {
+    if (!hasArt(layer)) {
       c.fillStyle = "#5a5470";
       c.font = "11px system-ui, sans-serif";
       c.textAlign = "center";
@@ -660,7 +737,9 @@ function layerCard(
         onchange: async (e: Event) => { layer.name = (e.target as HTMLInputElement).value; await save(ctx); },
       }),
       el("div", { className: "st-hint", style: "margin-top:4px" },
-        layer.sprite ? `${kb(dataBytes(layer.sprite))} · repeats sideways forever` : "Drop a tileable strip below"),
+        hasArt(layer)
+          ? `${kb(artBytes(layer))} · ${artFrames(layer).length > 1 ? `${artFrames(layer).length} frames, loops · ` : ""}repeats sideways forever`
+          : "Drop a tileable strip below"),
       el("div", { className: "st-filters", style: "margin-top:6px" },
         ...(["far", "mid", "near"] as const).map((d) => el("button", {
           className: `st-chip${read("depth") === d ? " st-on" : ""}`,
@@ -735,13 +814,14 @@ function layerCard(
   const advice = el("div", { className: "st-card", style: "background:#241d3c;margin:10px 0 0;padding:10px 12px" });
   let natural: { w: number; h: number } | null = null;
   const measure = () => {
-    if (!layer.sprite) { natural = null; return; }
+    const first = artFrames(layer)[0];
+    if (!first) { natural = null; return; }
     const img = new Image();
     img.onload = () => {
       natural = { w: img.naturalWidth, h: img.naturalHeight };
       updateAdvice();
     };
-    img.src = layer.sprite;
+    img.src = first; // every frame of a strip is the same size, so frame 1 speaks for all
   };
   const updateAdvice = () => {
     const f2 = file(ctx.store);
@@ -816,17 +896,21 @@ function layerCard(
 
   // Strip drop zone + shape editor
   const drop = el("div", { className: "st-drop", style: "padding:14px;margin-top:10px" },
-    el("div", {}, layer.sprite ? "Drop a new strip to replace this one" : "Drop this layer's strip here — or click to browse"),
-    el("div", { className: "st-hint" }, "PNG, SVG or .aseprite (its first frame). Make the left and right edges match and it'll repeat seamlessly."));
+    el("div", {}, hasArt(layer) ? "Drop a new strip to replace this one" : "Drop this layer's strip here — or click to browse"),
+    el("div", { className: "st-hint" },
+      "PNG or SVG for a still · GIF, .aseprite (pick a tag) or numbered PNGs to animate — it loops like water or fire. " +
+      "Make the left and right edges match and it repeats seamlessly; keep every frame the same size."));
   const takeFiles = async (files: File[]) => {
     const result = await importFiles(files);
     if (result.errors.length) { toast(result.errors[0]); return; }
     if (!result.frames.length) return;
-    layer.sprite = result.frames[0];
+    const got = await artFromImport(result, `${layer.name ?? layer.id} strip`, layer.spriteSource, layer.spriteFps ?? 8);
+    if (!got) return;
+    writeArt(layer, got.art);
     await save(ctx);
     paintThumb();
     hooks.onStructureChange();
-    toast("Layer art saved to your draft.");
+    toast(`Layer art saved to your draft.${got.said ? " " + got.said : ""}`);
   };
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("st-over"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("st-over"));
@@ -838,7 +922,8 @@ function layerCard(
   drop.addEventListener("click", () => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/png,image/webp,image/svg+xml,.svg,.aseprite,.ase";
+    input.multiple = true; // a numbered PNG sequence = an animated strip
+    input.accept = "image/png,image/gif,image/webp,image/svg+xml,.svg,.aseprite,.ase";
     input.onchange = () => void takeFiles([...(input.files ?? [])]);
     input.click();
   });
@@ -851,10 +936,11 @@ function layerCard(
       onclick: () => openSvgEditor({
         title: `${set.name || set.id} — ${layer.name ?? layer.id}`,
         width: 160, height: 180,
-        frames: layer.sprite?.startsWith("data:image/svg") ? [layer.sprite] : [],
-        fps: 6, multiFrame: false,
-        onSave: (frames) => {
-          layer.sprite = frames[0];
+        // Its own SVG frames reopen editable; raster art can't, so start fresh.
+        frames: artFrames(layer).every((u) => u.startsWith("data:image/svg")) ? artFrames(layer) : [],
+        fps: layer.spriteFps ?? 8, multiFrame: true,
+        onSave: (frames, fps) => {
+          writeArt(layer, { frames, fps });
           void save(ctx).then(() => { paintThumb(); hooks.onStructureChange(); });
         },
       }),
@@ -864,7 +950,7 @@ function layerCard(
       title: "Drop in rough stand-in art for this layer, matched to its depth",
       onclick: async () => {
         const d = (read("depth") as PlaceholderDepth) ?? "mid";
-        layer.sprite = makePlaceholderStrip(d);
+        writeArt(layer, { frames: [makePlaceholderStrip(d)] });
         layer.wrapY = PLACEHOLDER_WRAP_Y[d];
         await save(ctx);
         paintThumb();
@@ -872,16 +958,21 @@ function layerCard(
         toast("Placeholder strip added — replace it whenever you like.");
       },
     }, "✨ Placeholder"),
-    layer.sprite ? el("button", {
+    hasArt(layer) ? el("button", {
       className: "st-btn st-danger",
       onclick: async () => {
-        delete layer.sprite;
+        writeArt(layer, { frames: [] });
         await save(ctx);
         paintThumb();
         hooks.onStructureChange();
       },
     }, "Remove strip") : el("span", {})
   ));
+  card.append(speedRow(ctx, layer, "Strip speed"));
+  if (layer.spriteSource) {
+    card.append(el("div", { className: "st-hint" },
+      `From ${layer.spriteSource.replace("#", " → tag ")} — save it in Aseprite and drop it again to update.`));
+  }
 
   // Props
   card.append(propsSection(ctx, layer, hooks));
@@ -910,9 +1001,10 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
         const input = document.createElement("input");
         input.type = "file";
         input.multiple = true;
-        input.accept = "image/png,image/webp,image/svg+xml,.svg,.aseprite,.ase";
+        input.accept = "image/png,image/gif,image/webp,image/svg+xml,.svg,.aseprite,.ase";
         input.onchange = async () => {
-          const result = await importFiles([...(input.files ?? [])]);
+          const files = [...(input.files ?? [])];
+          const result = await importFiles(files);
           if (result.errors.length) { toast(result.errors[0]); return; }
           // Land new props in the middle of what the preview is showing —
           // a fixed world position is off-screen as soon as the camera has
@@ -921,21 +1013,35 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
           // swallowed by the fade-around-the-player guard.
           const { camX, camY } = hooks.camera();
           const anchor = propAnchor(layer, camX, camY);
-          // A prop is a still: an .aseprite contributes its first frame, not one
-          // prop per animation frame.
-          const uris = result.aseprite ? result.frames.slice(0, 1) : result.frames;
-          for (const [i, uri] of uris.entries()) {
-            const size = await imageDims(uri);
-            props.push({
-              id: uid("prop"), sprite: uri, w: size.w, h: size.h,
+          // One file that holds an animation (an .aseprite, a GIF) is ONE
+          // animated prop; several stills are several props, one each.
+          const animated = !!result.aseprite || (files.length === 1 && result.frames.length > 1);
+          const arts: ArtWrite[] = [];
+          let said = "";
+          if (animated) {
+            const got = await artFromImport(result, "a new prop");
+            if (!got) return;
+            arts.push(got.art);
+            said = got.said;
+          } else {
+            for (const uri of result.frames) arts.push({ frames: [uri] });
+          }
+          for (const [i, art] of arts.entries()) {
+            const size = await imageDims(art.frames[0]);
+            const prop: LayerProp = {
+              id: uid("prop"), w: size.w, h: size.h,
               // Stagger multiples so they don't land in one unclickable stack.
               x: Math.round(camX + VIEW_W / 2 - anchor.x - size.w / 2 + i * 24),
               y: Math.round(camY + VIEW_H * 0.35 - anchor.y - size.h / 2 + i * 24),
-            });
+            };
+            writeArt(prop, art);
+            props.push(prop);
           }
           await save(ctx);
           hooks.onStructureChange();
-          toast(`Added ${uris.length} prop${uris.length === 1 ? "" : "s"} in the middle of the preview — drag to place.`);
+          toast(animated
+            ? `Added an animated prop in the middle of the preview — drag to place. ${said}`
+            : `Added ${arts.length} prop${arts.length === 1 ? "" : "s"} in the middle of the preview — drag to place.`);
         };
         input.click();
       },
@@ -961,7 +1067,8 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
       const s = Math.min(44 / img.naturalWidth, 44 / img.naturalHeight);
       cc.drawImage(img, (44 - img.naturalWidth * s) / 2, (44 - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
     };
-    if (p.sprite) img.src = p.sprite;
+    const first = artFrames(p)[0];
+    if (first) img.src = first;
     cell.append(c, el("button", {
       className: "st-framex", title: "Remove this prop",
       onclick: async (e: Event) => {
@@ -989,11 +1096,43 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
         }),
         out);
     };
+    // Swap this prop's art — the way to animate a prop that started as a
+    // still, or to re-drop an updated .aseprite (same tag re-applied).
+    const replace = el("button", {
+      className: "st-btn", title: "Replace this prop's art — a GIF, an .aseprite or numbered PNGs make it loop",
+      onclick: () => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = true;
+        input.accept = "image/png,image/gif,image/webp,image/svg+xml,.svg,.aseprite,.ase";
+        input.onchange = async () => {
+          const result = await importFiles([...(input.files ?? [])]);
+          if (result.errors.length) { toast(result.errors[0]); return; }
+          if (!result.frames.length) return;
+          const got = await artFromImport(result, "this prop", p.spriteSource, p.spriteFps ?? 8);
+          if (!got) return;
+          const size = await imageDims(got.art.frames[0]);
+          writeArt(p, got.art);
+          // Props are drawn at their art's own size, so follow the new art.
+          p.w = size.w;
+          p.h = size.h;
+          await save(ctx);
+          hooks.onStructureChange();
+          toast(`Prop updated.${got.said ? " " + got.said : ""}`);
+        };
+        input.click();
+      },
+    }, artFrames(p).length > 1 ? "Replace…" : "Replace / animate…");
+    const frameCount = artFrames(p).length;
     list.append(el("div", { className: "st-row", style: "align-items:center;gap:12px" },
       cell,
       el("div", { style: "flex:1;min-width:220px" },
         driftSlider("Drifts ↔", "driftX"),
-        driftSlider("Drifts ↕", "driftY"))));
+        driftSlider("Drifts ↕", "driftY"),
+        speedRow(ctx, p)),
+      el("div", { style: "display:flex;flex-direction:column;gap:4px;align-items:flex-end" },
+        frameCount > 1 ? el("span", { className: "st-hint" }, `${frameCount} frames, loops`) : el("span", {}),
+        replace)));
   }
   box.append(list);
   return box;

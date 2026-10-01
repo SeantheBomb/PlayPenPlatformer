@@ -546,15 +546,17 @@ export interface CampaignDef {
  * width. Layers live in named SETS that rooms bind to, so a handful of sets
  * dress all 11 rooms and a tone change propagates everywhere at once.
  */
-export interface ParallaxLayer {
+/** A parallax strip is a SpriteFields host like any other art (2026-10-01):
+ *  `sprite` for a still, or `spriteFrames` + `spriteFps`/`spriteDurations` for
+ *  an animated strip (water, flicker, drifting smoke) that loops like a tile.
+ *  No art at all = this layer draws nothing. */
+export interface ParallaxLayer extends SpriteFields {
   id: string;
   name?: string;
   /** "behind" (default) draws under the world; "front" draws over the player. */
   plane?: "behind" | "front";
   /** UI-only tag recording which depth preset seeded this layer's numbers. */
   depth?: "far" | "mid" | "near";
-  /** Tileable strip, a data-URI image. No sprite = this layer draws nothing. */
-  sprite?: string;
   /** Fraction of camera movement this layer tracks. 0 = pinned to the screen
    *  (infinitely far away), 1 = moves exactly with the world (in-plane). */
   scrollX?: number;
@@ -579,10 +581,10 @@ export interface ParallaxLayer {
 
 /** A one-off decorative sprite placed in a layer. Positioned in ROOM world
  *  coordinates (so it can be lined up against real level geometry) and then
- *  moved by its layer's parallax like everything else on that plane. */
-export interface LayerProp {
+ *  moved by its layer's parallax like everything else on that plane. Its art
+ *  is SpriteFields, so a prop can be a still or a looping animation. */
+export interface LayerProp extends SpriteFields {
   id: string;
-  sprite?: string;
   x: number;
   y: number;
   w: number;

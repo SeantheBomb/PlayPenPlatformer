@@ -17,16 +17,42 @@ export function getImage(uri: string): HTMLImageElement | null {
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
-export function currentFrame(s: SpriteFields): string | null {
-  if (s.spriteFrames && s.spriteFrames.length > 0) {
-    const i = s.spriteDurations
-      ? timedFrameIndex(s.spriteDurations, s.spriteFrames.length, performance.now())
-      : -1;
-    if (i >= 0) return s.spriteFrames[i];
-    const fps = s.spriteFps || 6;
-    return s.spriteFrames[Math.floor((performance.now() / 1000) * fps) % s.spriteFrames.length];
+export function currentFrame(s: SpriteFields, nowMs = performance.now()): string | null {
+  const i = currentFrameIndex(s, nowMs);
+  return i < 0 ? s.sprite ?? null : s.spriteFrames![i];
+}
+
+/** Which of `spriteFrames` shows at `nowMs` (per-frame durations if they line
+ *  up, else the uniform fps); -1 for a still. Callers that need determinism
+ *  pass their own clock — parallax layers pass the cosmetic animT. */
+export function currentFrameIndex(s: SpriteFields, nowMs = performance.now()): number {
+  if (!s.spriteFrames || s.spriteFrames.length === 0) return -1;
+  const i = s.spriteDurations ? timedFrameIndex(s.spriteDurations, s.spriteFrames.length, nowMs) : -1;
+  if (i >= 0) return i;
+  const fps = s.spriteFps || 6;
+  const n = s.spriteFrames.length;
+  return ((Math.floor((nowMs / 1000) * fps) % n) + n) % n;
+}
+
+/**
+ * The decoded image to draw for animated art at `nowMs`. Data-URI frames
+ * decode asynchronously, so the first time a loop reaches a frame it may not
+ * be ready — rather than blank the strip or prop for that moment, fall back
+ * to the nearest earlier frame that is. Every frame is requested on the first
+ * call so the whole loop is warm after one pass.
+ */
+export function frameImage(s: SpriteFields, nowMs: number): HTMLImageElement | null {
+  const frames = s.spriteFrames;
+  if (!frames || frames.length === 0) return s.sprite ? getImage(s.sprite) : null;
+  const i = currentFrameIndex(s, nowMs);
+  const want = getImage(frames[i]);
+  if (want) return want;
+  for (const uri of frames) getImage(uri); // warm the rest of the loop
+  for (let k = 1; k < frames.length; k++) {
+    const img = getImage(frames[(i - k + frames.length) % frames.length]);
+    if (img) return img;
   }
-  return s.sprite ?? null;
+  return null;
 }
 
 /** Cumulative end-times per durations array, so a hot draw path doesn't
@@ -1010,7 +1036,9 @@ export function drawParallaxLayers(
     else target.globalAlpha = alpha;
     target.imageSmoothingEnabled = false;
 
-    const img = layer.sprite ? getImage(layer.sprite) : null;
+    // Animated strips loop on the same cosmetic clock as drift (t), so a
+    // replay draws identical frames — never performance.now() here.
+    const img = frameImage(layer, t * 1000);
     if (img) {
       const iw = img.naturalWidth, ih = img.naturalHeight;
       // First tile at or before the view's leading edge, then step across.
@@ -1027,7 +1055,7 @@ export function drawParallaxLayers(
     }
 
     for (const prop of layer.props ?? []) {
-      const pimg = prop.sprite ? getImage(prop.sprite) : null;
+      const pimg = frameImage(prop, t * 1000);
       if (!pimg) continue;
       // Layer drift never moves a prop; its own drift wraps — see propPosition.
       const { x: px, y: py } = propPosition(prop, layer, camX, camY, viewW, viewH, t);

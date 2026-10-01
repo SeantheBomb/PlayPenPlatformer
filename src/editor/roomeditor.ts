@@ -4,7 +4,7 @@ import type { ContentStore } from "../data/content";
 import { TILE } from "../engine/tilemap";
 import { drawBlob, drawMap } from "../engine/renderer";
 import { RoomRuntime } from "../game/room";
-import { setIdForRoom } from "../game/layers";
+import { layerHasArt, setIdForRoom } from "../game/layers";
 import { emptyRoomMutations } from "../game/state";
 import { autoForm, el, fieldOptionsFor, toast } from "./forms";
 import { openPixelEditor, rasterize } from "./pixeleditor";
@@ -446,7 +446,7 @@ export class RoomEditor {
         const set = setId ? this.content.layers.sets[setId] : null;
         if (!set) return "No parallax backdrop. Set one in the Art Studio (?art → Environments).";
         const explicit = this.content.layers.rooms?.[room.id]?.setId === setId;
-        const drawn = set.layers.filter((l) => l.sprite || (l.props ?? []).some((p) => p.sprite)).length;
+        const drawn = set.layers.filter((l) => layerHasArt(l)).length;
         return `${set.name || setId}${explicit ? "" : " (the default)"} — ${drawn}/${set.layers.length} layers drawn. ` +
           "Edited in the Art Studio.";
       })()),

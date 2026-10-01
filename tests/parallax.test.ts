@@ -6,9 +6,9 @@
 //      changes NOTHING for players until the artist actually fills it in.
 import { describe, expect, it } from "vitest";
 import type { Content, LayersFile } from "../src/data/types";
-import { resolveLayerSet, resolveRoomLayers, setIdForRoom, withLayerDefaults, DEPTH_PRESETS } from "../src/game/layers";
+import { artFrames, hasArt, resolveLayerSet, resolveRoomLayers, setIdForRoom, withLayerDefaults, DEPTH_PRESETS } from "../src/game/layers";
 import bundledLayers from "../content/layers.json";
-import { propPosition } from "../src/engine/renderer";
+import { currentFrame, currentFrameIndex, propPosition } from "../src/engine/renderer";
 
 const px = (n: string) => `data:image/png;base64,${n}`;
 
@@ -261,5 +261,53 @@ describe("prop drift (per prop, 2026-09-30)", () => {
     const a = propPosition(prop({ driftX: -3, driftY: 2 }), layer, 120, 40, VW, VH, 123.4);
     const b = propPosition(prop({ driftX: -3, driftY: 2 }), layer, 120, 40, VW, VH, 123.4);
     expect(a).toEqual(b);
+  });
+});
+
+describe("animated strips and props (2026-10-01)", () => {
+  // Strips and props loop like tiles do (water, fire). They're SpriteFields
+  // hosts now, so a layer with ONLY animation frames must still count as art.
+  const frames = [px("f0"), px("f1"), px("f2")];
+
+  it("a strip that's only animation frames still draws", () => {
+    const r = resolveLayerSet({ id: "s", name: "s", layers: [{ id: "far", spriteFrames: frames, spriteFps: 6 }] });
+    expect(r.behind.map((l) => l.id)).toEqual(["far"]);
+    expect(r.behind[0].spriteFrames).toEqual(frames); // frames survive the defaults merge
+  });
+
+  it("a layer whose only art is an animated prop still draws", () => {
+    const r = resolveLayerSet({
+      id: "s", name: "s",
+      layers: [{ id: "far", props: [{ id: "p", spriteFrames: frames, x: 0, y: 0, w: 8, h: 8 }] }],
+    });
+    expect(r.behind).toHaveLength(1);
+  });
+
+  it("an empty frames array is not art", () => {
+    expect(hasArt({ spriteFrames: [] })).toBe(false);
+    expect(resolveLayerSet({ id: "s", name: "s", layers: [{ id: "far", spriteFrames: [] }] }).behind).toHaveLength(0);
+  });
+
+  it("artFrames treats a still as one frame", () => {
+    expect(artFrames({ sprite: px("still") })).toEqual([px("still")]);
+    expect(artFrames({ spriteFrames: frames, sprite: px("ignored") })).toEqual(frames);
+    expect(artFrames(undefined)).toEqual([]);
+  });
+
+  it("frame choice is a pure function of the clock it's given (replay-safe)", () => {
+    const s = { spriteFrames: frames, spriteFps: 10 };
+    // 10fps: 0-99ms frame 0, 100-199ms frame 1, 200-299ms frame 2, then loop.
+    expect([0, 99, 100, 250, 300, 1050].map((ms) => currentFrameIndex(s, ms))).toEqual([0, 0, 1, 2, 0, 1]);
+    expect(currentFrame(s, 150)).toBe(px("f1"));
+  });
+
+  it("per-frame durations drive strips and props too", () => {
+    const s = { spriteFrames: frames, spriteFps: 10, spriteDurations: [500, 50, 50] };
+    expect([0, 499, 500, 549, 550, 600].map((ms) => currentFrameIndex(s, ms))).toEqual([0, 0, 1, 1, 2, 0]);
+  });
+
+  it("a still has no frame index and returns its image", () => {
+    expect(currentFrameIndex({ sprite: px("s") }, 123)).toBe(-1);
+    expect(currentFrame({ sprite: px("s") }, 123)).toBe(px("s"));
   });
 });

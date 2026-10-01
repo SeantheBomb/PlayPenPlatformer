@@ -485,6 +485,19 @@ republishing/re-saving from the editor is still the fix for those.
   same `previewClock()` the preview draws with). Pinned in
   `tests/parallax.test.ts` ("prop drift"). Don't reintroduce a second copy of
   the prop-position math.
+- **Strips and props animate (2026-10-01)**: `ParallaxLayer` and `LayerProp`
+  extend `SpriteFields`, so either can be a still (`sprite`) or a loop
+  (`spriteFrames` + `spriteFps` / Aseprite `spriteDurations`) — same fields,
+  same importers (GIF, numbered PNGs, .aseprite tag picker + reimport memory)
+  as every other asset. Use `hasArt` / `artFrames` / `layerHasArt` in
+  layers.ts to ask "is there art?" — never test `.sprite` alone, or an
+  animated-only strip reads as empty and gets dropped. They play on the
+  layer's `t` (animT in game, `previewClock` in the studio) via
+  `currentFrameIndex(s, nowMs)` / `frameImage` — NOT `performance.now()` like
+  tiles — so replays stay pixel-identical, the same rule as drift.
+  `frameImage` falls back to the nearest earlier decoded frame so a loop never
+  blanks on its first pass. The studio's `writeArt` clears every art field
+  before writing, so stale per-frame timing can't outlive its frames.
 - Foreground (`plane: "front"`) draws over the player but UNDER interaction
   prompts, and defaults to `fadeNearPlayer` (a soft radial hole punched around
   the player via an offscreen destination-out composite) so foreground art can
