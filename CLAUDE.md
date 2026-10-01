@@ -103,6 +103,33 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `shownAt` shifts by the held time, pure simNow) and the banner isn't drawn —
   the Warden never talks over a resident. Changes taunt RNG draw order, so
   replays of older sessions show different banner lines (cosmetic only).
+- **Native .aseprite import (2026-10-01, "like the Unity Aseprite importer")**:
+  `src/studio/aseprite.ts` is a pure-TS reader + flattener (no DOM, no deps —
+  zlib via `DecompressionStream`), verified PIXEL-EXACT against a real
+  Aseprite PNG export, pinned by `tests/aseprite.test.ts` (fixtures built by
+  an in-test byte encoder). Flattening matches Aseprite's own export: visible
+  layers only (hidden layers, children of hidden groups, reference layers
+  excluded), cel z-index, layer × group × cel opacity, all 19 blend modes in
+  plain math (incl. Subtract/Divide, which canvas lacks). Tilemap layers are
+  NOT supported yet and warn — never drop anything silently. Tags pick which
+  animation fills a slot (`asepick.ts`): it asks only when it must — no tags
+  → whole timeline; same file as this slot's `spriteSource` and that tag
+  still exists → re-applied silently (the reimport loop); a tag named after a
+  second look's label ("Open", "unlit") → used for that look. Ping-pong /
+  reverse are expanded into frame order.
+- **Per-frame timing** (`SpriteFields.spriteDurations`, ms, parallel to
+  `spriteFrames`): `currentFrame` → `timedFrameIndex` plays each frame for
+  exactly its duration, and IGNORES a durations array that doesn't line up
+  1:1 with the frames (falls back to `spriteFps`) rather than indexing past
+  the end. Every path that replaces frames must drop it: the editor's sprite
+  panels (editor.ts / roomeditor.ts), a plain image drop, the speed slider
+  (she chose one speed); a pixel/shape touch-up keeps it only if frame count
+  and fps are unchanged (`withEditedFrames`). `timingFor` stores durations
+  only when timing is uneven or isn't a whole fps — uniform whole-fps files
+  stay plain `spriteFps`. `spriteDurations`, `spriteSource` and
+  `spriteAltSource` ("file.aseprite#tag" provenance) are in `_artscope.js`
+  `SPRITE_FIELDS` — a new art field missing from that list is silently
+  stripped by every artist publish.
 - **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
   + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
   the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,

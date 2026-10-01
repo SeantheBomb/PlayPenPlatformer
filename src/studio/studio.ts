@@ -13,7 +13,9 @@ import { el, toast } from "../editor/forms";
 import { openPixelEditor } from "../editor/pixeleditor";
 import { getImage } from "../engine/renderer";
 import { TILE } from "../engine/tilemap";
-import { artBox, buildAssets, assetStatus, GROUP_ORDER, type ArtAsset, type AssetGroup } from "./assets";
+import { artBox, buildAssets, assetStatus, GROUP_ORDER, withEditedFrames, type ArtAsset, type AssetGroup } from "./assets";
+import { sourceRef, timingFor, type AseImport } from "./aseprite";
+import { chooseFromAseprite } from "./asepick";
 import { patternPanel } from "./tilepattern";
 import { importFiles, sliceStrip, imageSize } from "./importers";
 import { downloadFrame, downloadStrip, downloadContactSheet } from "./exporters";
@@ -71,6 +73,9 @@ class Studio {
   /** A tile image whose size fits several pattern layouts, just imported —
    *  the pattern panel asks which one she meant (never guessed). */
   private pendingLayout: { key: string; w: number; h: number } | null = null;
+  /** The last .aseprite dropped on an asset this session — lets "use a
+   *  different tag" re-pick without asking her to find the file again. */
+  private recentAse: { key: string; slot: "main" | "alt"; ase: AseImport } | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -426,23 +431,35 @@ class Studio {
                 onclick: async (ev: Event) => {
                   ev.stopPropagation();
                   const next = current.frames.filter((_, j) => j !== i);
-                  await a.write({ ...current, frames: next });
+                  // Keep per-frame timing aligned with the frames that remain.
+                  const durations = current.durations?.filter((_, j) => j !== i);
+                  await a.write({ ...current, frames: next, durations });
                   this.refresh();
                 },
               }, "✕"));
             }
             return cell;
           })),
-        current.frames.length > 1 ? el("div", { className: "st-row" },
-          el("span", { className: "st-hint" }, "Speed:"),
-          el("input", {
-            type: "range", min: 1, max: 24, value: current.fps,
-            oninput: async (ev: Event) => {
-              await a.write({ ...current, fps: Number((ev.target as HTMLInputElement).value) });
-            },
-          }),
-          el("span", { className: "st-hint" }, `${current.fps} frames/sec`)
-        ) : el("span", {})
+        current.frames.length > 1 ? (() => {
+          // Per-frame timing from Aseprite plays exactly as authored; the
+          // slider is the way out to one even speed, and says so.
+          const timed = !!current.durations && current.durations.length === current.frames.length;
+          const label = el("span", { className: "st-hint" },
+            timed ? "timing from Aseprite (each frame as you set it)" : `${current.fps} frames/sec`);
+          return el("div", { className: "st-row" },
+            el("span", { className: "st-hint" }, "Speed:"),
+            el("input", {
+              type: "range", min: 1, max: 24, value: current.fps,
+              title: timed ? "Moving this switches to one even speed for every frame" : "",
+              oninput: async (ev: Event) => {
+                const fps = Number((ev.target as HTMLInputElement).value);
+                label.textContent = `${fps} frames/sec`;
+                await a.write({ ...a.read(), fps, durations: undefined });
+              },
+            }),
+            label);
+        })() : el("span", {}),
+        this.asepriteRow(a, "main", current.source)
       );
     };
     renderFrames();
@@ -454,11 +471,23 @@ class Studio {
       el("div", {}, "Drop art here — or click to browse"),
       el("div", { className: "st-hint" },
         a.animatable
-          ? "PNG · SVG · GIF · Aseprite strip (auto-split) · several numbered PNGs = animation frames"
-          : "PNG or SVG — this slot is a single image (no animation)")
+          ? "PNG · SVG · GIF · .aseprite (pick a tag) · Aseprite strip (auto-split) · several numbered PNGs = animation frames"
+          : "PNG, SVG or .aseprite — this slot is a single image (no animation)")
     );
     const handleFiles = async (files: File[]) => {
       const result = await importFiles(files);
+      if (result.aseprite) {
+        const said = await this.applyAseprite(a, result.aseprite, "main");
+        showNotes([...result.notes, ...(said ?? ["Import cancelled — nothing changed."])], result.errors);
+        if (!said) return;
+        if (a.pattern) {
+          const dims = await imageSize(a.read().frames[0]);
+          this.pendingLayout = dims ? { key: a.key, w: dims.w, h: dims.h } : null;
+        }
+        toast("Art saved to your draft — hit “Try in game” to see it live.");
+        this.refresh();
+        return;
+      }
       if (result.stripCandidate && a.animatable) {
         const { uri, count } = result.stripCandidate;
         const dims = await imageSize(uri);
@@ -477,7 +506,7 @@ class Studio {
       if (!a.animatable && result.frames.length > 1) {
         showNotes([...result.notes, "This slot takes a single image — used the first file."], result.errors);
       }
-      await a.write({ ...a.read(), frames, fps: a.read().fps });
+      await a.write({ ...a.read(), frames, fps: a.read().fps, durations: undefined, source: undefined });
       this.dirty = true;
       if (a.pattern) {
         // A 32×32 image on a 16×16 tile could be extra detail OR a 2×2
@@ -499,7 +528,7 @@ class Studio {
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = a.animatable;
-      input.accept = "image/png,image/gif,image/webp,image/svg+xml,.svg";
+      input.accept = "image/png,image/gif,image/webp,image/svg+xml,.svg,.aseprite,.ase";
       input.onchange = () => void handleFiles([...(input.files ?? [])]);
       input.click();
     });
@@ -549,6 +578,72 @@ class Studio {
     return wrap;
   }
 
+  /**
+   * Route a dropped .aseprite into one slot: pick the tag (silently when it
+   * safely can — see asepick.ts), carry Aseprite's timing across, and record
+   * the file#tag so dropping an updated copy re-applies it. Returns what to
+   * tell her, or null if she cancelled.
+   */
+  private async applyAseprite(
+    a: ArtAsset, ase: AseImport, slot: "main" | "alt", forceAsk = false
+  ): Promise<string[] | null> {
+    const art = a.read();
+    const still = slot === "alt" || !a.animatable;
+    const res = await chooseFromAseprite(ase, {
+      title: slot === "alt" ? `${a.label} — ${a.altLabel}` : a.label,
+      still,
+      remembered: slot === "alt" ? art.altSource : art.source,
+      matchLabel: slot === "alt" ? a.altLabel : undefined,
+      forceAsk,
+    });
+    if (!res) return null;
+    const { choice, auto } = res;
+    const ref = sourceRef(ase.fileName, choice.tag);
+    const said: string[] = [];
+    const name = choice.tag === null ? "the whole timeline" : `the “${choice.tag}” tag`;
+    if (auto === "remembered") said.push(`Re-imported ${name} from “${ase.fileName}” — same as last time.`);
+    else if (auto === "matched") said.push(`Used ${name} — it matches the ${a.altLabel} look.`);
+    else if (auto === "only") {
+      if (ase.frames.length > 1) said.push(`“${ase.fileName}” has no tags, so the whole timeline was used.`);
+    } else said.push(`Using ${name} from “${ase.fileName}”.`);
+
+    if (slot === "alt") {
+      await a.write({ ...a.read(), alt: choice.frames[0], altSource: ref });
+      if (choice.frames.length > 1) said.push("This look is a single still, so its first frame was used.");
+    } else if (still) {
+      await a.write({ ...a.read(), frames: [choice.frames[0]], durations: undefined, source: ref });
+      if (choice.frames.length > 1) said.push("This slot takes a single image, so the first frame was used.");
+    } else {
+      const timing = timingFor(choice.durations);
+      await a.write({ ...a.read(), frames: choice.frames, fps: timing.fps, durations: timing.durations, source: ref });
+      if (timing.durations) said.push("Kept your per-frame timing from Aseprite — every frame plays for exactly as long as you set it.");
+      else if (choice.frames.length > 1) said.push(`Plays at ${timing.fps} frames/sec, as set in Aseprite.`);
+    }
+    this.dirty = true;
+    this.recentAse = { key: a.key, slot, ase };
+    return said;
+  }
+
+  /** Where this slot's art came from, plus "use a different tag" while the
+   *  file is still in hand this session. */
+  private asepriteRow(a: ArtAsset, slot: "main" | "alt", source: string | undefined): HTMLElement {
+    const recent = this.recentAse && this.recentAse.key === a.key && this.recentAse.slot === slot
+      ? this.recentAse.ase : null;
+    if (!source && !recent) return el("span", {});
+    return el("div", { className: "st-row" },
+      source ? el("span", { className: "st-hint" },
+        `From ${source.replace("#", " → tag ")}. Save it in Aseprite and drop it here again to update — the same tag is re-applied.`) : el("span", {}),
+      recent && recent.tags.length ? el("button", {
+        className: "st-btn",
+        onclick: async () => {
+          const said = await this.applyAseprite(a, recent, slot, true);
+          if (!said) return;
+          toast(said[0]);
+          this.refresh();
+        },
+      }, "Use a different tag…") : el("span", {}));
+  }
+
   private altSlot(a: ArtAsset): HTMLElement {
     const card = el("div", { className: "st-card" });
     const notes = el("div", {});
@@ -559,15 +654,24 @@ class Studio {
       a.drawAlt?.(sctx, 0, 0, 44);
       const drop = el("div", { className: "st-drop", style: "padding:12px" },
         el("div", {}, `⬇ Drop ${a.altLabel!.toLowerCase()} art here — or click`),
-        el("div", { className: "st-hint" }, "PNG or SVG — a single still image, no animation"));
+        el("div", { className: "st-hint" }, "PNG, SVG or .aseprite — a single still image, no animation"));
       const handleAltFiles = async (files: File[]) => {
         const result = await importFiles(files);
+        const said = result.aseprite ? await this.applyAseprite(a, result.aseprite, "alt") : [];
         notes.replaceChildren(
           ...result.errors.map((m) => el("div", { className: "st-note st-err" }, `⚠ ${m}`)),
-          ...result.notes.map((m) => el("div", { className: "st-note" }, m))
+          ...[...result.notes, ...(said ?? ["Import cancelled — nothing changed."])].map((m) => el("div", { className: "st-note" }, m))
         );
+        if (result.aseprite) {
+          if (!said) return;
+          // This slot re-renders on save, so say which tag was used in the
+          // toast — especially when it was picked automatically.
+          toast(`${said[0]} Saved to your draft.`);
+          this.refresh();
+          return;
+        }
         if (!result.frames[0]) return;
-        await a.write({ ...a.read(), alt: result.frames[0] });
+        await a.write({ ...a.read(), alt: result.frames[0], altSource: undefined });
         this.dirty = true;
         toast("Second-look art saved to your draft.");
         this.refresh();
@@ -582,7 +686,7 @@ class Studio {
       drop.addEventListener("click", () => {
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = "image/png,image/webp,image/svg+xml,.svg";
+        input.accept = "image/png,image/webp,image/svg+xml,.svg,.aseprite,.ase";
         input.onchange = () => void handleAltFiles([...(input.files ?? [])]);
         input.click();
       });
@@ -593,6 +697,7 @@ class Studio {
         el("div", { className: "st-row" }, swatch),
         drop,
         notes,
+        this.asepriteRow(a, "alt", art.altSource),
         el("div", { className: "st-row" },
           el("button", { className: "st-btn", onclick: () => this.openPixelForAlt(a) }, "✏️ Pixel editor"),
           el("button", { className: "st-btn", onclick: () => this.openShapesForAlt(a) }, "△ Shape editor"),
@@ -688,7 +793,7 @@ class Studio {
       // Tiles repeat edge to edge in every room — show that while painting.
       tiledPreview: !!a.pattern,
       onSave: (frames, fps) => {
-        void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
+        void a.write(withEditedFrames(a.read(), frames, fps)).then(() => { this.dirty = true; this.refresh(); });
       },
     });
   }
@@ -731,7 +836,7 @@ class Studio {
       tiledPreview: true,
       note: `This canvas is one full copy of the pattern. The gold dashed lines show where each 16×16 tile's piece begins — anything you paint crosses into the neighbouring tile in the game. The preview on the right repeats it like a wall does.`,
       onSave: (frames, fps) => {
-        void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
+        void a.write(withEditedFrames(a.read(), frames, fps)).then(() => { this.dirty = true; this.refresh(); });
       },
     });
   }
@@ -762,7 +867,7 @@ class Studio {
         ? "This canvas is one full copy of the pattern. Gold dashed lines = where each 16×16 tile's piece begins. The preview repeats it like a wall does."
         : undefined,
       onSave: (frames, fps) => {
-        void a.write({ ...a.read(), frames, fps }).then(() => { this.dirty = true; this.refresh(); });
+        void a.write(withEditedFrames(a.read(), frames, fps)).then(() => { this.dirty = true; this.refresh(); });
       },
     });
   }

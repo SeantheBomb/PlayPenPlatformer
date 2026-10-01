@@ -21,9 +21,24 @@ export const GROUP_ORDER: AssetGroup[] = ["Characters", "Tiles", "Objects", "Ite
 export interface AssetArt {
   frames: string[];
   fps: number;
+  /** Per-frame ms from an Aseprite import; only kept when it lines up 1:1
+   *  with `frames` (applySpriteArt enforces this). */
+  durations?: number[];
+  /** "file.aseprite#tag" the frames came from, for re-import. */
+  source?: string;
   /** Secondary-state art where the slot supports one (open door, unlit
    *  brazier…) — always a single still. */
   alt?: string;
+  altSource?: string;
+}
+
+/** New frames from an editor touch-up: keep the imported per-frame timing
+ *  only if nothing about the timeline changed (same frame count, same speed
+ *  setting) — otherwise the old durations would describe frames that no
+ *  longer exist, so fall back to the uniform speed she just chose. */
+export function withEditedFrames(prev: AssetArt, frames: string[], fps: number): AssetArt {
+  const keepTiming = frames.length === prev.frames.length && fps === prev.fps;
+  return { ...prev, frames, fps, durations: keepTiming ? prev.durations : undefined };
 }
 
 export interface ArtAsset {
@@ -82,25 +97,37 @@ export function assetStatus(a: ArtAsset): "needs-art" | "custom" | "animated" {
   return "needs-art";
 }
 
-const spriteArt = (s: SpriteFields & { spriteAlt?: string }): AssetArt => ({
+type ArtHost = SpriteFields & { spriteAlt?: string; spriteAltSource?: string };
+
+const spriteArt = (s: ArtHost): AssetArt => ({
   frames: s.spriteFrames?.length ? [...s.spriteFrames] : s.sprite ? [s.sprite] : [],
   fps: s.spriteFps ?? 6,
+  durations: s.spriteDurations ? [...s.spriteDurations] : undefined,
+  source: s.spriteSource,
   alt: s.spriteAlt,
+  altSource: s.spriteAltSource,
 });
 
-function applySpriteArt(s: SpriteFields & { spriteAlt?: string }, art: AssetArt, withAlt: boolean): void {
+function applySpriteArt(s: ArtHost, art: AssetArt, withAlt: boolean): void {
   delete s.sprite;
   delete s.spriteFrames;
   delete s.spriteFps;
+  delete s.spriteDurations;
+  delete s.spriteSource;
   if (art.frames.length > 1) {
     s.spriteFrames = art.frames;
     s.spriteFps = art.fps;
+    // Timing only ever lands when it describes exactly these frames.
+    if (art.durations && art.durations.length === art.frames.length) s.spriteDurations = art.durations;
   } else if (art.frames.length === 1) {
     s.sprite = art.frames[0];
   }
+  if (art.frames.length && art.source) s.spriteSource = art.source;
   if (withAlt) {
     if (art.alt) s.spriteAlt = art.alt;
     else delete s.spriteAlt;
+    if (art.alt && art.altSource) s.spriteAltSource = art.altSource;
+    else delete s.spriteAltSource;
   }
 }
 

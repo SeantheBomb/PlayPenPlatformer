@@ -6,6 +6,9 @@
 //
 // Art fields:
 //   - sprite / spriteFrames / spriteFps  (SpriteFields, on any def)
+//   - spriteDurations                    (per-frame ms from an Aseprite import)
+//   - spriteSource / spriteAltSource     ("file.aseprite#tag" provenance, so a
+//                                         re-dropped source re-applies its tag)
 //   - spriteAlt                          (secondary state: unlit brazier,
 //                                         open door — see room.ts)
 //   - portrait                           (NPC dialog face, room entities)
@@ -24,6 +27,7 @@
 
 export const SPRITE_FIELDS = [
   "sprite", "spriteFrames", "spriteFps", "spriteAlt", "portrait",
+  "spriteDurations", "spriteSource", "spriteAltSource",
   "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
 ];
 const ART_ARRAY_FILES = ["tiles.json", "items.json", "enemies.json", "entities.json"];

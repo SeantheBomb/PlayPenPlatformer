@@ -1,7 +1,9 @@
 // Art Studio import pipeline: turns whatever the artist drops on us —
 // PNG/WebP stills, Aseprite horizontal-strip sheets, numbered frame
-// sequences, GIFs, SVGs — into clean sprite frames (data URIs). All the
-// format smarts live here so the studio UI can stay a dumb drop target.
+// sequences, GIFs, SVGs, and native .aseprite source files — into clean
+// sprite frames (data URIs). All the format smarts live here so the studio
+// UI can stay a dumb drop target.
+import { composeFrame, parseAseprite, type AseImport } from "./aseprite";
 
 export interface ImportResult {
   /** Ready-to-use frames (data URIs). One entry = a still. */
@@ -13,6 +15,11 @@ export interface ImportResult {
   /** Set when a single PNG looks like a horizontal strip (width divides
    *  evenly by height): the studio offers "split into N frames?" */
   stripCandidate?: { uri: string; count: number };
+  /** Set for a native .aseprite/.ase drop: the whole flattened timeline plus
+   *  its tags and per-frame timing. `frames` above holds the whole timeline
+   *  too, so slots that only want a still keep working unchanged; slots that
+   *  animate ask which tag to use (asepick.ts). */
+  aseprite?: AseImport;
 }
 
 const WARN_BYTES = 300 * 1024; // ~300KB: worth a heads-up (bundle size)
@@ -36,7 +43,17 @@ export async function importFiles(files: File[]): Promise<ImportResult> {
     }
     const name = f.name.toLowerCase();
     try {
-      if (name.endsWith(".svg") || f.type === "image/svg+xml") {
+      if (name.endsWith(".aseprite") || name.endsWith(".ase")) {
+        if (sorted.length > 1) {
+          out.errors.push(`Drop "${f.name}" on its own — an Aseprite file already holds every frame, so it can't be mixed with other files.`);
+          continue;
+        }
+        const one = await importAseprite(f);
+        out.frames.push(...one.frames);
+        out.notes.push(...one.notes);
+        out.errors.push(...one.errors);
+        out.aseprite = one.aseprite;
+      } else if (name.endsWith(".svg") || f.type === "image/svg+xml") {
         const one = await importSvg(f);
         out.frames.push(...one.frames);
         out.notes.push(...one.notes);
@@ -59,7 +76,7 @@ export async function importFiles(files: File[]): Promise<ImportResult> {
         }
         out.frames.push(uri);
       } else {
-        out.errors.push(`"${f.name}" isn't an image file I understand (PNG, GIF, WebP, or SVG).`);
+        out.errors.push(`"${f.name}" isn't an image file I understand (PNG, GIF, WebP, SVG, or .aseprite).`);
       }
       if (f.size > WARN_BYTES && f.size <= BLOCK_BYTES) {
         out.notes.push(`"${f.name}" is ${mb(f.size)} — it'll work, but smaller exports keep the game loading fast.`);
@@ -67,6 +84,54 @@ export async function importFiles(files: File[]): Promise<ImportResult> {
     } catch (e) {
       out.errors.push(`Couldn't read "${f.name}" (${(e as Error).message ?? "unknown error"}).`);
     }
+  }
+  return out;
+}
+
+/**
+ * A native Aseprite source file: parse, flatten every frame the way
+ * Aseprite's own export does (visible layers only — verified pixel-exact
+ * against a real export), and hand back the timeline plus its tags. Which tag
+ * lands in which slot is the studio's call, not ours.
+ */
+async function importAseprite(f: File): Promise<ImportResult & { aseprite?: AseImport }> {
+  const out: ImportResult & { aseprite?: AseImport } = { frames: [], notes: [], errors: [] };
+  let file;
+  try {
+    file = await parseAseprite(new Uint8Array(await f.arrayBuffer()));
+  } catch (e) {
+    out.errors.push(`Couldn't read "${f.name}" as an Aseprite file — ${(e as Error).message}.`);
+    return out;
+  }
+  const cv = document.createElement("canvas");
+  cv.width = file.width;
+  cv.height = file.height;
+  const g = cv.getContext("2d")!;
+  const frames: string[] = [];
+  let bytes = 0;
+  for (let i = 0; i < file.frames.length; i++) {
+    const px = composeFrame(file, i);
+    g.putImageData(new ImageData(new Uint8ClampedArray(px), file.width, file.height), 0, 0);
+    const uri = cv.toDataURL("image/png");
+    bytes += uri.length * 0.75;
+    frames.push(uri);
+  }
+  out.frames = frames;
+  out.aseprite = {
+    fileName: f.name, width: file.width, height: file.height,
+    frames, durations: file.frames.map((fr) => fr.duration), tags: file.tags,
+  };
+  const tagText = file.tags.length
+    ? ` — tags: ${file.tags.map((t) => `${t.name} (${t.to - t.from + 1})`).join(", ")}`
+    : "";
+  out.notes.push(`Read “${f.name}”: ${file.frames.length} frame${file.frames.length === 1 ? "" : "s"} at ${file.width}×${file.height}${tagText}.`);
+  const hidden = file.layers.filter((l) => l.type === 0 && !l.visible).map((l) => `“${l.name}”`);
+  if (hidden.length) {
+    out.notes.push(`Hidden layers were left out, same as Aseprite's own export: ${hidden.join(", ")}. Show them in Aseprite to include them.`);
+  }
+  out.notes.push(...file.warnings);
+  if (bytes > WARN_BYTES) {
+    out.notes.push(`All frames together come to ${mb(bytes)} — it'll work, but cropping the canvas tighter in Aseprite keeps the game loading fast.`);
   }
   return out;
 }

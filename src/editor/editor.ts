@@ -25,6 +25,7 @@ import { diffBundles, summarizeDiff, type FileMap } from "../../functions/api/_m
 // preview on the studio's tile page).
 const SPRITE_KEYS = [
   "sprite", "spriteFrames", "spriteFps", "portraits",
+  "spriteDurations", "spriteSource", "spriteAltSource",
   "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
 ];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
@@ -1435,6 +1436,10 @@ class EditorShell {
     const frames = (target.spriteFrames as string[] | undefined)
       ?? (target.sprite ? [target.sprite as string] : []);
     const apply = (newFrames: string[], fps: number) => {
+      // New frames from the editor no longer match an Aseprite import's
+      // per-frame timing or source tag — drop both rather than leave them stale.
+      delete target.spriteDurations;
+      delete target.spriteSource;
       if (newFrames.length > 1) {
         target.spriteFrames = newFrames;
         target.spriteFps = fps;
@@ -1506,6 +1511,8 @@ class EditorShell {
           delete target.sprite;
           delete target.spriteFrames;
           delete target.spriteFps;
+          delete target.spriteDurations;
+          delete target.spriteSource;
           onChanged();
         },
       }, "Clear")

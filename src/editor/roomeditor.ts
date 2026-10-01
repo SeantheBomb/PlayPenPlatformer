@@ -17,7 +17,7 @@ const NPC_W = 12, NPC_H = 16;
 // Fields with a dedicated custom editor below — autoForm's generic
 // per-type rendering would otherwise show a second, redundant (and for
 // loadout, raw-JSON) editor for the same field.
-const SPRITE_KEYS = ["portrait", "sprite", "spriteFrames", "spriteFps", "loadout"];
+const SPRITE_KEYS = ["portrait", "sprite", "spriteFrames", "spriteFps", "spriteDurations", "spriteSource", "loadout"];
 // NPC identity/dialog/quest/gating fields all get edited in the Quest
 // Builder pop-out (questbuilder.ts) instead of autoForm's generic
 // text-input/textarea/JSON widgets — richer UI, more room than the 250px
@@ -978,6 +978,10 @@ export class RoomEditor {
     drawPreview();
     const frames = sel.spriteFrames ?? (sel.sprite ? [sel.sprite] : []);
     const apply = (newFrames: string[], fps: number) => {
+      // New frames from the editor no longer match an Aseprite import's
+      // per-frame timing or source tag — drop both rather than leave them stale.
+      delete sel.spriteDurations;
+      delete sel.spriteSource;
       if (newFrames.length > 1) {
         sel.spriteFrames = newFrames;
         sel.spriteFps = fps;
@@ -1040,6 +1044,8 @@ export class RoomEditor {
           delete sel.sprite;
           delete sel.spriteFrames;
           delete sel.spriteFps;
+          delete sel.spriteDurations;
+          delete sel.spriteSource;
           this.markDirty();
           this.renderInspector();
         },

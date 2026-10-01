@@ -207,6 +207,8 @@ export interface EntityTypeDef extends SpriteFields {
    *  sprite covers the primary state; either alone falls back to procedural
    *  for the state it doesn't cover. */
   spriteAlt?: string;
+  /** Same as `spriteSource`, for the second look. */
+  spriteAltSource?: string;
 }
 
 export type TileStyle =
@@ -225,6 +227,15 @@ export interface SpriteFields {
   sprite?: string;
   spriteFrames?: string[];
   spriteFps?: number;
+  /** Per-frame durations in ms, parallel to `spriteFrames` (from an Aseprite
+   *  import, 2026-10-01). Only honoured when it lines up 1:1 with the frames —
+   *  anything that replaces the frames must drop it, and a stale mismatched
+   *  one is ignored rather than trusted. Cosmetic only, like all sprite art. */
+  spriteDurations?: number[];
+  /** Where this art came from — "file.aseprite#tag" (or just the file for a
+   *  whole timeline). Lets re-dropping an updated source file re-apply the
+   *  same tag, and tells anyone looking where to edit it. */
+  spriteSource?: string;
 }
 
 export interface TileDef extends SpriteFields {

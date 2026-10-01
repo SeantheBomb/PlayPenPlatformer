@@ -145,6 +145,22 @@ describe("overlayArtBundle scope", () => {
     expect(out["recipes.json"]).toEqual([{ id: "r1", output: "torch" }]);
   });
 
+  it("Aseprite timing and provenance publish with the art (the allowlist includes them)", () => {
+    const artist = {
+      "tiles.json": [{
+        id: "spikes", char: "^", damage: 1, color: "#c00",
+        spriteFrames: [px("a"), px("b")], spriteFps: 8, spriteDurations: [300, 50],
+        spriteSource: "spikes.aseprite#idle",
+      }],
+      "entities.json": [{ id: "door", width: 16, height: 32, spriteAlt: px("open"), spriteAltSource: "door.aseprite#Open" }],
+    };
+    const out = overlayArtBundle(liveBundle(), artist) as any;
+    const spikes = out["tiles.json"].find((t: any) => t.id === "spikes");
+    expect(spikes.spriteDurations).toEqual([300, 50]);
+    expect(spikes.spriteSource).toBe("spikes.aseprite#idle");
+    expect(out["entities.json"][0].spriteAltSource).toBe("door.aseprite#Open");
+  });
+
   it("an artist bundle can't introduce new files or new defs", () => {
     const artist = {
       "hacked.json": { anything: true },

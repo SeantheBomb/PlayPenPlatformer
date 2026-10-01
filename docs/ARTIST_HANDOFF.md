@@ -130,6 +130,30 @@ search by name. Click anything to open its page.
 - A second-look section for anything that changes appearance in-game (open/closed,
   lit/unlit, etc.), with its own drop zone and editors.
 
+**Dropping your .aseprite files directly.** You don't have to export PNGs
+first — drop the `.aseprite` itself onto any art slot. The studio flattens it
+exactly the way Aseprite's own export would (hidden layers stay out, blend
+modes and layer opacity come through as you set them) and then:
+
+- **If the file has tags, it asks which one** this slot should use, with each
+  tag playing as a live preview at the timing you set. A file with no tags just
+  uses the whole timeline.
+- **Your frame timing comes through exactly.** A long hold or a quick
+  anticipation frame plays for exactly as long as it does in Aseprite — the
+  speed slider is only there if you'd rather switch to one even speed.
+- **It remembers.** Once a slot has used, say, the `run` tag from
+  `player.aseprite`, just save in Aseprite and drop the file again — the same
+  tag is re-applied without asking. "Use a different tag…" is there if you want
+  to switch.
+- **Second looks pick themselves by name.** Name a tag after the look — `open`
+  for a door, `unlit` for a brazier — and dropping the file on that object's
+  second-look slot uses it automatically.
+- Ping-pong and reverse tags play the way they do in Aseprite.
+
+One thing that doesn't come across yet: **tilemap layers** (Aseprite 1.3's
+tile layers). The studio tells you if a file has one; convert it to a normal
+layer to include it.
+
 **Trying it out:** hit **"Try in game"** any time — the actual game runs right there
 in the studio with your art already in it, before anyone else sees a thing. This is
 your private draft; nothing is visible to players yet.

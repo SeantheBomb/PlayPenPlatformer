@@ -19,11 +19,40 @@ export function getImage(uri: string): HTMLImageElement | null {
 
 export function currentFrame(s: SpriteFields): string | null {
   if (s.spriteFrames && s.spriteFrames.length > 0) {
+    const i = s.spriteDurations
+      ? timedFrameIndex(s.spriteDurations, s.spriteFrames.length, performance.now())
+      : -1;
+    if (i >= 0) return s.spriteFrames[i];
     const fps = s.spriteFps || 6;
-    const i = Math.floor((performance.now() / 1000) * fps) % s.spriteFrames.length;
-    return s.spriteFrames[i];
+    return s.spriteFrames[Math.floor((performance.now() / 1000) * fps) % s.spriteFrames.length];
   }
   return s.sprite ?? null;
+}
+
+/** Cumulative end-times per durations array, so a hot draw path doesn't
+ *  re-sum every frame. Keyed by array identity (content arrays are stable). */
+const durationTotals = new WeakMap<number[], number[]>();
+
+/**
+ * Which frame is showing at `nowMs` under per-frame durations (an Aseprite
+ * import's timing, held exactly — long holds and quick anticipation frames
+ * survive). Returns -1 when the durations can't be trusted (a different
+ * length from the frames, or nothing positive), so callers fall back to the
+ * uniform fps instead of indexing past the end.
+ */
+export function timedFrameIndex(durations: number[], frameCount: number, nowMs: number): number {
+  if (durations.length !== frameCount || frameCount === 0) return -1;
+  let ends = durationTotals.get(durations);
+  if (!ends) {
+    let acc = 0;
+    ends = durations.map((d) => (acc += Math.max(0, d || 0)));
+    durationTotals.set(durations, ends);
+  }
+  const total = ends[ends.length - 1];
+  if (!(total > 0)) return -1;
+  const t = ((nowMs % total) + total) % total;
+  for (let i = 0; i < ends.length; i++) if (t < ends[i]) return i;
+  return ends.length - 1;
 }
 
 /** One cell of an image split into cols×rows equal slices. */

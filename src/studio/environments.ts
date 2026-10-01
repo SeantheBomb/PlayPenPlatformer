@@ -817,7 +817,7 @@ function layerCard(
   // Strip drop zone + shape editor
   const drop = el("div", { className: "st-drop", style: "padding:14px;margin-top:10px" },
     el("div", {}, layer.sprite ? "Drop a new strip to replace this one" : "Drop this layer's strip here — or click to browse"),
-    el("div", { className: "st-hint" }, "PNG or SVG. Make the left and right edges match and it'll repeat seamlessly."));
+    el("div", { className: "st-hint" }, "PNG, SVG or .aseprite (its first frame). Make the left and right edges match and it'll repeat seamlessly."));
   const takeFiles = async (files: File[]) => {
     const result = await importFiles(files);
     if (result.errors.length) { toast(result.errors[0]); return; }
@@ -838,7 +838,7 @@ function layerCard(
   drop.addEventListener("click", () => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/png,image/webp,image/svg+xml,.svg";
+    input.accept = "image/png,image/webp,image/svg+xml,.svg,.aseprite,.ase";
     input.onchange = () => void takeFiles([...(input.files ?? [])]);
     input.click();
   });
@@ -910,7 +910,7 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
         const input = document.createElement("input");
         input.type = "file";
         input.multiple = true;
-        input.accept = "image/png,image/webp,image/svg+xml,.svg";
+        input.accept = "image/png,image/webp,image/svg+xml,.svg,.aseprite,.ase";
         input.onchange = async () => {
           const result = await importFiles([...(input.files ?? [])]);
           if (result.errors.length) { toast(result.errors[0]); return; }
@@ -921,7 +921,10 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
           // swallowed by the fade-around-the-player guard.
           const { camX, camY } = hooks.camera();
           const anchor = propAnchor(layer, camX, camY);
-          for (const [i, uri] of result.frames.entries()) {
+          // A prop is a still: an .aseprite contributes its first frame, not one
+          // prop per animation frame.
+          const uris = result.aseprite ? result.frames.slice(0, 1) : result.frames;
+          for (const [i, uri] of uris.entries()) {
             const size = await imageDims(uri);
             props.push({
               id: uid("prop"), sprite: uri, w: size.w, h: size.h,
@@ -932,7 +935,7 @@ function propsSection(ctx: EnvContext, layer: ParallaxLayer, hooks: LayerCardHoo
           }
           await save(ctx);
           hooks.onStructureChange();
-          toast(`Added ${result.frames.length} prop${result.frames.length === 1 ? "" : "s"} in the middle of the preview — drag to place.`);
+          toast(`Added ${uris.length} prop${uris.length === 1 ? "" : "s"} in the middle of the preview — drag to place.`);
         };
         input.click();
       },
