@@ -314,5 +314,15 @@
       "Wait. WAIT. You got out and you're still — still YOU. That has never once— ...Enjoy the parking lot, #67. It's rendering as fast as I can."
     ],
     "emotion": "shocked"
+  },
+  {
+    "id": "demo_end",
+    "trigger": "demo_end",
+    "cooldownMs": 0,
+    "chance": 1,
+    "lines": [
+      "That's as far as the tour goes, #67. The rest isn't ready for you. Or you aren't ready for it. Leave your name and I'll call you when the doors open."
+    ],
+    "emotion": "smug"
   }
 ]

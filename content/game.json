@@ -89,6 +89,13 @@
     "musicVolume": 0.4,
     "defaultTrackId": "theme_placeholder"
   },
+  "store": {
+    "steamUrl": "",
+    "wishlistLabel": "Wishlist PlayPen on Steam",
+    "fallbackUrl": "",
+    "fallbackLabel": "Coming to Steam — join the Discord",
+    "utmCampaign": "playpen-cta"
+  },
   "hud": {
     "heartsX": 12,
     "heartsY": 12,

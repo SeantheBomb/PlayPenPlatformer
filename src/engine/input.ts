@@ -114,6 +114,10 @@ export class Input {
 
   /** Stop (or resume) reacting to keyboard input — used while the editor
    *  owns the page. Clears held-key state so nothing "sticks" on resume. */
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
   setPaused(p: boolean): void {
     this.paused = p;
     if (p) {

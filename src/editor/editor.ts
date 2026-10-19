@@ -1648,15 +1648,33 @@ class EditorShell {
     const c = this.store.content;
     const panel = el("div", { className: "pp-panel" });
     panel.append(el("p", { className: "pp-hint" },
-      "Room order for a run. Doors with to:\"next\" follow this sequence."));
+      "Room order for a run. Doors with to:\"next\" follow this sequence. " +
+      "Tick \"demo\" on the rooms in the demo slice: the Steam demo (and the web build, " +
+      "if \"onWeb\" is on) ends on a wishlist card when the player leaves the last one."));
+    // Stale campaign files predate the demo block — give it a default to edit.
+    const demo = (c.campaign.demo ??= {
+      rooms: [], onWeb: false, title: "END OF DEMO", subtitle: "",
+    });
+    panel.append(
+      el("div", { className: "pp-sidehead" }, "Demo"),
+      autoForm(demo as unknown as Record<string, unknown>, () => {}, ["rooms"]),
+    );
     const listEl = el("div");
     const rebuild = () => {
       listEl.replaceChildren();
       c.campaign.rooms.forEach((id, i) => {
+        const inDemo = el("input", { type: "checkbox", title: "In the demo slice" }) as HTMLInputElement;
+        inDemo.checked = demo.rooms.includes(id);
+        inDemo.onchange = () => {
+          demo.rooms = inDemo.checked
+            ? [...demo.rooms.filter((r) => r !== id), id]
+            : demo.rooms.filter((r) => r !== id);
+        };
         listEl.append(
           el("div", { className: "pp-row", style: "display:flex;gap:6px;margin:4px 0;align-items:center" },
             el("span", { style: "width:24px;color:#8f87ad" }, String(i + 1)),
             el("span", { style: "flex:1;font-family:monospace" }, id),
+            el("label", { style: "display:flex;gap:3px;align-items:center;color:#8f87ad" }, inDemo, "demo"),
             el("button", {
               className: "pp-btn", onclick: () => {
                 if (i > 0) {

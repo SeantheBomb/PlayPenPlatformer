@@ -23,6 +23,8 @@ import { CraftUI } from "./craftui";
 import { TouchControls, type SmartContext } from "./touch";
 import { Warden } from "./warden";
 import { telemetry } from "./telemetry";
+import { openExternal, storeCta, withUtm, type StorePlacement } from "./storelink";
+import { isDemo, playableRooms } from "./demo";
 import { simNow, setSimTime } from "../engine/simclock";
 import { randomSeed } from "../engine/rng";
 import { itemAttachments, registerFn, type ScriptCtx } from "./behavior";
@@ -40,6 +42,9 @@ export const VIEW_H = 360;
 // Level-select list layout (shared by renderMenu and handleTap hit-testing).
 const LEVELS_TOP = 172;
 const LEVELS_ROW_H = 16;
+/** Baselines of the wishlist CTA line on the pause and win screens (logical px). */
+const STORE_CTA_Y = 340;
+const WIN_CTA_Y = 302;
 
 /** Full-state ground-truth capture cadence — 5s @ 60fps. Frequent enough to
  *  catch a mid-room divergence (see game/replay.ts's applyHeartbeat) well
@@ -118,6 +123,8 @@ export class Game {
   private confirmButtons: OverlayButton[] = [];
   private winShownAt = 0;
   private finishedInMs = 0;
+  /** The win scene is showing the end-of-demo card, not a real escape. */
+  private demoEnded = false;
   private reportUI: import("./report").ReportUI | null = null;
   private emberTimer = 0; // accumulator gating the lit-torch ember trail
 
@@ -130,6 +137,16 @@ export class Game {
     // A replay Game must never see real keyboard/touch input — its Input
     // listens on a detached element and is driven purely by inject().
     this.input = new Input(this.replay ? document.createElement("div") : window);
+    // Wishlist CTA hotkey. Handled inside the real keydown event (not the
+    // polled loop) because browsers only allow window.open during a user
+    // gesture. A replay Game never registers it.
+    if (!this.replay) {
+      window.addEventListener("keydown", (e) => {
+        if (e.code !== "KeyW" || e.repeat || this.input.isPaused) return;
+        const placement = this.storePlacementNow();
+        if (placement) this.openStoreCta(placement);
+      });
+    }
     this.content = content;
     this.taunts = new TauntManager(content.taunts);
     this.taunts.onTauntShown = () => {
@@ -356,7 +373,7 @@ export class Game {
     if (!this.replay) recorder.recordTap(x, y);
     if (this.scene === "menu") {
       if (this.menuMode === "levels") {
-        const rooms = this.content.campaign.rooms;
+        const rooms = playableRooms(this.content.campaign);
         const top = LEVELS_TOP;
         const row = Math.floor((y - top) / LEVELS_ROW_H);
         if (x >= VIEW_W / 2 - 110 && x <= VIEW_W / 2 + 110 && row >= 0 && row < rooms.length) {
@@ -378,6 +395,7 @@ export class Game {
       return;
     }
     if (this.scene === "win") {
+      if (y >= WIN_CTA_Y - 12 && y <= WIN_CTA_Y + 4 && this.openStoreCta("win")) return;
       if (simNow() - this.winShownAt > 1200) this.scene = "menu";
       return;
     }
@@ -405,6 +423,8 @@ export class Game {
         } else if (x >= lx && x <= lx + 200 && y >= 194 && y <= 208) {
           // "X — reset this room"
           this.confirmResetRoom();
+        } else if (y >= STORE_CTA_Y - 12 && y <= STORE_CTA_Y + 4 && this.openStoreCta("pause")) {
+          // wishlist CTA row (only when a store URL is configured)
         } else {
           this.overlay = "none";
         }
@@ -495,7 +515,8 @@ export class Game {
   }
 
   newRun(startRoomId?: string, seed?: number): void {
-    const roomId = startRoomId ?? this.content.campaign.rooms[0];
+    this.demoEnded = false;
+    const roomId = startRoomId ?? playableRooms(this.content.campaign)[0];
     // Seed gameplay randomness for this run; a recorded session stores the
     // seed so its replay rolls the identical taunt sequence.
     this.runSeed = seed ?? randomSeed();
@@ -705,7 +726,7 @@ export class Game {
 
   private updateMenu(): void {
     if (this.menuMode === "levels") {
-      const rooms = this.content.campaign.rooms;
+      const rooms = playableRooms(this.content.campaign);
       if (this.input.navUp) {
         this.levelSel = (this.levelSel + rooms.length - 1) % rooms.length;
         sfx.play("uiMove");
@@ -737,6 +758,7 @@ export class Game {
 
   private updateWin(): void {
     this.taunts.update();
+    if (this.input.justPressed("GpInteract")) this.openStoreCta("win");
     if (simNow() - this.winShownAt > 1200 && this.input.confirmPressed) {
       this.scene = "menu";
     }
@@ -788,6 +810,8 @@ export class Game {
         this.confirmResetRoom();
         return;
       }
+      // Gamepad wishlist (keyboard W is handled in the keydown listener).
+      if (this.input.justPressed("GpInteract")) this.openStoreCta("pause");
       if (this.input.pausePressed) this.overlay = "none";
       if (this.input.justPressed("KeyM")) {
         sfx.muted = !sfx.muted;
@@ -1359,6 +1383,12 @@ export class Game {
     }
     if (e.def.gate) return; // opened gates are just passable
     const target = e.def.to === "next" || !e.def.to ? this.nextRoomId() : e.def.to;
+    // Demo builds stop at the edge of the slice.
+    if (target && isDemo(this.content.campaign) && !playableRooms(this.content.campaign).includes(target)) {
+      sfx.play("door");
+      this.endDemo();
+      return;
+    }
     if (target) {
       sfx.play("door");
       if (!this.replay) telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
@@ -1864,6 +1894,21 @@ export class Game {
     this.player.restore(hb.player);
   }
 
+  /** Same card as the win screen, but it sells the full game instead. */
+  private endDemo(): void {
+    if (!this.replay) {
+      telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
+      telemetry.event("demo_end", { room: this.currentRoomId });
+      recorder.end("demo_end", this);
+    }
+    this.finishedInMs = simNow() - this.state.stats.startedAt;
+    this.scene = "win";
+    this.demoEnded = true;
+    this.winShownAt = simNow();
+    sfx.play("win");
+    this.taunts.fire("demo_end");
+  }
+
   private winGame(): void {
     if (!this.replay) {
       telemetry.roomComplete(this.currentRoomId, Date.now() - this.roomEnteredAt);
@@ -2132,6 +2177,8 @@ export class Game {
       ctx.fillText(`${scheme === "touch" ? "tap" : "X"} — reset this room (if stuck)`, VIEW_W / 2 - 70, 204);
       ctx.fillStyle = "#8f87ad";
       ctx.fillText("CONTROLS", VIEW_W / 2 - 70, 222);
+      this.drawStoreCta(ctx, STORE_CTA_Y);
+      ctx.font = "10px monospace";
       const controls = scheme === "touch"
         ? [
             "◀ ▶ .......... move",
@@ -2187,7 +2234,7 @@ export class Game {
     ctx.fillText(g.subtitle, (VIEW_W - sw) / 2, 152);
 
     if (this.menuMode === "levels") {
-      const rooms = this.content.campaign.rooms;
+      const rooms = playableRooms(this.content.campaign);
       ctx.font = "10px monospace";
       rooms.forEach((id, i) => {
         const name = this.content.rooms[id]?.name ?? id;
@@ -2311,8 +2358,14 @@ export class Game {
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     ctx.fillStyle = "#9be8b0";
     ctx.font = "bold 30px monospace";
-    const t = "YOU ESCAPED";
+    const demo = this.demoEnded ? this.content.campaign.demo : undefined;
+    const t = demo ? demo.title : "YOU ESCAPED";
     ctx.fillText(t, (VIEW_W - ctx.measureText(t).width) / 2, 90);
+    if (demo?.subtitle) {
+      ctx.font = "11px monospace";
+      ctx.fillStyle = "#e8e2f4";
+      ctx.fillText(demo.subtitle, (VIEW_W - ctx.measureText(demo.subtitle).width) / 2, 108);
+    }
 
     const s = this.state.stats;
     const mins = Math.floor(this.finishedInMs / 60000);
@@ -2364,6 +2417,41 @@ export class Game {
       this.input.scheme === "touch" ? "tap — back to menu" :
       "Enter — back to menu";
     ctx.fillText(p, (VIEW_W - ctx.measureText(p).width) / 2, 320);
+    this.drawStoreCta(ctx, WIN_CTA_Y);
+  }
+
+  // =========================================================================
+  // Wishlist CTA (content: game.json `store`; see storelink.ts)
+  // =========================================================================
+
+  /** Which CTA placement is on screen right now, if any. */
+  private storePlacementNow(): StorePlacement | null {
+    if (this.scene === "win") return this.demoEnded ? "demo_end" : "win";
+    if (this.scene === "play" && this.overlay === "pause") return "pause";
+    return null;
+  }
+
+  /** Opens the configured store/community link. False when none is set (or
+   *  in replay), so callers can fall through to their normal handling. */
+  private openStoreCta(placement: StorePlacement): boolean {
+    if (this.replay) return false;
+    const store = this.content.game.store;
+    const cta = storeCta(store);
+    if (!cta) return false;
+    openExternal(withUtm(cta.url, placement, store.utmCampaign));
+    telemetry.event("store_click", { item: placement });
+    sfx.play("uiSelect");
+    return true;
+  }
+
+  private drawStoreCta(ctx: CanvasRenderingContext2D, y: number): void {
+    const cta = storeCta(this.content.game.store);
+    if (!cta) return;
+    const key = this.input.scheme === "touch" ? "tap" : this.input.scheme === "gamepad" ? "X" : "W";
+    const text = `${key} — ${cta.label}`;
+    ctx.font = "bold 10px monospace";
+    ctx.fillStyle = "#ffd166";
+    ctx.fillText(text, (VIEW_W - ctx.measureText(text).width) / 2, y);
   }
 
   // =========================================================================

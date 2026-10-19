@@ -11,5 +11,16 @@
     "mess_hall",
     "exit_wing",
     "the_long_run"
-  ]
+  ],
+  "demo": {
+    "rooms": [
+      "orientation",
+      "storage",
+      "vents",
+      "cell_block"
+    ],
+    "onWeb": false,
+    "title": "END OF DEMO",
+    "subtitle": "The rest of the facility is still being... prepared."
+  }
 }

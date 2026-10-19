@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -40,6 +40,13 @@ ipcMain.handle("content:delete", (_ev, relPath) => {
   const full = safeContentPath(relPath);
   if (fs.existsSync(full)) fs.unlinkSync(full);
   return true;
+});
+
+// Store / community links from the in-game CTA. http(s) only — never hand
+// the OS an arbitrary scheme from renderer input.
+ipcMain.handle("shell:open-external", (_ev, url) => {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return;
+  return shell.openExternal(url);
 });
 
 function createWindow() {

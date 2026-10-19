@@ -93,6 +93,17 @@ export interface GameConfig {
     /** tracks.json id used by any room that doesn't set its own `track`. */
     defaultTrackId?: string;
   };
+  /** "Wishlist on Steam" call to action (pause menu, win screen, demo end).
+   *  Shown only once a URL is set: steamUrl wins; before the Steam page
+   *  exists, fallbackUrl (e.g. a Discord invite) stands in. */
+  store: {
+    steamUrl: string;
+    wishlistLabel: string;
+    fallbackUrl: string;
+    fallbackLabel: string;
+    /** utm_campaign on Steam links (source = build flavor, medium = placement). */
+    utmCampaign: string;
+  };
   /** HUD layout — editable in the editor's "game" tab, no code changes needed. */
   hud: {
     heartsX: number; heartsY: number; heartSpacing: number;
@@ -361,7 +372,7 @@ export type TauntTrigger =
   | "craft_fail" | "first_craft" | "craft_item" | "idle"
   | "hide_enter" | "npc_help" | "confiscate" | "warden_chase" | "win"
   | "first_ignite" | "first_melt" | "first_extinguish"
-  | "first_freeze" | "first_shatter" | "first_dissolve";
+  | "first_freeze" | "first_shatter" | "first_dissolve" | "demo_end";
 
 // ---- Achievements ----
 
@@ -531,6 +542,16 @@ export interface RoomDef {
 
 export interface CampaignDef {
   rooms: string[];
+  /** Demo slice (Steam demo app; the browser build too when onWeb is on).
+   *  Leaving the last demo room ends the demo on a wishlist card instead of
+   *  loading the next room. Optional: stale campaign files predate it. */
+  demo?: {
+    rooms: string[];
+    /** Play playpen.pages.dev as the demo slice (Steam demo is always demo). */
+    onWeb: boolean;
+    title: string;
+    subtitle: string;
+  };
 }
 
 /**

@@ -33,6 +33,7 @@ export const TRIGGER_LABELS: { id: TauntTrigger; label: string; hint: string }[]
   { id: "confiscate", label: "Between rooms — confiscation", hint: "He takes everything. Nursery vocabulary on a prison concept." },
   { id: "warden_chase", label: "The chase", hint: "No dialog mid-run is readable at speed — keep it to the start." },
   { id: "win", label: "Escaping", hint: "The win line. Arc-critical: exactly one, and it carries the thesis." },
+  { id: "demo_end", label: "End of the demo", hint: "Shown over the wishlist card when the demo slice runs out. A cliffhanger, not a goodbye." },
 ];
 
 function portraitStrip(ctx: WriterContext): HTMLElement {

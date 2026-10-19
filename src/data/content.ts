@@ -12,6 +12,8 @@ declare global {
       readAllContent(): Promise<Record<string, string>>;
       writeContent(relPath: string, text: string): Promise<boolean>;
       deleteContent(relPath: string): Promise<boolean>;
+      /** Opens an http(s) URL in the system browser. */
+      openExternal?(url: string): Promise<void>;
     };
   }
 }
