@@ -41,6 +41,8 @@ function terseMeta(meta) {
     x: meta.tainted ? 1 : 0,
     v: meta.dev ? 1 : 0,
     m: String(meta.scheme ?? "").slice(0, 10),
+    h: Array.isArray(meta.highlights) ? meta.highlights.length : 0,
+    pl: String(meta.platform ?? "").slice(0, 12),
   };
 }
 

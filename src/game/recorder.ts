@@ -94,6 +94,7 @@ export interface SessionMeta {
   viewport: { w: number; h: number; compact: boolean };
   ua: string;
   platform?: string;   // browser | electron | steam | steam-demo (absent on older sessions)
+  highlights?: number[]; // steps where a chain reaction happened (clip candidates)
   finalX?: number;     // player position at end — replay drift diagnostic
   finalY?: number;
 }
@@ -281,6 +282,13 @@ class Recorder {
 
   markDeath(): void {
     if (this.meta) this.meta.deaths++;
+  }
+
+  /** A clip-worthy moment (see Game.noteChainReaction), at the current step. */
+  markHighlight(): void {
+    if (!this.meta) return;
+    const h = (this.meta.highlights ??= []);
+    if (h.length < 50) h.push(this.tag());
   }
 
   /** Force an upload now (e.g. room transitions) instead of waiting on the timer/threshold. */

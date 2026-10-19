@@ -45,6 +45,10 @@ const LEVELS_ROW_H = 16;
 /** Baselines of the wishlist CTA line on the pause and win screens (logical px). */
 const STORE_CTA_Y = 340;
 const WIN_CTA_Y = 302;
+/** Chain-reaction highlight detection (analytics, not gameplay). */
+const CHAIN_WINDOW_MS = 3000;
+const CHAIN_MIN_REACTIONS = 3;
+const CHAIN_COOLDOWN_MS = 8000;
 
 /** Full-state ground-truth capture cadence — 5s @ 60fps. Frequent enough to
  *  catch a mid-room divergence (see game/replay.ts's applyHeartbeat) well
@@ -123,6 +127,13 @@ export class Game {
   private confirmButtons: OverlayButton[] = [];
   private winShownAt = 0;
   private finishedInMs = 0;
+  /** Sim times of recent element interactions — clip-worthy chain reactions. */
+  private recentReactions: number[] = [];
+  private lastHighlightAt = -Infinity;
+  /** What last damaged the player — names the death cause for taunts. */
+  private lastHurtBy: { cause: string; element?: string } | null = null;
+  /** Deaths since entering the current room (Nth-death taunts). */
+  private roomDeaths = 0;
   /** The win scene is showing the end-of-demo card, not a real escape. */
   private demoEnded = false;
   private reportUI: import("./report").ReportUI | null = null;
@@ -516,6 +527,8 @@ export class Game {
 
   newRun(startRoomId?: string, seed?: number): void {
     this.demoEnded = false;
+    this.recentReactions = [];
+    this.lastHighlightAt = -Infinity;
     const roomId = startRoomId ?? playableRooms(this.content.campaign)[0];
     // Seed gameplay randomness for this run; a recorded session stores the
     // seed so its replay rolls the identical taunt sequence.
@@ -569,6 +582,7 @@ export class Game {
 
   loadRoom(roomId: string): void {
     if (!this.rebuildRoom(roomId)) return;
+    if (roomId !== this.currentRoomId) this.roomDeaths = 0;
     this.currentRoomId = roomId;
     this.roomEnteredAt = Date.now();
     if (!this.replay) {
@@ -724,6 +738,35 @@ export class Game {
     this.render();
   }
 
+  /** True while captureFrame is drawing: touch buttons stay out of the shot. */
+  private capturing = false;
+
+  /** Render the current frame into an offscreen canvas at store-screenshot
+   *  size (default 1920x1080 = an integer 3x of the 640x360 view), with no
+   *  touch UI. In-game UI (Warden banners, HUD) stays — Steam allows it in
+   *  screenshots. Pure read: no sim state changes, safe mid-replay. */
+  captureFrame(width = 1920, height = 1080, into?: HTMLCanvasElement): HTMLCanvasElement {
+    // `into` lets a video recorder reuse one canvas per frame.
+    const out = into ?? document.createElement("canvas");
+    if (out.width !== width) out.width = width;
+    if (out.height !== height) out.height = height;
+    const saved = {
+      ctx: this.ctx, scale: this.viewScale, ox: this.viewOx, oy: this.viewOy, compact: this.compact,
+    };
+    try {
+      this.ctx = out.getContext("2d")!;
+      const scale = Math.min(width / VIEW_W, height / VIEW_H);
+      this.setViewport(scale, (width - VIEW_W * scale) / 2, (height - VIEW_H * scale) / 2, false);
+      this.capturing = true;
+      this.render();
+    } finally {
+      this.capturing = false;
+      this.ctx = saved.ctx;
+      this.setViewport(saved.scale, saved.ox, saved.oy, saved.compact);
+    }
+    return out;
+  }
+
   private updateMenu(): void {
     if (this.menuMode === "levels") {
       const rooms = playableRooms(this.content.campaign);
@@ -865,7 +908,8 @@ export class Game {
     if (ev.spikeDamage > 0) {
       // Repelling hazards report the tile's center so knockback pushes AWAY
       // from it (centerX would always shove rightward — hurt()'s sign(0)||1).
-      this.damagePlayer(ev.spikeDamage, ev.repelFromX ?? this.player.centerX, "spikes");
+      this.damagePlayer(ev.spikeDamage, ev.repelFromX ?? this.player.centerX,
+        ev.damageTile?.id ?? "spikes", ev.damageTile?.element);
     }
     if (ev.poppedBalloons) {
       // Plain contact pops them too, not just a tool swing — pure whimsy,
@@ -893,7 +937,7 @@ export class Game {
           this.state.bump("selfZaps");
           this.checkAchievements("counter");
         }
-        this.damagePlayer(1, this.player.centerX, hazard);
+        this.damagePlayer(1, this.player.centerX, hazard === "burning" ? "fire" : "spark");
       }
       // Carried-item behaviors (doused_in_liquid: standing in water reverts
       // lit torches / quenches carried lava, wherever they sit in the pack).
@@ -970,7 +1014,7 @@ export class Game {
           });
           this.floaty("Drowning!", this.player.centerX, this.player.y - 10, "#ff5470");
           if (this.state.health <= 0) {
-            this.killPlayer();
+            this.killPlayer("drown");
             return;
           }
         }
@@ -1059,7 +1103,7 @@ export class Game {
         // behavior). Blind bodily hazards like crawlers hurt you regardless.
         if (inSmoke && this.roomRt.isSightHunter(en.def)) continue;
         if (rectsOverlap(prect, { x: en.x, y: en.y, w: en.def.width, h: en.def.height })) {
-          this.damagePlayer(en.def.damage, en.x + en.def.width / 2, "enemy");
+          this.damagePlayer(en.def.damage, en.x + en.def.width / 2, en.def.id);
           break;
         }
       }
@@ -1221,7 +1265,7 @@ export class Game {
       ) {
         if (this.warden.mode === "boss") {
           this.state.health = 0;
-          this.killPlayer();
+          this.killPlayer("warden");
           this.warden.dissipate();
           this.wardenSpawnAt = simNow() + 1500;
         } else {
@@ -1233,7 +1277,7 @@ export class Game {
 
     // ---- Fell out of the world (shouldn't happen, but be kind) ----
     if (this.player.y > this.roomRt.map.pixelHeight + 80) {
-      this.killPlayer();
+      this.killPlayer("fall");
     }
 
     // ---- Camera (zoomed view on phones; bias the action up-screen so the
@@ -1581,6 +1625,7 @@ export class Game {
         // flowing through this handler (enemy_kill, energize, fuse, ...).
         if (counterName && !this.replay) {
           telemetry.event("interaction", { room: this.currentRoomId, extra: { effect: ev.effect, element: ev.element } });
+          this.noteChainReaction();
         }
       }
       switch (ev.effect) {
@@ -1732,8 +1777,9 @@ export class Game {
     return { ...this.throwVelocityAt(t), t };
   }
 
-  private damagePlayer(amount: number, fromX: number, _source: string): void {
+  private damagePlayer(amount: number, fromX: number, source: string, element?: string): void {
     const g = this.content.game;
+    this.lastHurtBy = { cause: source, element };
     this.state.health -= amount;
     this.player.hurt(fromX, g.player.invulnMs);
     sfx.play("hurt");
@@ -1746,9 +1792,11 @@ export class Game {
     if (this.state.health <= 0) this.killPlayer();
   }
 
-  private killPlayer(): void {
+  private killPlayer(override?: string): void {
+    const hurt = override ? { cause: override } : this.lastHurtBy ?? { cause: "unknown" };
     const g = this.content.game;
     this.state.stats.deaths++;
+    this.roomDeaths++;
     sfx.play("death");
     if (!this.replay) {
       telemetry.death(this.currentRoomId);
@@ -1779,12 +1827,17 @@ export class Game {
         if (idx >= 0) this.state.selectedConsumable = idx;
       }
     }
+    const why = {
+      cause: hurt.cause, causeElement: hurt.element,
+      roomDeaths: this.roomDeaths, roomId: this.currentRoomId,
+    };
     if (this.state.hasDiedOnce) {
-      this.taunts.fire("death");
+      this.taunts.fire("death", why);
     } else {
       this.state.hasDiedOnce = true;
-      this.taunts.fire("first_death");
+      this.taunts.fire("first_death", why);
     }
+    this.lastHurtBy = null;
     const cp = this.state.checkpoint;
     if (cp.roomId !== this.currentRoomId) {
       this.loadRoom(cp.roomId);
@@ -1894,6 +1947,21 @@ export class Game {
     this.player.restore(hb.player);
   }
 
+  /** Three or more element reactions inside a few seconds is the moment a
+   *  trailer wants (fire melts ice, water floods, the pool goes live). Marks
+   *  it on the recorded session so the editor's sessions tab can jump to
+   *  it. Observation only: sim time, no state change, never in replay. */
+  private noteChainReaction(): void {
+    const now = simNow();
+    this.recentReactions = this.recentReactions.filter((t) => now - t <= CHAIN_WINDOW_MS);
+    this.recentReactions.push(now);
+    if (this.recentReactions.length < CHAIN_MIN_REACTIONS) return;
+    if (now - this.lastHighlightAt < CHAIN_COOLDOWN_MS) return;
+    this.lastHighlightAt = now;
+    recorder.markHighlight();
+    telemetry.event("chain_reaction", { room: this.currentRoomId, ms: this.recentReactions.length });
+  }
+
   /** Same card as the win screen, but it sells the full game instead. */
   private endDemo(): void {
     if (!this.replay) {
@@ -1948,7 +2016,7 @@ export class Game {
     // since restore() only rewinds to the post-viewTransform save point.
     if (
       this.scene === "play" && this.overlay === "none" &&
-      this.input.scheme === "touch"
+      this.input.scheme === "touch" && !this.capturing
     ) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.touch.draw(ctx);

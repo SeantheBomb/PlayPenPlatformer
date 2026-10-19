@@ -19,6 +19,9 @@ export interface PlayerFrameEvents {
   landSpeed: number;
   bounced?: TileHit;
   spikeDamage: number;
+  /** The damaging tile behind spikeDamage — its element (fire, lava...) or
+   *  id names the death cause for the Warden's reaction lines. */
+  damageTile?: { id: string; element?: string };
   /** Center-x of a repelling hazard tile overlapped this frame — knockback
    *  should push away from HERE, not from the player's own center. */
   repelFromX?: number;
@@ -405,6 +408,7 @@ export class Player {
         this.vx = clamp(this.vx, -speedCap, speedCap);
       }
       if (hit.def.damage && !this.invulnerable) {
+        if (hit.def.damage >= ev.spikeDamage) ev.damageTile = { id: hit.def.id, element: hit.def.element };
         ev.spikeDamage = Math.max(ev.spikeDamage, hit.def.damage);
       }
       // Fire repels via a static tile flag; electrified water is dynamic —

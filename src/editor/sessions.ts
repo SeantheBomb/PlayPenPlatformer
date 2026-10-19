@@ -18,6 +18,7 @@ import { el, toast } from "./forms";
 import { ReplayDriver, type SessionData } from "../game/replay";
 import type { RoomSegment } from "../game/recorder";
 import { openReportDetail } from "./reports";
+import { clipButton } from "./clipexport";
 
 interface ReportMarker { step: number; id: string; type: string; message: string; }
 
@@ -34,6 +35,8 @@ interface Row {
   x?: number;  // tainted (bot)
   v?: number;  // dev
   m?: string;  // scheme
+  h?: number;  // chain-reaction highlights
+  pl?: string; // platform (browser / electron / steam / steam-demo)
 }
 
 interface WatchItem {
@@ -86,7 +89,8 @@ export async function openSessionReplay(
     if (driver.playing) { driver.pause(); playBtn.textContent = "▶"; }
     else { driver.play(); playBtn.textContent = "⏸"; }
   };
-  const closeModal = () => { driver.dispose(); modal.remove(); };
+  const clip = clipButton(() => driver, () => `playpen-${id}`, (s) => { driver.speed = s; });
+  const closeModal = () => { clip.stopIfRecording(); driver.dispose(); modal.remove(); };
   const modal = el("div", { className: "pp-pixmodal" },
     el("div", { className: "pp-pixpanel", style: "width:720px;max-width:95vw" },
       el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
@@ -95,13 +99,14 @@ export async function openSessionReplay(
       ),
       canvas,
       el("div", { style: "display:flex;gap:8px;align-items:center;margin-top:8px" },
-        playBtn, timeEl
+        playBtn, timeEl, clip.button
       ),
       el("div", { style: "display:flex;gap:14px;align-items:center;margin-top:6px" }, roomEl)
     )
   );
   document.body.append(modal);
   driver.onFrame = () => {
+    clip.onFrame();
     const secs = Math.floor(driver.step / 60);
     timeEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} / ${fmtDur(driver.totalSteps)}`;
     roomEl.textContent = `room: ${driver.game.currentRoomId}`;
@@ -122,6 +127,7 @@ export function renderSessionsTab(
   let filterDone = "all";
   let filterPid = "";
   let showBots = false;
+  let onlyHighlights = false;
 
   const auth = () => ({ "x-editor-password": localStorage.getItem(passKey) ?? "" });
 
@@ -151,6 +157,13 @@ export function renderSessionsTab(
       onchange: (e) => { showBots = (e.target as HTMLInputElement).checked; renderList(); },
     }),
     " show bot/dev sessions"
+  );
+  const highlightsToggle = el("label", { className: "pp-hint", title: "Sessions with 3+ element reactions inside 3 s — clip candidates" },
+    el("input", {
+      type: "checkbox",
+      onchange: (e) => { onlyHighlights = (e.target as HTMLInputElement).checked; renderList(); },
+    }),
+    " ★ chain reactions only"
   );
   const watchAllBtn = el("button", {
     className: "pp-btn",
@@ -184,6 +197,7 @@ export function renderSessionsTab(
       if (filterDone === "win" && !r.w) return false;
       if (filterDone === "lost" && r.w) return false;
       if (filterPid && !(r.p ?? "").includes(filterPid)) return false;
+      if (onlyHighlights && !r.h) return false;
       return true;
     });
   }
@@ -204,6 +218,8 @@ export function renderSessionsTab(
       badges.push("🧱 stuck early");
     }
     if (!r.w && (r.s ?? 0) < 60 * 20) badges.push("🚪 bounced");
+    if (r.h) badges.push(`★ ${r.h} chain${r.h === 1 ? "" : "s"}`);
+    if (r.pl && r.pl !== "browser") badges.push(`[${r.pl}]`);
     return badges;
   }
 
@@ -365,6 +381,11 @@ export function renderSessionsTab(
         const x1 = (p.to / driver.totalSteps) * w;
         tctx.fillRect(x0, 0, Math.max(1, x1 - x0), h);
       }
+      tctx.fillStyle = "#ffd166";
+      for (const s of highlights) {
+        const hx = (s / driver.totalSteps) * w;
+        tctx.fillRect(hx - 1, h - 6, 2, 6);
+      }
       tctx.fillStyle = "#ff6b6b";
       for (const m of markers) {
         const mx = (m.step / driver.totalSteps) * w;
@@ -393,6 +414,15 @@ export function renderSessionsTab(
       if (driver.playing) { driver.pause(); playBtn.textContent = "▶"; }
       else { driver.play(); playBtn.textContent = "⏸"; }
     };
+    // Chain-reaction highlights (gold ticks): jump to the next one with a
+    // 2 s lead-in so a recorded clip catches the setup, not just the payoff.
+    let highlights: number[] = [];
+    const nextHighlightBtn = el("button", { className: "pp-btn", style: "display:none", title: "Jump to the next chain reaction" }, "★ next chain");
+    nextHighlightBtn.onclick = () => {
+      if (!driver) return;
+      const next = highlights.find((s) => s - 120 > driver!.step + 30) ?? highlights[0];
+      if (next !== undefined) driver.seek(Math.max(0, next - 120));
+    };
     let speed = 1;
     const speedBtn = el("button", { className: "pp-btn" }, "1x");
     speedBtn.onclick = () => {
@@ -401,7 +431,13 @@ export function renderSessionsTab(
       if (driver) driver.speed = speed;
     };
 
+    const clip = clipButton(
+      () => driver,
+      () => `playpen-${queue[qi]?.id ?? "replay"}`,
+      (s) => { speed = s; speedBtn.textContent = `${s}x`; if (driver) driver.speed = s; },
+    );
     const closeModal = () => {
+      clip.stopIfRecording();
       driver?.dispose();
       modal.remove();
       tooltip.remove();
@@ -444,7 +480,7 @@ export function renderSessionsTab(
           playBtn, speedBtn, timeline, timeEl
         ),
         el("div", { style: "display:flex;gap:14px;align-items:center;margin-top:6px;flex-wrap:wrap" },
-          roomEl, keysEl, driftEl, skipIdleBtn, reportBtn,
+          roomEl, keysEl, driftEl, skipIdleBtn, reportBtn, nextHighlightBtn, clip.button,
           queue.length > 1 ? nextBtn : el("span", {})
         )
       )
@@ -486,9 +522,12 @@ export function renderSessionsTab(
         }
       }
       driver = new ReplayDriver(data, canvas);
+      highlights = [...((data.meta as { highlights?: number[] }).highlights ?? [])].sort((a, b) => a - b);
+      nextHighlightBtn.style.display = highlights.length ? "" : "none";
       driver.speed = speed;
       driver.onFrame = () => {
         const d = driver!;
+        clip.onFrame();
         drawTimeline();
         const secs = Math.floor(d.step / 60);
         timeEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} / ${fmtDur(d.totalSteps)}`;
@@ -537,7 +576,7 @@ export function renderSessionsTab(
       "replay — watch any of them below, exactly as they happened. Sessions " +
       "upload in chunks while playing, so even abandoned runs appear."),
     el("div", { style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0" },
-      roomSelect, doneSelect, pidInput, botsToggle,
+      roomSelect, doneSelect, pidInput, botsToggle, highlightsToggle,
       el("button", { className: "pp-btn", onclick: () => void load() }, "↻ refresh"),
       watchAllBtn
     ),

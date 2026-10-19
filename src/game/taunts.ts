@@ -6,6 +6,18 @@ import { Rng, randomSeed } from "../engine/rng";
 import { simNow } from "../engine/simclock";
 import { sfx } from "../engine/audio";
 
+/** What a trigger knows about the moment it fired — filters on TauntDef
+ *  (roomId, itemId, cause, roomDeaths) match against it. */
+export interface TauntContext {
+  roomId?: string;
+  itemId?: string;
+  /** Tile id / enemy id / "spark" / "drown" / "fall" / "warden". */
+  cause?: string;
+  /** The damaging tile's element, so "lava" also covers lavafall. */
+  causeElement?: string;
+  roomDeaths?: number;
+}
+
 export interface ActiveTaunt {
   line: string;
   emotion: WardenEmotion;
@@ -31,19 +43,34 @@ export class TauntManager {
     this.rng.reseed(seed);
   }
 
-  fire(trigger: TauntTrigger, ctx: { roomId?: string; itemId?: string } = {}): void {
+  fire(trigger: TauntTrigger, ctx: TauntContext = {}): void {
+    // One reaction per death, most specific first: "Nth time in this room"
+    // beats "killed by X" beats the generic pool. With no specific taunts
+    // authored, the generic loop draws the RNG exactly as it always has.
+    if (this.fireMatching(trigger, ctx, (t) => t.roomDeaths !== undefined)) return;
+    if (this.fireMatching(trigger, ctx, (t) => t.roomDeaths === undefined && t.cause !== undefined)) return;
+    this.fireMatching(trigger, ctx, (t) => t.roomDeaths === undefined && t.cause === undefined);
+  }
+
+  private fireMatching(trigger: TauntTrigger, ctx: TauntContext, include: (t: TauntDef) => boolean): boolean {
     const now = simNow();
+    let fired = false;
     for (const t of this.taunts) {
       if (t.removed) continue; // deleted from the Writers Studio (a tombstone, see TauntDef)
       if (t.trigger !== trigger) continue;
+      if (!include(t)) continue;
       if (t.roomId && t.roomId !== ctx.roomId) continue;
       if (t.itemId && t.itemId !== ctx.itemId) continue;
+      if (t.cause !== undefined && t.cause !== ctx.cause && t.cause !== ctx.causeElement) continue;
+      if (t.roomDeaths !== undefined && t.roomDeaths !== ctx.roomDeaths) continue;
       const last = this.lastFired.get(t.id) ?? -Infinity;
       if (now - last < t.cooldownMs) continue;
       if (this.rng.next() > (t.chance ?? 1)) continue;
       this.lastFired.set(t.id, now);
       this.queue.push({ line: this.rng.pick(t.lines), emotion: t.emotion ?? "smug" });
+      fired = true;
     }
+    return fired;
   }
 
   /** Queue a specific line directly (achievement reactions, scripted beats). */

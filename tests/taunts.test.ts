@@ -75,3 +75,55 @@ describe("TauntManager queueing", () => {
     expect(m.held).toBe(false);
   });
 });
+
+// Failure reactions (Steam dev plan 1.3): comedy lands on the player's
+// failure, so a death can name its cause and a room can count its deaths.
+// A matching specific line plays INSTEAD of the generic death pool.
+describe("TauntManager death reactions", () => {
+  beforeEach(() => at(0));
+  const lines = (m: TauntManager) => {
+    const out: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      m.update();
+      if (!m.active) break;
+      out.push(m.active.line);
+      at(now + m.active.duration + 1);
+    }
+    return out;
+  };
+  const pool = [
+    taunt("death", "death", "Generic."),
+    taunt("death_lava", "death", "Lava is not a puddle.", { cause: "lava" }),
+    taunt("death_third", "death", "Third time here.", { roomDeaths: 3 }),
+  ];
+
+  it("a cause-specific line replaces the generic pool", () => {
+    const m = new TauntManager(pool);
+    m.fire("death", { cause: "lava", roomDeaths: 1 });
+    expect(lines(m)).toEqual(["Lava is not a puddle."]);
+  });
+
+  it("cause matches the tile's element too (lavafall counts as lava)", () => {
+    const m = new TauntManager(pool);
+    m.fire("death", { cause: "lavafall", causeElement: "lava", roomDeaths: 1 });
+    expect(lines(m)).toEqual(["Lava is not a puddle."]);
+  });
+
+  it("the Nth death in a room gets its own line", () => {
+    const m = new TauntManager(pool);
+    m.fire("death", { cause: "spikes", causeElement: "metal", roomDeaths: 3 });
+    expect(lines(m)).toEqual(["Third time here."]);
+  });
+
+  it("only one reaction per death: Nth-in-room beats cause", () => {
+    const m = new TauntManager(pool);
+    m.fire("death", { cause: "lava", roomDeaths: 3 });
+    expect(lines(m)).toEqual(["Third time here."]);
+  });
+
+  it("with nothing specific matching, the generic pool plays as before", () => {
+    const m = new TauntManager(pool);
+    m.fire("death", { cause: "spikes", roomDeaths: 2 });
+    expect(lines(m)).toEqual(["Generic."]);
+  });
+});

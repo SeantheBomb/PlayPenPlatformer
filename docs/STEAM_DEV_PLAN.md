@@ -8,7 +8,20 @@ Art is out of scope (Casey + Miranda own the visual redefinition). Everything he
 engineering, content-production or tooling work that the Steam plan depends on. Items are
 numbered so they can be approved or cut one at a time.
 
-## Where PlayPen stands today (inventory, 2026-10-19)
+## Progress
+
+- **2026-10-19 — Phase 0 and Phase 1 shipped** (0.1–0.4, 1.1–1.4). Deferred from 1.3:
+  "solved by the other solution" reactions need per-gate solution tracking. Vertical
+  crops for 1.2 go through MediaWeaver.
+- **First playtime read (0.1), and the biggest finding so far.** 274 sessions, 4 full
+  wins, all predating the dev/bot flag, so dev runs are mixed in. The campaign's first
+  clears sum to **~18.5 min typical and ~7.5 min fast (p10)**. The longest room is
+  mess_hall at ~8 min median. That is roughly a 10x gap to the 4–6 h target and far
+  under the 2 h refund line. **3.1 is the critical-path content problem for an
+  Aug 2027 launch**, so the length plan should be settled early rather than in Phase 3.
+  Re-run `npm run analytics` once organic flagged sessions accumulate.
+
+## Where PlayPen stood (inventory, 2026-10-19)
 
 | Area | State | Steam gap |
 |---|---|---|

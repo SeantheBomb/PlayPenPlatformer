@@ -429,6 +429,14 @@ export interface TauntDef {
   emotion?: WardenEmotion; // portrait face shown with the banner (default smug)
   roomId?: string; // filter for room_enter
   itemId?: string; // filter for craft_item
+  /** death / first_death filter: what killed the player — a tile id or that
+   *  tile's element (fire, lava, spikes...), "spark" (live charge), "drown",
+   *  "fall", "warden", or an enemy id. A matching line plays INSTEAD of the generic
+   *  death pool. */
+  cause?: string;
+  /** death filter: only on exactly the Nth death since entering this room
+   *  (e.g. 3 = "third time here"). Also replaces the generic pool. */
+  roomDeaths?: number;
   /** Deleted from the Writers Studio. A tombstone rather than a splice:
    *  both the bundled-defaults merge and the writer publish scope treat an
    *  ABSENT taunt as "keep the existing one", so removal has to be stated.

@@ -195,6 +195,40 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   redo both on a new computer; the KV namespace IDs themselves are already in
   `wrangler.toml` (committed) and need no changes.
 
+## Steam prep (docs/STEAM_DEV_PLAN.md — launch Aug 16 2027)
+
+- **Build flavor** (`src/platform.ts`): `VITE_PLAYPEN_FLAVOR=steam|steam-demo` at
+  build time, else "electron" inside the shell / "browser". Telemetry batches, session
+  meta and bug reports all carry `platform`; telemetry batches also carry `dev`/`bot`
+  (the recorder's verdict) so `npm run analytics` counts organic play only by default
+  (`--all`, `--platform=steam`). A Steam build is file:// but is NOT a dev session —
+  only the unflavored desktop shell is. `analytics.mjs` pulls KV with `kv bulk get` in
+  100-key chunks and skips cached batches; its PLAYTIME table (first-clear p10/median/
+  p90 per room + campaign sum vs the 2 h refund line) is the length gate for the paid game.
+- **Wishlist CTA** (`game.json store`, `src/game/storelink.ts`): shown on pause, win and
+  demo-end only once a URL is set (steamUrl wins, fallbackUrl e.g. Discord before the
+  page exists). W is handled in the real `keydown` event, not the polled loop —
+  browsers only allow `window.open` during a user gesture. Electron opens via the
+  `shell:open-external` IPC (http/https only). Replay Games never open links. Steam
+  links get `utm_source=playpen-<platform>&utm_medium=<placement>`.
+- **Demo scope** (`campaign.json demo`, `src/game/demo.ts`): the steam-demo flavor —
+  or the web build when `demo.onWeb` is on, or any browser build with `?demo` — ends on
+  the wishlist card (taunt trigger `demo_end`) when a door leads outside `demo.rooms`;
+  level select lists only demo rooms. `campaign.json` is assigned flat in `assemble()`,
+  so `demo` is optional and every reader must tolerate it missing.
+- **Death reactions** (TauntDef `cause` / `roomDeaths`): `killPlayer` knows the cause
+  (tile id + element, "spark", "drown", "fall", "warden", enemy id) and the Nth death
+  since entering the room. ONE line per death: roomDeaths match > cause match > the
+  generic pool. With no specific taunts authored the generic pool draws the RNG exactly
+  as before (pinned in `tests/taunts.test.ts`).
+- **Capture + clips**: `Game.captureFrame(w, h, into?)` (F9 downloads a PNG, `PP.capture()`
+  returns one) swaps ctx/viewport for one render and restores them — pure read, safe
+  mid-replay, no touch UI. The sessions tab's replay modal has "⏺ record clip"
+  (`src/editor/clipexport.ts`, 1080p WebM, forces 1x) and "★ next chain": 3+ element
+  reactions within 3 s mark `meta.highlights` steps (`Game.noteChainReaction`, never in
+  replay) and a `chain_reaction` telemetry event; the list filters on them. Vertical
+  reframing for Shorts is a MediaWeaver job, not in-game.
+
 ## Session replay (deterministic input-replay telemetry)
 
 - Every real (non-bot) playsession records automatically: the content bundle as
@@ -258,7 +292,10 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   tab won't render a fresh frame anyway). Instead run `npm run dev-receiver` (writes to
   `./shots/`, gitignored) and from the page:
   `fetch("http://localhost:5199/some_name", { method: "POST", body: canvas.toDataURL("image/png") })`,
-  then Read the PNG it wrote.
+  then Read the PNG it wrote. **Prefer `PP.capture()`** as the body: it renders the
+  current frame offscreen at 1920x1080 (`Game.captureFrame`), so it works even when the
+  pane is hidden and the live canvas is 1x1 — `canvas.toDataURL` there is a 1px image.
+  (An already-running receiver on :5199 makes a second `dev-receiver` exit; that's fine.)
 - When testing multiple sequential `javascript_exec` calls in the same devtools
   session, wrap each in an `(() => { ... })()` IIFE — top-level `const`/`let` persist
   across separate calls and a repeated name throws `SyntaxError: already declared`.

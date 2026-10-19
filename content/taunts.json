@@ -157,6 +157,107 @@
     "emotion": "bored"
   },
   {
+    "id": "death_fire",
+    "trigger": "death",
+    "cause": "fire",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "Hot. We covered hot in orientation, #67.",
+      "Fire is for looking at. That's in the handbook. Page one."
+    ],
+    "emotion": "smug"
+  },
+  {
+    "id": "death_lava",
+    "trigger": "death",
+    "cause": "lava",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "Lava is not a puddle. I've updated your file.",
+      "You waded into the orange one. Bold. Wrong, but bold."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "death_spark",
+    "trigger": "death",
+    "cause": "spark",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "You touched the live one. I could hear your hair from here."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "death_drown",
+    "trigger": "death",
+    "cause": "drown",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "Swimming lessons are Thursdays. You missed them. Every Thursday."
+    ],
+    "emotion": "bored"
+  },
+  {
+    "id": "death_spikes",
+    "trigger": "death",
+    "cause": "spikes",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "Pointy end first. Every single time, #67."
+    ],
+    "emotion": "smug"
+  },
+  {
+    "id": "death_crawler",
+    "trigger": "death",
+    "cause": "crawler",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "The crawler sends its regards. It's very proud of itself."
+    ],
+    "emotion": "proud"
+  },
+  {
+    "id": "death_spotter",
+    "trigger": "death",
+    "cause": "spotter",
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "It saw you. That's literally its only job, and it's great at it."
+    ],
+    "emotion": "smug"
+  },
+  {
+    "id": "death_room_3",
+    "trigger": "death",
+    "roomDeaths": 3,
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "Third time in this room. I'm naming the stain after you."
+    ],
+    "emotion": "gleeful"
+  },
+  {
+    "id": "death_room_6",
+    "trigger": "death",
+    "roomDeaths": 6,
+    "cooldownMs": 20000,
+    "chance": 1,
+    "lines": [
+      "Six. I've stopped resetting the furniture for you, #67."
+    ],
+    "emotion": "bored"
+  },
+  {
     "id": "craft_fail",
     "trigger": "craft_fail",
     "cooldownMs": 12000,

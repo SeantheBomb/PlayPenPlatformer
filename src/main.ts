@@ -191,6 +191,15 @@ async function boot() {
       debugMenu.open();
     }
   };
+  // F9: store-grade screenshot (1920x1080, no touch UI) saved as a PNG.
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "F9" || e.repeat) return;
+    e.preventDefault();
+    const a = document.createElement("a");
+    a.href = game.captureFrame().toDataURL("image/png");
+    a.download = `playpen-${game.currentRoomId || "menu"}-${Date.now()}.png`;
+    a.click();
+  });
   window.addEventListener("keydown", (e) => {
     if (e.code !== "Backquote") return;
     const tag = (e.target as HTMLElement)?.tagName;
@@ -204,6 +213,8 @@ async function boot() {
     game,
     store,
     recorder,
+    /** Store-grade frame as a PNG data URL (default 1920x1080). */
+    capture: (w?: number, h?: number) => game.captureFrame(w, h).toDataURL("image/png"),
     give: (id: string, n = 1) => {
       recorder.taint("debug-give"); // state mutated outside real play = bot session
       return game.state?.add(id, n);

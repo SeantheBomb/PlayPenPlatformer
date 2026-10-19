@@ -91,7 +91,9 @@ export function fieldOptionsFor(content: Content): (key: string) => string[] | u
     avatar: ["blocky", "scribble", "plush", "trophy", "windup"],
     trigger: ["game_start", "room_enter", "first_death", "death", "craft_fail",
       "first_craft", "craft_item", "idle", "hide_enter", "npc_help",
-      "confiscate", "warden_chase", "win", "pickup_item", "counter"],
+      "confiscate", "warden_chase", "win", "pickup_item", "counter", "demo_end"],
+    cause: ["fire", "lava", "spark", "drown", "fall", "warden", "spikes",
+      ...content.enemies.map((e) => e.id)],
     emotion: ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"],
   };
   return (key) => map[key];
