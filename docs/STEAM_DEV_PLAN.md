@@ -20,6 +20,9 @@ numbered so they can be approved or cut one at a time.
   under the 2 h refund line. **3.1 is the critical-path content problem for an
   Aug 2027 launch**, so the length plan should be settled early rather than in Phase 3.
   Re-run `npm run analytics` once organic flagged sessions accumulate.
+- **2026-10-19 — 3.1 length plan drafted** in `docs/LENGTH_PLAN.md` (awaiting Sean's
+  item-by-item approval): 4 wings / 31 rooms (20 new), ~3 h critical path + optional depth
+  → ~5 h median, ~2.5 h fast.
 
 ## Where PlayPen stood (inventory, 2026-10-19)
 
