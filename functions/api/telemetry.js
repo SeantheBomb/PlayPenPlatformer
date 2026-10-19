@@ -5,6 +5,7 @@
 // Batches auto-expire after 90 days so the namespace doesn't grow forever.
 
 const MAX_EVENTS = 500;
+const PLATFORMS = new Set(["browser", "electron", "steam", "steam-demo"]);
 const TTL_SECONDS = 90 * 24 * 60 * 60;
 
 // The Electron build posts here cross-origin (from a file:// window), which
@@ -33,12 +34,22 @@ export async function onRequestPost(context) {
       room: e.room != null ? String(e.room).slice(0, 60) : undefined,
       item: e.item != null ? String(e.item).slice(0, 60) : undefined,
       ms: e.ms != null ? Number(e.ms) || 0 : undefined,
+      // interaction events carry { effect, element }; analytics reads effect.
+      extra: e.extra && typeof e.extra === "object"
+        ? {
+            effect: e.extra.effect != null ? String(e.extra.effect).slice(0, 30) : undefined,
+            element: e.extra.element != null ? String(e.extra.element).slice(0, 30) : undefined,
+          }
+        : undefined,
     }));
     if (events.length === 0) return json({ ok: true, stored: 0 });
     const id = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const record = {
       id,
       sessionId: String(body.sessionId ?? "unknown").slice(0, 64),
+      platform: PLATFORMS.has(body.platform) ? body.platform : "unknown",
+      dev: body.dev === true,
+      bot: body.bot === true,
       receivedAt: new Date().toISOString(),
       events,
     };

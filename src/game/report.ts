@@ -5,6 +5,7 @@
 // localStorage instead of being lost.
 import type { Game } from "./game";
 import { recorder } from "./recorder";
+import { PLATFORM } from "../platform";
 
 export const APP_VERSION = "0.3.0";
 
@@ -168,6 +169,7 @@ export class ReportUI {
         stats: g.state?.stats ?? null,
         scheme: g.input.scheme,
         appVersion: APP_VERSION,
+        platform: PLATFORM,
         viewport: { w: window.innerWidth, h: window.innerHeight },
         screenshot: downscale(canvas, 480),
         sessionId: correlate.sessionId,

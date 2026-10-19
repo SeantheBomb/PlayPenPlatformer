@@ -3,6 +3,8 @@
 import { store } from "./data/content";
 import { Game } from "./game/game";
 import { recorder } from "./game/recorder";
+import { telemetry } from "./game/telemetry";
+import { PLATFORM } from "./platform";
 import { startVersionCheck } from "./versioncheck";
 
 async function boot() {
@@ -17,6 +19,13 @@ async function boot() {
   // input transition; sessions surface in the editor's "sessions" tab.
   recorder.contentFiles = () => store.allFiles();
   recorder.apiBase = location.protocol === "file:" ? "https://playpen.pages.dev" : "";
+  // Telemetry batches carry the same dev/bot verdict so analytics can count
+  // organic play only (the recorder owns the taint rules).
+  telemetry.flags = () => ({
+    dev: recorder.isDev || location.hostname === "localhost" ||
+      (location.protocol === "file:" && PLATFORM === "electron"),
+    bot: recorder.isTainted,
+  });
   game.input.onTransition = (code, down, trusted) =>
     recorder.onInputTransition(code, down, trusted);
 

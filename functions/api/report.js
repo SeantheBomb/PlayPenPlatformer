@@ -45,6 +45,7 @@ export async function onRequestPost(context) {
       stats: body.stats ?? null,
       scheme: body.scheme ?? null,
       appVersion: body.appVersion ?? null,
+      platform: typeof body.platform === "string" ? body.platform.slice(0, 20) : null,
       userAgent: request.headers.get("user-agent") ?? null,
       viewport: body.viewport ?? null,
       screenshot: typeof body.screenshot === "string" ? body.screenshot.slice(0, 3_000_000) : null,

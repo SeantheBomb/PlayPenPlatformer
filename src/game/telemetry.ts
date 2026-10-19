@@ -4,6 +4,8 @@
 // swallowed and the batch is dropped — telemetry must never affect play.
 // No PII: a random per-session id, event names, room ids, item ids, durations.
 
+import { PLATFORM } from "../platform";
+
 interface TelemetryEvent {
   t: string; // event type
   at: number; // ms since session start
@@ -36,6 +38,9 @@ export class Telemetry {
   private timer: ReturnType<typeof setInterval> | null = null;
   private endpoint = "/api/telemetry";
   enabled = true;
+  /** Set by main.ts: whether this session is dev/collaborator or tainted
+   *  (scripted input, PP.give/warp). Lets analytics count organic play only. */
+  flags: () => { dev: boolean; bot: boolean } = () => ({ dev: false, bot: false });
 
   constructor() {
     try {
@@ -79,11 +84,21 @@ export class Telemetry {
     this.event("collect", { room, item });
   }
 
+  private safeFlags(): { dev: boolean; bot: boolean } {
+    try {
+      return this.flags();
+    } catch {
+      return { dev: false, bot: false };
+    }
+  }
+
   private flush(useBeacon = false): void {
     if (this.queue.length === 0) return;
     const payload = JSON.stringify({
       sessionId: this.sessionId,
       sentAt: new Date().toISOString(),
+      platform: PLATFORM,
+      ...this.safeFlags(),
       events: this.queue,
     });
     this.queue = [];

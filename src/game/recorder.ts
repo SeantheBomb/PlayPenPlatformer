@@ -19,6 +19,7 @@ import type { CraftPointerOp } from "./craftui";
 import type { StateSnapshot } from "./state";
 import type { PlayerSnapshot } from "./player";
 import type { EnemySnapshot, FluidRuntimeSnapshot } from "./room";
+import { PLATFORM } from "../platform";
 
 export type CraftOp = CraftPointerOp;
 
@@ -92,6 +93,7 @@ export interface SessionMeta {
   scheme: string;
   viewport: { w: number; h: number; compact: boolean };
   ua: string;
+  platform?: string;   // browser | electron | steam | steam-demo (absent on older sessions)
   finalX?: number;     // player position at end — replay drift diagnostic
   finalY?: number;
 }
@@ -183,16 +185,29 @@ class Recorder {
         win: false,
         endReason: "(open)",
         tainted: false,
-        dev: this.devFlag || location.protocol === "file:" || location.hostname === "localhost",
+        // An unflavored desktop build is Sean's dev shell; a Steam build is
+        // also file:// but is a real player, so the flavor decides.
+        dev: this.devFlag || location.hostname === "localhost" ||
+          (location.protocol === "file:" && PLATFORM === "electron"),
         scheme: game.input.scheme,
         viewport: {
           w: Math.round(window.innerWidth), h: Math.round(window.innerHeight),
           compact: Math.min(window.innerWidth, window.innerHeight) < 500,
         },
         ua: navigator.userAgent.slice(0, 160),
+        platform: PLATFORM,
       };
       this.timer = setInterval(() => this.flush(false), FLUSH_MS);
     } catch { /* never break play */ }
+  }
+
+  /** True once anything has marked this session non-organic. */
+  get isTainted(): boolean {
+    return this.meta?.tainted ?? false;
+  }
+  /** Dev/collaborator session (editor opened, localhost, file://). */
+  get isDev(): boolean {
+    return this.devFlag || (this.meta?.dev ?? false);
   }
 
   taint(reason: string): void {
