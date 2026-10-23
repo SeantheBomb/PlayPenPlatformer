@@ -80,8 +80,12 @@
       "npcId": "marla",
       "avatar": "blocky",
       "color": "#7fb069",
-      "dialogAsk": "New kid! Don't touch my pile. ...Okay, you can touch the pile. It's mostly lids. I'm XxMARLAxX. I had a base once — different world, square trees, better lids. Can't find the file. When I get the right stuff I'm building a door out of here. A GOOD one. With hinges. Find me in the Bunk Room if you make it that far.",
-      "dialogAfter": "The pile stays. The pile is LOAD-BEARING."
+      "dialogAsk": "Please… I’m so hungry. The Warden won’t bring me any food. I had a base once — different world, square trees, so many sheep. Can't find the file. There’s plenty of water… but no food. Please help. Find me in the Bunk Room if you make it that far.",
+      "dialogAfter": "The pile stays. The pile is LOAD-BEARING.",
+      "rewardItems": [],
+      "rewardRecipes": [],
+      "requiresHelped": [],
+      "hiddenIfHelped": []
     }
   ]
 }

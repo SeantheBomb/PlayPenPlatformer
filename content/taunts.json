@@ -6,7 +6,7 @@
     "chance": 1,
     "lines": [
       "Rise and shine, Subject #67! Welcome to the PlayPen. Your playtime has just begun. ",
-      "Don’t mind the lack of a door. I’m on my way to let you out."
+      "Don’t mind the lack of a door. It's for your own safety. I’m on my way to let you out."
     ],
     "emotion": "smug"
   },
@@ -148,11 +148,11 @@
     "cooldownMs": 8000,
     "chance": 0.9,
     "lines": [
-      "You dropped your things back there. Litterbug.",
-      "That's coming out of your snack privileges. Which are zero. So.",
-      "The floor is not your friend. Nothing here is your friend.",
-      "Subject #46 lasted longer. And #46 was a mop.",
-      "Try again. That's not encouragement, that's a description of your situation."
+      "Did you see the light? No? Oof... that does not sound good for you.",
+      "That one looked painful. Good.",
+      "Welcome back! See, I told you it all get's easier. ",
+      "You know, you make the cutest sounds when you die. ",
+      "No, no, no. That deat was boring. Lets try again."
     ],
     "emotion": "bored"
   },
@@ -263,9 +263,9 @@
     "cooldownMs": 12000,
     "chance": 0.6,
     "lines": [
-      "Fascinating combination. Truly. Write that down and then throw it away.",
-      "That's not a recipe, that's a cry for help.",
-      "I love watching you do science."
+      "Tell me, what exactly did you think that would do?",
+      "I'm sure that would make perfect sense... if I was stupid. ",
+      "Try it again, maybe it will work if you believe it hard enough."
     ],
     "emotion": "smug"
   },
@@ -285,7 +285,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Combustion! Unauthorized, but conceptually impressive. Try not to enjoy that, #67."
+      "Congratulations, #67, you discovered fire. ",
+      "You now possesses the scientific know how of a caveman. "
     ],
     "emotion": "gleeful"
   },
@@ -295,7 +296,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "You melted facility property. That's... actually kind of elegant. Don't tell the others."
+      "Hey! I was saving that ice for a lovely sculpture. ",
+      "I was planning to carve it to commemorate your demise. "
     ],
     "emotion": "shocked"
   },
@@ -305,7 +307,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Fire's out. Mood's ruined. Well done, I suppose."
+      "Look at this, apparently #67 is a volunteer firefighter. ",
+      "I'll add that to your resume."
     ],
     "emotion": "annoyed"
   },
@@ -315,7 +318,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Frozen solid. Very tidy. I do appreciate tidy, #67."
+      "Wow, It's not like you to freeze up, #67.",
+      "Did they get it? I don't think they got it. "
     ],
     "emotion": "smug"
   },
@@ -325,7 +329,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Oh, you BROKE it. Noted. Your chart's getting thicker."
+      "Please refrain from breaking Playpen property. ",
+      "I'm taking the cost of that out of your weekly allowance. Trust me, you aren't allowed very much. "
     ],
     "emotion": "shocked"
   },
@@ -335,7 +340,8 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "Dissolved on contact. Like my patience, lately."
+      "Isn't science fun! I love dissolving things too. ",
+      "Fun fact! I dissolved #48! For purely scientific reasons, of course. "
     ],
     "emotion": "annoyed"
   },
@@ -346,7 +352,7 @@
     "cooldownMs": 0,
     "chance": 1,
     "lines": [
-      "You made a SOCK PUPPET? Oh, this is the best day of my career. He stays. Forever."
+      "Hey. Only I'm allowed to make new residents for the playpen. That sock puppet is an unregistered participant!"
     ],
     "emotion": "proud"
   },
@@ -388,9 +394,9 @@
     "cooldownMs": 15000,
     "chance": 0.8,
     "lines": [
-      "Your belongings have been confiscated and donated to the toy chest. You're welcome.",
-      "New room, new you. The old you's things are facility property now.",
-      "We have a strict no-outside-toys policy between rooms. The policy is me."
+      "Did I forget to mention? The doors empty your pockets. No theft in the playpen! ",
+      "Hope you weren't planning to hold on to that stuff. Your pockets were looking too heavy.",
+      "Reminder, I have a strict no-outside-toys policy between rooms. I prefer no inside toys either. "
     ],
     "emotion": "smug"
   },
@@ -400,9 +406,9 @@
     "cooldownMs": 10000,
     "chance": 1,
     "lines": [
-      "Where are you GOING? We were bonding.",
-      "RUN ALL YOU LIKE. I am the building.",
-      "I made this place SAFE. Why won't you let it be SAFE?"
+      "Where are you GOING? You arn't DONE yet!",
+      "RUN ALL YOU LIKE. This is MY Play Pen. There's NO WHERE TO RUN TO. ",
+      "I made this place PERFECT. Why can't I make YOU PERFECT too!?"
     ],
     "emotion": "gleeful"
   },

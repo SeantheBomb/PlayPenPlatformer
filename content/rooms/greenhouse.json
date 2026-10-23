@@ -161,7 +161,10 @@
       "npcId": "marla",
       "avatar": "blocky",
       "color": "#7fb069",
-      "dialogAsk": "Don't say anything. The scribble kid was juggling my good lids, and I LET him. He's... actually good at it? This is the worst room for me, emotionally."
+      "dialogAsk": "Don't say anything. The scribble kid was juggling my good lids, and I LET him. He's... actually good at it? This is the worst room for me, emotionally.",
+      "rewardItems": [],
+      "rewardRecipes": [],
+      "hiddenIfHelped": []
     },
     {
       "type": "npc",

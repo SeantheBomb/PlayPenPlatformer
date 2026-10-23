@@ -141,7 +141,10 @@
       "npcId": "marla",
       "avatar": "blocky",
       "color": "#7fb069",
-      "dialogAsk": "I checked this door for hinges. It has NOTHING. It's a door-shaped lie. ...Get out anyway. And when you find the real one? Dibs."
+      "dialogAsk": "I checked this door for hinges. It has NOTHING. It's a door-shaped lie. ...Get out anyway. And when you find the real one? Dibs.",
+      "rewardItems": [],
+      "rewardRecipes": [],
+      "hiddenIfHelped": []
     },
     {
       "type": "npc",

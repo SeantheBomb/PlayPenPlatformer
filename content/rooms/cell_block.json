@@ -66,7 +66,9 @@
       "dialogDone": "Trade's a trade: spores in a sock. Shake it and everything nearby takes a nap. I used one on a creeper once. ...I think? It was green, and it hissed. Anyway. Poof.",
       "dialogAfter": "If you find a door with hinges out there — a REAL one — tell it I called dibs.",
       "npcId": "marla",
-      "avatar": "blocky"
+      "avatar": "blocky",
+      "requiresHelped": [],
+      "hiddenIfHelped": []
     },
     {
       "type": "pickup",
