@@ -680,4 +680,29 @@ export interface Content {
   campaign: CampaignDef;
   rooms: Record<string, RoomDef>;
   layers: LayersFile;
+  script: ScriptDoc;
+}
+
+// ---- Master Script (content/script.json) ----
+
+/** The Writers Studio's own file: never read by the game. Writer-owned
+ *  (functions/api/_writerscope.js takes it wholesale from a writer publish),
+ *  merged per nested key like game.json. */
+export interface ScriptDoc {
+  /** Writer's notes per scene (room id) — continuity, ideas, questions for
+   *  Sean. Studio-only; nothing in the game shows them. */
+  notes: Record<string, string>;
+  /** The last text written in the Master Script for each story event, by the
+   *  event's stable key (see src/studio/script.ts). Only consulted when the
+   *  event no longer exists — that's how a line Sean's change left without a
+   *  moment shows up under "Lines without a place" instead of vanishing. */
+  lines: Record<string, ScriptLine>;
+}
+
+export interface ScriptLine {
+  text: string;
+  /** Human label for the tray: "XxMARLAxX · FIRST TALK · The Blanket Fort". */
+  label: string;
+  roomId?: string;
+  npcId?: string;
 }

@@ -22,6 +22,9 @@
 //   achievements.json per id: name, description, wardenLine, emotion
 //   items.json        per id: description
 //   recipes.json      per id: flavor
+//   script.json       wholly writer-owned (the Master Script's writer's notes
+//                     + line ledger) — nothing in the game reads it, so it's
+//                     taken as the writer sent it, like layers.json for art
 
 export const NPC_STORY_FIELDS = [
   "name", "dialogAsk", "dialogConfirm", "dialogDone", "dialogAfter",
@@ -36,6 +39,8 @@ export const STORY_ARRAY_FILES = {
   "items.json": ["description"],
   "recipes.json": ["flavor"],
 };
+
+export const WRITER_OWNED_FILES = ["script.json"];
 
 /** Copy the listed fields from `src` onto a clone of `dst`. A field absent
  *  on src is DELETED — clearing a quest ("wants" removed) must publish. */
@@ -88,7 +93,8 @@ function overlayRoom(liveRoom, writerRoom) {
 
 /** live + writer bundle -> new bundle with only story fields taken from the
  *  writer. Files the writer bundle lacks pass through untouched; files only
- *  the writer has are IGNORED (a writer can't introduce new files). */
+ *  the writer has are IGNORED (a writer can't introduce new files) — except
+ *  WRITER_OWNED_FILES, which land even before live has them. */
 export function overlayStoryBundle(liveFiles, writerFiles) {
   const out = {};
   for (const [name, liveVal] of Object.entries(liveFiles)) {
@@ -96,8 +102,14 @@ export function overlayStoryBundle(liveFiles, writerFiles) {
     if (writerVal === undefined) { out[name] = liveVal; continue; }
     const fields = STORY_ARRAY_FILES[name];
     if (fields) out[name] = overlayIdArray(liveVal, writerVal, fields);
+    else if (WRITER_OWNED_FILES.includes(name)) out[name] = writerVal;
     else if (name.startsWith("rooms/")) out[name] = overlayRoom(liveVal, writerVal);
     else out[name] = liveVal; // game.json, tiles, rules, layers, … — never writer-writable
+  }
+  // A writer-owned file live doesn't have yet (first publish after the
+  // feature ships) still needs to land — the loop only walks live's files.
+  for (const name of WRITER_OWNED_FILES) {
+    if (out[name] === undefined && writerFiles[name] !== undefined) out[name] = writerFiles[name];
   }
   return out;
 }

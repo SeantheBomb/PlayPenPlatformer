@@ -26,8 +26,9 @@ export const ID_ARRAY_FILES = new Set([
  *  merging for free; each set's `layers` array stays atomic (an array hits
  *  `pick`), which is the right grain — two people restacking the same set's
  *  layers concurrently is a genuine conflict, and last-publisher-wins is the
- *  established call there. */
-export const DEEP_OBJECT_FILES = new Set(["game.json", "layers.json"]);
+ *  established call there. script.json (the Master Script's notes + line
+ *  ledger) is keyed by room / event key, so two writers' notes merge too. */
+export const DEEP_OBJECT_FILES = new Set(["game.json", "layers.json", "script.json"]);
 
 export function deepEqual(a, b) {
   if (a === b) return true;

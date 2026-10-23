@@ -130,6 +130,8 @@ function assemble(files: Record<string, unknown>): Content {
     // field existed still gets the bundled default for it instead of handing
     // the renderer an undefined it reads every frame.
     layers: deepDefaults(BUNDLED["layers.json"], files["layers.json"]) as Content["layers"],
+    // Writers Studio notes + line ledger: nested-key merge, same reasoning.
+    script: deepDefaults(BUNDLED["script.json"] ?? { notes: {}, lines: {} }, files["script.json"]) as Content["script"],
   };
 }
 
@@ -159,6 +161,7 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   out["taunts.json"] = c.taunts;
   out["tracks.json"] = c.tracks;
   out["layers.json"] = c.layers;
+  out["script.json"] = c.script;
   return out;
 }
 

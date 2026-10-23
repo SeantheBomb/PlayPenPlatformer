@@ -343,6 +343,21 @@ art, or game rules even by accident. Log in once; the browser remembers you.
 - **Notes** — the diary scraps, by room, with the recipe each one teaches.
 - **Hints** — the faint in-world tutorial strings.
 - **Items** — item one-liners and recipe flavor.
+- **Master Script** — the whole campaign as one screenplay, scene by scene in
+  play order. Capitals are what the game does (generated from the levels
+  themselves, so they're always true); the dialogue column is yours, and it's
+  the same text the other pages edit — change it in either place. Each scene
+  opens on a wide shot of the real level, and each meeting, note and recipe
+  gets a storyboard frame drawn by the game. Branches read like alternate
+  takes: shaded blocks happen only on some runs, the Exit Wing send-offs sit
+  beside their (still empty) "if not helped" side, and the coloured lines in
+  the margin are story threads — from where #67 helps a resident to every
+  beat that depends on it (a red dot means a payoff now comes before its
+  setup). "Read the run where…" shows one specific run. When Sean reorders
+  levels or moves people, a banner says what changed, your lines stay with
+  their moments, and anything that may read differently is flagged; a line
+  whose moment is gone waits under "Lines without a place" until you rehome
+  or discard it. Writer's notes on each scene are for you and Sean only.
 
 **Seeing a line land.** Type in a box and the real dialog box or Warden banner
 next to it updates as you go — real portrait, real typewriter, real wrap. Small

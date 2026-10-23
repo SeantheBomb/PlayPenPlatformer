@@ -95,6 +95,31 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   absent taunt as "keep the existing one"; `TauntManager.fire` skips it and
   the page lists it under Removed with a restore. Pinned in
   `tests/taunts.test.ts` + `tests/writer-publish.test.ts`.
+- **Master Script (2026-10-22, Lorne's ask)**: the Writers Studio's 📖 tab —
+  the whole campaign as one screenplay in campaign order. `src/studio/
+  script.ts` is the PURE model (no DOM), pinned by `tests/master-script.
+  test.ts`; `scriptview.ts` draws it; `storyboard.ts` draws frames through
+  the real `RoomRuntime` + `drawMap` (spawn gating resolved for the run being
+  read). Every editable beat carries a STABLE EVENT KEY — `npc:<room>:<npcId>
+  [#n]:<slot>`, `note:<room>@<x>,<y>` (the writer scope's own match),
+  `taunt:<id>` — never a scene number or position; that's what makes
+  reorders/moves harmless. Edits write the SAME content fields the other
+  studio pages edit (`writeTarget`) — never a second copy of the words. It
+  mirrors game.ts: a talk-only NPC can never be helped, so its
+  `dialogAfter` is flagged dead, not shown as a beat. Branches: a gated
+  group is a branch block; a single-resident `requiresHelped` gate is an
+  IF-HELPED / IF-NOT alternate (empty side = "ask Sean" — writers can't
+  create entities); each quest-giver's helped flag is a margin thread from
+  JUST DONE to every gated beat, red dot = payoff before setup. New file
+  `content/script.json` (`ScriptDoc`: writer's notes per room + a line
+  LEDGER by event key): never read by the game, wholly writer-owned
+  (`WRITER_OWNED_FILES` in `_writerscope.js`), merged per nested key
+  (`DEEP_OBJECT_FILES`). The ledger is only consulted for keys that no
+  longer exist → "Lines without a place" (rehome / discard). "Since you
+  last looked" (moved scenes, new first meetings, room-name continuity
+  flags) diffs against a per-viewer signature in localStorage. Textareas
+  are fitted by a setTimeout + ResizeObserver pass (`fitAll`), NOT rAF —
+  rAF never fires in a background tab and a detached textarea measures 0.
 - **Taunt sequencing**: `newRun` fires `game_start` BEFORE `loadRoom` (which
   fires the room's `room_enter`) — the queue plays in fire order, and the
   other way round had the first room greeting the player before the welcome.

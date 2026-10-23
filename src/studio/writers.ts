@@ -17,6 +17,7 @@ import { castView, characterView, buildCast, castHealth } from "./characters";
 import { wardenView } from "./warden";
 import { hintsView, itemsView, notesView } from "./lore";
 import { stopLinePreviews } from "./linepreview";
+import { scriptView } from "./scriptview";
 
 const PASS_KEY = "playpen.writer.password";
 const SEEN_KEY = "playpen.writer.welcomed";
@@ -54,7 +55,7 @@ export function closeStudio(root: HTMLElement): void {
   active = null;
 }
 
-type View = "login" | "welcome" | "cast" | "character" | "warden" | "notes" | "hints" | "items";
+type View = "login" | "welcome" | "cast" | "character" | "warden" | "notes" | "hints" | "items" | "script";
 
 class WritersStudio {
   private view: View = "cast";
@@ -95,6 +96,7 @@ class WritersStudio {
     this.root.replaceChildren();
     const shell = el("div", { className: "st-root" }, el("div", { className: "st-shell" }));
     const inner = shell.firstChild as HTMLElement;
+    if (this.view === "script") inner.classList.add("st-wide");
     this.root.append(shell);
     if (this.view === "login") {
       inner.append(loginView(WRITER, (online) => {
@@ -113,6 +115,7 @@ class WritersStudio {
       case "notes": inner.append(notesView(ctx)); break;
       case "hints": inner.append(hintsView(ctx)); break;
       case "items": inner.append(itemsView(ctx)); break;
+      case "script": inner.append(scriptView(ctx)); break;
       default: inner.append(castView(ctx));
     }
     if (prevScroll) shell.scrollTop = prevScroll;
@@ -133,6 +136,7 @@ class WritersStudio {
       nav("📜 Notes", "The diary scraps", ["notes"], () => { this.view = "notes"; }),
       nav("💡 Hints", "In-world tutorial text", ["hints"], () => { this.view = "hints"; }),
       nav("🎒 Items", "Item and recipe one-liners", ["items"], () => { this.view = "items"; }),
+      nav("📖 Master Script", "The whole campaign as one screenplay, in play order", ["script"], () => { this.view = "script"; }),
       this.online ? null : el("span", { className: "st-badge" }, "offline — publishing unavailable"),
       el("span", { className: "st-spacer" }),
       el("button", { className: "st-btn st-quiet", onclick: () => { this.view = "welcome"; this.render(); } }, "How it works"),

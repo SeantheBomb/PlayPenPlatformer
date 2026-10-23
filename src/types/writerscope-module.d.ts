@@ -6,5 +6,6 @@ declare module "*functions/api/_writerscope.js" {
   export const NOTE_STORY_FIELDS: string[];
   export const HINT_STORY_FIELDS: string[];
   export const STORY_ARRAY_FILES: Record<string, string[]>;
+  export const WRITER_OWNED_FILES: string[];
   export function overlayStoryBundle(liveFiles: FileMap, writerFiles: FileMap): FileMap;
 }
