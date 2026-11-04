@@ -390,6 +390,13 @@ add a new field to any content schema, this merge is what keeps old saves from
 crashing on it — don't revert to a flat `files[...] as Content[...]` assignment.**
 This only recovers *missing* fields, not values a stale save explicitly wrote —
 republishing/re-saving from the editor is still the fix for those.
+**Art fields are exempt from the backfill** (`ART_KEYS` = `_artscope.js`
+`SPRITE_FIELDS` + `portraits`): their absence is a real edit ("not animated",
+"reverted"), not a stale save. Backfilling them meant bundled 2-frame art came
+back the moment a draft replaced it with one image, Revert didn't revert, and
+players kept old art after a publish (2026-11-04). Pinned by
+`tests/content-art-merge.test.ts`. A new art field goes in `SPRITE_FIELDS`,
+which covers both this and the artist publish scope.
 
 ## Editor (src/editor/)
 

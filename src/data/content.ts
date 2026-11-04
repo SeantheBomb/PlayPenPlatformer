@@ -8,6 +8,18 @@ import {
   diffBundles, groupConflicts, mergeBundlesDetailed, summarizeDiff,
   type ConflictGroup, type Resolution,
 } from "../../functions/api/_merge.js";
+import { SPRITE_FIELDS } from "../../functions/api/_artscope.js";
+
+/** Art fields are optional DATA, not schema: their absence means "no custom
+ *  art / not animated", every renderer already handles that, and removing
+ *  one is a real edit. deepDefaults must never backfill them from the
+ *  bundled copy — doing so meant a 2-frame animation in bundled content
+ *  could never be replaced by a single image (the deleted spriteFrames came
+ *  straight back), "Revert to built-in look" silently didn't, and players
+ *  kept the old art after a publish (Sean, 2026-11-04: an .aseprite that
+ *  "didn't upload"). `portraits` (the Warden's faces) is one art value too:
+ *  per-emotion backfill would resurrect a cleared face. */
+const ART_KEYS = new Set<string>([...SPRITE_FIELDS, "portraits"]);
 
 declare global {
   interface Window {
@@ -55,6 +67,12 @@ function deepDefaults<T>(base: T, override: unknown): T {
   }
   const merged: Record<string, unknown> = { ...(base as Record<string, unknown>) };
   for (const key of Object.keys(base as Record<string, unknown>)) {
+    if (ART_KEYS.has(key)) {
+      // Taken from override as-is, absence included (see ART_KEYS).
+      if (key in (override as Record<string, unknown>)) merged[key] = (override as Record<string, unknown>)[key];
+      else delete merged[key];
+      continue;
+    }
     merged[key] = deepDefaults(
       (base as Record<string, unknown>)[key],
       (override as Record<string, unknown>)[key]
