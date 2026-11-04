@@ -17,7 +17,7 @@
     "cooldownMs": 999999999,
     "chance": 1,
     "lines": [
-      ""
+      "Don't go anywhere. It's time to play!"
     ],
     "emotion": "bored"
   },
@@ -29,7 +29,7 @@
     "chance": 1,
     "lines": [
       "I thought I told you to stay put. It’s okay. I like the chase.",
-      " Don’t talk to that creature over there, they’ll only slow you down. "
+      "Don’t talk to that creature over there, they’ll only slow you down. "
     ],
     "emotion": "smug"
   },
