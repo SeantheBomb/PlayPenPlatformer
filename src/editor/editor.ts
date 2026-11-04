@@ -18,7 +18,9 @@ import { RoomEditor } from "./roomeditor";
 import { openPixelEditor, rasterize } from "./pixeleditor";
 import { renderSessionsTab } from "./sessions";
 import { renderReportsTab } from "./reports";
-import { diffBundles, summarizeDiff, type FileMap } from "../../functions/api/_merge.js";
+import { diffBundles, summarizeDiff, type FileMap, type ConflictGroup, type Resolution } from "../../functions/api/_merge.js";
+import type { PendingSync } from "../data/content";
+import { describeIncoming, ensureWhoAmI, notice, resolveConflicts, startLiveSync } from "../studio/collab";
 
 // Art-owned fields, edited through the sprite panel / Art Studio rather
 // than as raw form fields (the pattern layout is dialed in with a live
@@ -443,6 +445,15 @@ export function openEditor(root: HTMLElement, store: ContentStore, game: Game): 
   activeShell.render();
 }
 
+/** Rebuild the editor from scratch on the same tab — after pulling in
+ *  someone else's publish, nothing (room editor included) may keep holding
+ *  the pre-sync content objects. */
+function reopenEditor(root: HTMLElement, store: ContentStore, game: Game, tab: TabId): void {
+  closeEditor(root);
+  openEditor(root, store, game);
+  activeShell?.showTab(tab);
+}
+
 export function closeEditor(root: HTMLElement): void {
   activeShell?.dispose();
   root.replaceChildren();
@@ -487,10 +498,55 @@ class EditorShell {
         this.game.state.applyLoadout(startAt.loadout);
       }
     });
+    this.stopSync = startLiveSync(store, {
+      autoApply: false,
+      onPending: (p) => this.showIncoming(p),
+    });
   }
 
+  /** Other people's publishes: announced in a banner, pulled in on request
+   *  (the editor holds too much open state to swap content under it). */
+  private stopSync: () => void;
+  private incomingEl: HTMLElement | null = null;
+
   dispose(): void {
+    this.stopSync();
+    this.incomingEl?.remove();
     this.roomEditor.dispose();
+  }
+
+  showTab(tab: TabId): void {
+    this.tab = tab;
+    this.render();
+  }
+
+  private showIncoming(p: PendingSync): void {
+    this.incomingEl?.remove();
+    const bar = el("div", {
+      style: "position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:60;" +
+        "background:#1c2a24;color:#e8fff0;border:1px solid #2c5140;border-radius:6px;" +
+        "padding:6px 10px;font:12px monospace;display:flex;gap:8px;align-items:center;max-width:90vw",
+    },
+      el("span", {}, describeIncoming(p).replace(/ It's in your view now.*$/, "")),
+      el("button", {
+        className: "pp-btn pp-primary",
+        onclick: () => {
+          bar.remove();
+          if (!this.store.applySync(p)) {
+            toast("You edited since — checking again in a moment.", false);
+            return;
+          }
+          this.game.setContent(this.store.content);
+          if (p.collisions.length) {
+            notice(`⚠ Both you and ${p.meta.by || "they"} changed: ${p.collisions.map((c) => c.label).join(", ")} — yours kept; publishing will ask.`, { warn: true, ms: 12000 });
+          }
+          reopenEditor(this.root, this.store, this.game, this.tab);
+        },
+      }, "Pull in"),
+      el("button", { className: "pp-btn", onclick: () => bar.remove() }, "Later")
+    );
+    this.incomingEl = bar;
+    document.body.append(bar);
   }
 
   render(): void {
@@ -971,31 +1027,48 @@ class EditorShell {
               return;
             }
             if (!confirm("Publish current content to ALL players?")) return;
+            const author = await ensureWhoAmI();
+            if (author === null) return;
+            let resolutions: Record<string, Resolution> = {};
             try {
-              const res = await fetch(`${API_BASE}/api/content`, {
-                method: "POST",
-                headers: auth(),
-                body: JSON.stringify({
-                  files: mergedFiles(this.store.allFiles()),
-                  note: noteInput.value.trim(),
-                  // Lets the server 3-way merge if someone published since
-                  // this draft's base, instead of clobbering their work.
-                  baseId: this.store.publishBaseId(),
-                }),
-              });
-              const out = await res.json() as {
-                ok: boolean; id?: string; merged?: boolean; error?: string;
-              };
-              toast(
-                out.ok
-                  ? `Published ${out.id}${out.merged ? " (merged with a newer publish)" : ""}`
-                  : `Failed: ${out.error}`,
-                out.ok
-              );
-              if (out.ok && out.id) {
-                this.store.markPublished(out.id, !!out.merged);
-                reviewEl.replaceChildren();
-                loadHistory();
+              for (;;) {
+                const res = await fetch(`${API_BASE}/api/content`, {
+                  method: "POST",
+                  headers: auth(),
+                  body: JSON.stringify({
+                    files: mergedFiles(this.store.allFiles()),
+                    note: noteInput.value.trim(),
+                    author,
+                    // Lets the server 3-way merge if someone published since
+                    // this draft's base, instead of clobbering their work.
+                    baseId: this.store.publishBaseId(),
+                    resolutions,
+                  }),
+                });
+                const out = await res.json() as {
+                  ok: boolean; id?: string; merged?: boolean; error?: string;
+                  conflicts?: ConflictGroup[]; liveBy?: string | null;
+                };
+                if (res.status === 409 && out.conflicts?.length) {
+                  // Both sides changed the same things: ask, per item.
+                  const picked = await resolveConflicts(out.conflicts, out.liveBy ?? null);
+                  if (!picked) return void toast("Nothing published.", false);
+                  resolutions = { ...resolutions, ...picked };
+                  continue;
+                }
+                toast(
+                  out.ok
+                    ? `Published ${out.id}${out.merged ? " (merged with a newer publish)" : ""}`
+                    : `Failed: ${out.error}`,
+                  out.ok
+                );
+                if (out.ok && out.id) {
+                  await this.store.adoptPublished(out.id, !!out.merged, resolutions);
+                  this.game.setContent(this.store.content);
+                  // "Take theirs" may have changed what the editor shows.
+                  reopenEditor(this.root, this.store, this.game, this.tab);
+                }
+                return;
               }
             } catch {
               toast("Couldn't reach the server.", false);

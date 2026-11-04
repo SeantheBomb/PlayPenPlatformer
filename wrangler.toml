@@ -17,3 +17,11 @@ id = "25bfc4293c2c4e8fb00d3c3efab59a5b"
 [[kv_namespaces]]
 binding = "SESSIONS"
 id = "b6bf50653e4f40588795c9248d4f1526"
+
+# Art Studio coordination board (status / owner / note per asset). Live for
+# every viewer via polling; deliberately NOT content — never published,
+# never in replays, not part of the KV bundle.
+[[d1_databases]]
+binding = "BOARD"
+database_name = "playpen-board"
+database_id = "6974324e-b55b-412d-83c4-8d9e65d97cff"

@@ -164,6 +164,35 @@ here can only ever touch artwork fields, never gameplay values, room layouts, or
 anything Sean's working on at the same time. Every publish is saved in history, so
 anything can be rolled back.
 
+**Working alongside each other.** Several of you can have the studio open at
+once, and nobody's work can overwrite anybody else's by accident:
+
+- **Other people's published work comes to you.** Within about 15 seconds of
+  Casey publishing, her art shows up in your open studio with a little note
+  ("Casey published — tiles: wall"). It waits until you're not mid-stroke or
+  mid-typing, and it never touches anything you've drawn yourself.
+- **Publishing merges, it doesn't replace.** You only ever publish what you
+  changed — two of you drawing different things (or different layers of the
+  same backdrop) both land.
+- **If you both changed the same thing**, you'll get a heads-up the moment their
+  publish arrives, and when you publish, the studio shows both versions side by
+  side: **Keep mine** or **Take theirs**, one item at a time. Nothing goes out
+  until you've chosen, and "Not now" leaves your work safely as a draft.
+- The first time you publish it asks your name — that's what everyone sees.
+
+**The board — who's on what.** Every asset page (and every environment set)
+has a 📋 **Board** row: a status (To do · In progress · Ready for review ·
+Changes requested · Done), an owner ("I'll take it" puts your name on it) and a
+short note. Changes show up for everyone within a few seconds — no publishing
+needed, and none of it ever reaches players. Gallery cards show the status and
+the owner's initials; hover for the note.
+
+**Filtering the gallery.** Next to the art filters: **level** (only what you'd
+see in that level — including things that appear there by melting, burning,
+or being crafted from what's lying around), **status**, and **owner** ("Mine"
+is everything with your name on it). Each asset's page also lists the levels
+it appears in.
+
 **Reference sheet:** the "Download reference sheet" button at the top gives you one
 PNG contact-sheet of every current asset's look — handy to keep open in another app
 while you draw, or to print/reference offline.

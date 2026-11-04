@@ -12,7 +12,7 @@
 import type { ContentStore } from "../data/content";
 import type { Game } from "../game/game";
 import { el } from "../editor/forms";
-import { ensureStudioStyles, loginView, publishScoped, tryInGame, type StudioCredential } from "./shell";
+import { ensureStudioStyles, loginView, publishScoped, studioLiveSync, tryInGame, type StudioCredential } from "./shell";
 import { castView, characterView, buildCast, castHealth } from "./characters";
 import { wardenView } from "./warden";
 import { hintsView, itemsView, notesView } from "./lore";
@@ -63,13 +63,17 @@ class WritersStudio {
   private online = true;
   private dirty = false;
   private lastRendered = "";
+  private stopSync: () => void;
 
   constructor(private root: HTMLElement, private store: ContentStore, _game: Game) {
     const pass = localStorage.getItem(PASS_KEY);
     this.view = !pass ? "login" : localStorage.getItem(SEEN_KEY) ? "cast" : "welcome";
+    // Others' publishes arrive while the studio is open (never mid-typing).
+    this.stopSync = studioLiveSync(store, () => { if (this.view !== "login") this.render(); });
   }
 
   dispose(): void {
+    this.stopSync();
     stopLinePreviews();
   }
 

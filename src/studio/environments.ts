@@ -29,6 +29,10 @@ export interface EnvContext {
   /** Navigate: null = the set list, otherwise that set's editor. */
   open: (setId: string | null) => void;
   back: () => void;
+  /** The coordination board's status/owner/note row for a key, and its
+   *  badge for a card (layer sets are keyed `layerset:<id>`). */
+  boardPanel?: (key: string) => HTMLElement;
+  boardBadge?: (key: string) => HTMLElement | null;
 }
 
 /** Every live preview mounts a rAF loop; the view swap has to stop them or
@@ -189,7 +193,8 @@ export function environmentsView(ctx: EnvContext): HTMLElement {
       el("div", { className: "st-dim" },
         `${withArt}/${set.layers.length} layers drawn · ${kb(setBytes(set))}`),
       el("div", { className: "st-dim" },
-        used.length ? `Used by ${used.length} room${used.length === 1 ? "" : "s"}` : "Not used by any room yet")
+        used.length ? `Used by ${used.length} room${used.length === 1 ? "" : "s"}` : "Not used by any room yet"),
+      ...[ctx.boardBadge?.(`layerset:${set.id}`)].filter((b): b is HTMLElement => !!b)
     );
     const cv = card.firstChild as HTMLCanvasElement;
     paintSetThumb(cv, set);
@@ -367,6 +372,7 @@ export function layerSetView(ctx: EnvContext, setId: string): HTMLElement {
       },
     }, "Delete set")
   ));
+  if (ctx.boardPanel) wrap.append(ctx.boardPanel(`layerset:${setId}`));
 
   // ---- Live preview ----
   const previewCard = el("div", { className: "st-card" });

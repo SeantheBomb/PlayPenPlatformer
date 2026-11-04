@@ -17,11 +17,14 @@ import { artBox, buildAssets, assetStatus, GROUP_ORDER, withEditedFrames, type A
 import { sourceRef, timingFor, type AseImport } from "./aseprite";
 import { chooseFromAseprite } from "./asepick";
 import { patternPanel } from "./tilepattern";
+import { assetLevels, levelOrder } from "./levels";
+import { Board, BOARD_CSS, boardBadge, boardPanel, STATUS_LABEL, STATUS_ORDER } from "./board";
+import { defaultBusy, whoAmI } from "./collab";
 import { importFiles, sliceStrip, imageSize } from "./importers";
 import { downloadFrame, downloadStrip, downloadContactSheet } from "./exporters";
 import { openSvgEditor, rasterizeSeedTight } from "./svgeditor";
 import { environmentsView, layerSetView, stopEnvironmentPreview, type EnvContext } from "./environments";
-import { ensureStudioStyles, loginView, publishScoped, tryInGame, type StudioCredential } from "./shell";
+import { ensureStudioStyles, loginView, publishScoped, studioLiveSync, tryInGame, type StudioCredential } from "./shell";
 
 const PASS_KEY = "playpen.artist.password";
 const SEEN_KEY = "playpen.artist.welcomed";
@@ -60,6 +63,17 @@ class Studio {
   private filter: Filter = "all";
   private group: AssetGroup | "all" = "all";
   private search = "";
+  /** Gallery level filter: "all", a room id, or "none" (placed nowhere). */
+  private level = "all";
+  /** Asset key → rooms it appears in (recomputed with the assets). */
+  private levels = new Map<string, Set<string>>();
+  /** Live coordination board (status/owner/note per asset — D1, not content). */
+  private board = new Board(() => ({ "x-artist-password": localStorage.getItem(PASS_KEY) ?? "" }));
+  /** Board filters: "any" | a status | "none"; "any" | an owner | "mine" | "nobody". */
+  private statusFilter = "any";
+  private ownerFilter = "any";
+  /** A board change arrived while she was mid-gesture — redraw when quiet. */
+  private boardRenderPending = false;
   private online = true;
   private timer: number | undefined;
   private dirty = false;
@@ -76,6 +90,7 @@ class Studio {
   /** The last .aseprite dropped on an asset this session — lets "use a
    *  different tag" re-pick without asking her to find the file again. */
   private recentAse: { key: string; slot: "main" | "alt"; ase: AseImport } | null = null;
+  private stopSync: () => void;
 
   constructor(
     private root: HTMLElement,
@@ -83,18 +98,35 @@ class Studio {
     private game: Game
   ) {
     this.assets = buildAssets(store);
+    this.levels = assetLevels(store.content);
     const pass = localStorage.getItem(PASS_KEY);
     this.view = !pass ? "login" : localStorage.getItem(SEEN_KEY) ? "gallery" : "welcome";
     // Animated thumbnails: cheap periodic repaint of whatever's on screen.
-    this.timer = window.setInterval(() => this.repaintCanvases(), 180);
+    this.timer = window.setInterval(() => {
+      this.repaintCanvases();
+      if (this.boardRenderPending && !defaultBusy()) { this.boardRenderPending = false; this.render(); }
+    }, 180);
+    ensureBoardStyles();
+    this.board.onChange(() => {
+      if (this.view === "gallery" || this.view === "detail" || this.view === "environments" || this.view === "layerset") {
+        this.boardRenderPending = true; // drawn by the timer above at a quiet moment
+      }
+    });
+    this.board.start();
+    // Others' publishes arrive while the studio is open; applied only at a
+    // quiet moment, then the page is rebuilt from the merged content.
+    this.stopSync = studioLiveSync(store, () => { if (this.view !== "login") this.refresh(); });
   }
 
   dispose(): void {
+    this.board.stop();
+    this.stopSync();
     if (this.timer) clearInterval(this.timer);
   }
 
   private refresh(): void {
     this.assets = buildAssets(this.store);
+    this.levels = assetLevels(this.store.content);
     this.render();
   }
 
@@ -234,6 +266,10 @@ class Studio {
           onclick: () => { this.filter = f; this.render(); },
         }, label)),
         el("span", { className: "st-sep" }, " "),
+        this.levelSelect(),
+        this.statusSelect(),
+        this.ownerSelect(),
+        el("span", { className: "st-sep" }, " "),
         ...(["all", ...GROUP_ORDER] as (AssetGroup | "all")[]).map((g) => el("button", {
           className: `st-chip ${this.group === g ? "st-on" : ""}`,
           onclick: () => { this.group = g; this.render(); },
@@ -246,8 +282,71 @@ class Studio {
     return wrap;
   }
 
+  /** "Which level is this for?" — campaign order, so it reads like the game. */
+  private levelSelect(): HTMLElement {
+    const sel = el("select", {
+      className: "st-search", title: "Only show art that appears in this level",
+      onchange: (ev: Event) => { this.level = (ev.target as HTMLSelectElement).value; this.render(); },
+    }) as HTMLSelectElement;
+    const opt = (value: string, label: string) => {
+      const o = el("option", { value }, label) as HTMLOptionElement;
+      o.selected = this.level === value;
+      return o;
+    };
+    sel.append(
+      opt("all", "🗺 Every level"),
+      ...levelOrder(this.store.content).map((r, i) => opt(r.id, `${i + 1}. ${r.name}`)),
+      opt("none", "Not in any level")
+    );
+    return sel;
+  }
+
+  private filterSelect(current: string, options: [string, string][], title: string, set: (v: string) => void): HTMLElement {
+    const sel = el("select", {
+      className: "st-search", title,
+      onchange: (ev: Event) => { set((ev.target as HTMLSelectElement).value); this.render(); },
+    }) as HTMLSelectElement;
+    for (const [value, label] of options) {
+      const o = el("option", { value }, label) as HTMLOptionElement;
+      o.selected = current === value;
+      sel.append(o);
+    }
+    return sel;
+  }
+
+  private statusSelect(): HTMLElement {
+    return this.filterSelect(this.statusFilter, [
+      ["any", "📋 Any status"],
+      ...STATUS_ORDER.map((s) => [s, STATUS_LABEL[s]] as [string, string]),
+      ["none", "No status yet"],
+    ], "Filter by board status", (v) => { this.statusFilter = v; });
+  }
+
+  private ownerSelect(): HTMLElement {
+    const me = whoAmI();
+    return this.filterSelect(this.ownerFilter, [
+      ["any", "👤 Anyone"],
+      ...(me ? [["mine", `Mine (${me})`] as [string, string]] : []),
+      ...this.board.owners().filter((n) => n !== me).map((n) => [`owner:${n}`, n] as [string, string]),
+      ["nobody", "Unassigned"],
+    ], "Filter by owner", (v) => { this.ownerFilter = v; });
+  }
+
+  /** Level names an asset appears in, in campaign order. */
+  private levelNames(a: ArtAsset): string[] {
+    const rooms = this.levels.get(a.key);
+    if (!rooms) return [];
+    return levelOrder(this.store.content).filter((r) => rooms.has(r.id)).map((r) => r.name);
+  }
+
   private visibleAssets(): ArtAsset[] {
     return this.assets.filter((a) => {
+      const b = this.board.get(a.key);
+      if (this.statusFilter === "none" ? !!b?.status : this.statusFilter !== "any" && b?.status !== this.statusFilter) return false;
+      if (this.ownerFilter === "nobody" && b?.owner) return false;
+      if (this.ownerFilter === "mine" && (!b?.owner || b.owner !== whoAmI())) return false;
+      if (this.ownerFilter.startsWith("owner:") && b?.owner !== this.ownerFilter.slice(6)) return false;
+      if (this.level === "none" ? this.levels.has(a.key) : this.level !== "all" && !this.levels.get(a.key)?.has(this.level)) return false;
       if (this.group !== "all" && a.group !== this.group) return false;
       if (this.filter !== "all" && assetStatus(a) !== this.filter) return false;
       if (this.search && !(`${a.label} ${a.sublabel ?? ""} ${a.key}`.toLowerCase().includes(this.search))) return false;
@@ -288,7 +387,8 @@ class Studio {
           ? `${a.drawnW}×${a.drawnH} tiles · ${b.spanX}×${b.spanY} pattern`
           : `drawn at ${a.drawnW}×${a.drawnH}`;
       })()),
-      el("span", { className: `st-status ${status}` }, statusLabel)
+      el("span", { className: `st-status ${status}` }, statusLabel),
+      ...[boardBadge(this.board.get(a.key))].filter((x): x is HTMLElement => !!x)
     );
   }
 
@@ -322,6 +422,15 @@ class Studio {
       el("span", { className: "st-title", style: "font-size:17px" }, a.label),
       el("span", { className: "st-hint" }, a.sublabel ?? "")
     ));
+    {
+      const names = this.levelNames(a);
+      const total = levelOrder(this.store.content).length;
+      wrap.append(el("p", { className: "st-hint", style: "margin:2px 0 10px" },
+        names.length === 0 ? "🗺 Not in any level yet."
+          : names.length === total ? "🗺 Appears in every level."
+          : `🗺 Appears in: ${names.join(", ")}`));
+      wrap.append(boardPanel(this.board, a.key));
+    }
 
     // Tiles: the pattern panel comes first — it decides how big the art is,
     // which everything below (zoom, editors, sizes) follows.
@@ -947,6 +1056,8 @@ class Studio {
         this.render();
       },
       back: () => { this.view = "gallery"; this.render(); },
+      boardPanel: (key) => boardPanel(this.board, key),
+      boardBadge: (key) => boardBadge(this.board.get(key)),
     };
   }
 
@@ -961,4 +1072,13 @@ class Studio {
     });
     if (ok) this.dirty = false;
   }
+}
+
+let boardStyled = false;
+function ensureBoardStyles(): void {
+  if (boardStyled) return;
+  boardStyled = true;
+  const st = document.createElement("style");
+  st.textContent = BOARD_CSS;
+  document.head.append(st);
 }

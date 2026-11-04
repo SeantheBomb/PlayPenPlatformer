@@ -6,3 +6,6 @@ reports/
 telemetry/
 shots/
 .wrangler/
+
+# local-only secrets for `wrangler pages dev` (throwaway test values)
+.dev.vars

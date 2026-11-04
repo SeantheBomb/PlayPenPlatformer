@@ -25,6 +25,32 @@ declare module "*functions/api/_merge.js" {
     live: FileMap | null | undefined,
     incoming: FileMap | null | undefined
   ): FileMap;
+  export type Resolution = "mine" | "theirs";
+  export type PathSeg = string | { key: string };
+  export interface MergeConflict {
+    group: string;
+    label: string;
+    file: string;
+    path: PathSeg[];
+    base: unknown;
+    live: unknown;
+    incoming: unknown;
+    resolved: Resolution | null;
+  }
+  export interface ConflictGroup {
+    group: string;
+    label: string;
+    file: string;
+    resolved: Resolution | null;
+    values: { path: string[]; base: unknown; live: unknown; incoming: unknown }[];
+  }
+  export function mergeBundlesDetailed(
+    base: FileMap | null | undefined,
+    live: FileMap | null | undefined,
+    incoming: FileMap | null | undefined,
+    resolutions?: Record<string, Resolution>
+  ): { files: FileMap; conflicts: MergeConflict[] };
+  export function groupConflicts(conflicts: MergeConflict[]): ConflictGroup[];
   export function diffBundles(
     from: FileMap | null | undefined,
     to: FileMap | null | undefined

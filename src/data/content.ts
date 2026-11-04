@@ -4,7 +4,10 @@
 //   2. Browser: localStorage overlay (editor writes here) over bundled defaults
 //   3. Bundled defaults: content/*.json imported at build time
 import type { Content, RoomDef } from "./types";
-import { diffBundles, mergeBundles, summarizeDiff } from "../../functions/api/_merge.js";
+import {
+  diffBundles, groupConflicts, mergeBundlesDetailed, summarizeDiff,
+  type ConflictGroup, type Resolution,
+} from "../../functions/api/_merge.js";
 
 declare global {
   interface Window {
@@ -172,24 +175,57 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
  * value. Same merge rules as the server's publish merge (_merge.js). All
  * three sides are normalized through `mergedFiles` first so schema-default
  * gaps in an old draft don't read as "local edits" that mask live changes.
+ *
+ * `collisions` are items BOTH the draft and live changed differently — the
+ * draft's value is kept (a sync never overwrites local work); `resolutions`
+ * can settle them toward live, as after a publish where the person chose
+ * "take theirs".
  */
 export function rebaseDraft(
   base: Record<string, unknown>,
   live: Record<string, unknown>,
   draft: Record<string, unknown>,
-  deleted: Iterable<string> = []
-): { files: Record<string, unknown>; hasLocalChanges: boolean; incoming: string[] } {
+  deleted: Iterable<string> = [],
+  resolutions: Record<string, Resolution> = {}
+): { files: Record<string, unknown>; hasLocalChanges: boolean; incoming: string[]; collisions: ConflictGroup[] } {
   const b = mergedFiles({ ...BUNDLED, ...base });
   const l = mergedFiles({ ...BUNDLED, ...live });
   const dRaw: Record<string, unknown> = { ...BUNDLED, ...draft };
   for (const rel of deleted) delete dRaw[rel];
   const d = mergedFiles(dRaw);
-  const files = mergeBundles(b, l, d);
+  const r = mergeBundlesDetailed(b, l, d, resolutions);
   return {
-    files,
-    hasLocalChanges: diffBundles(l, files).length > 0,
-    incoming: summarizeDiff(diffBundles(d, files), 40),
+    files: r.files,
+    hasLocalChanges: diffBundles(l, r.files).length > 0,
+    incoming: summarizeDiff(diffBundles(d, r.files), 40),
+    collisions: groupConflicts(r.conflicts.filter((c) => !c.resolved)),
   };
+}
+
+/** The small summary of live that open sessions poll (GET /api/content?meta=1). */
+export interface LiveMeta {
+  id: string;
+  at: string | null;
+  by: string | null;
+  note: string;
+  changes: string[];
+}
+
+/** A newer publish, already merged with this session's draft, waiting for a
+ *  quiet moment to be applied (ContentStore.prepareSync → applySync). */
+export interface PendingSync {
+  meta: LiveMeta;
+  files: Record<string, unknown>;
+  /** The draft's fork point after applying (ignored when clearDraft). */
+  baseId: string | null;
+  /** Nothing local is left that live lacks — drop the draft. */
+  clearDraft: boolean;
+  /** What arrived, one line per file (summarizeDiff). */
+  incoming: string[];
+  /** Items both sides changed — local kept, the publish step will ask. */
+  collisions: ConflictGroup[];
+  /** Store revision this was computed against; stale if an edit landed since. */
+  revision: number;
 }
 
 export function isElectron(): boolean {
@@ -199,7 +235,15 @@ export function isElectron(): boolean {
 export class ContentStore {
   content!: Content;
   /** id/time of the published bundle this session loaded (browser only). */
-  publishedInfo: { id: string; publishedAt: string; note?: string } | null = null;
+  publishedInfo: { id: string; publishedAt: string; note?: string; by?: string | null } | null = null;
+  /** Bumped on every local edit — a background sync computed before an edit
+   *  is discarded rather than applied over it. */
+  revision = 0;
+  /** Items this draft and a newer publish BOTH changed: the draft's value is
+   *  kept and the draft's base stays behind them, so publishing asks
+   *  "keep mine / take theirs" instead of anyone's work vanishing. */
+  collisions: ConflictGroup[] = [];
+  private versionCache = new Map<string, Record<string, unknown>>();
   private files: Record<string, unknown> = {};
   private deletedInOverlay = new Set<string>();
   /** Published version id the local draft diverged from — stamped when the
@@ -224,11 +268,7 @@ export class ContentStore {
     const from = this.overlayBaseId;
     const to = this.publishedInfo?.id;
     if (!liveFiles || !from || !to || from === to) return;
-    let baseFiles: Record<string, unknown> | null = null;
-    try {
-      const res = await fetch(`/api/content?id=${encodeURIComponent(from)}`);
-      if (res.ok) baseFiles = ((await res.json()) as { files: Record<string, unknown> }).files;
-    } catch { /* offline — keep the draft as-is */ }
+    const baseFiles = await this.fetchVersion(from);
     if (!baseFiles) {
       // Base pruned from history (or unreachable): can't tell which draft
       // values are edits vs stale copies, so the draft keeps winning wholesale.
@@ -241,8 +281,11 @@ export class ContentStore {
       if (rel in this.files) this.deletedInOverlay.delete(rel);
     }
     this.rebaseInfo = { ok: true, from, to, incoming: r.incoming, absorbed: !r.hasLocalChanges };
+    this.collisions = r.collisions;
     if (r.hasLocalChanges) {
-      this.overlayBaseId = to;
+      // With collisions the base stays put, so the server still sees both
+      // sides' change at publish time and asks instead of picking silently.
+      if (!r.collisions.length) this.overlayBaseId = to;
       this.persistOverlay();
     } else {
       // Nothing local left that live doesn't already have — drop the draft.
@@ -275,14 +318,15 @@ export class ContentStore {
         const res = await fetch("/api/content", { cache: "no-store" });
         if (res.ok) {
           const pub = (await res.json()) as {
-            id: string; publishedAt: string; note?: string;
+            id: string; publishedAt: string; note?: string; by?: string | null;
             files: Record<string, unknown>;
           };
           if (pub?.files) {
             Object.assign(this.files, pub.files);
             liveFiles = pub.files;
+            this.versionCache.set(pub.id, pub.files);
             this.publishedInfo = {
-              id: pub.id, publishedAt: pub.publishedAt, note: pub.note,
+              id: pub.id, publishedAt: pub.publishedAt, note: pub.note, by: pub.by ?? null,
             };
           }
         }
@@ -316,6 +360,7 @@ export class ContentStore {
 
   /** Persist one logical file (e.g. "game.json", "rooms/vents.json"). */
   async saveFile(rel: string, data: unknown): Promise<void> {
+    this.revision++;
     this.files[rel] = data;
     this.deletedInOverlay.delete(rel);
     if (isElectron()) {
@@ -327,6 +372,7 @@ export class ContentStore {
   }
 
   async deleteFile(rel: string): Promise<void> {
+    this.revision++;
     delete this.files[rel];
     if (isElectron()) {
       await window.playpenFS!.deleteContent(rel);
@@ -376,6 +422,114 @@ export class ContentStore {
     if (localStorage.getItem(LS_KEY)) this.persistOverlay();
   }
 
+  // ---------- Live sync: other people's publishes arriving mid-session ----------
+
+  /** One published version's files (immutable once published, so cached). */
+  private async fetchVersion(id: string): Promise<Record<string, unknown> | null> {
+    const hit = this.versionCache.get(id);
+    if (hit) return hit;
+    try {
+      const res = await fetch(`/api/content?id=${encodeURIComponent(id)}`);
+      if (!res.ok) return null;
+      const files = ((await res.json()) as { files: Record<string, unknown> }).files;
+      this.versionCache.set(id, files);
+      return files;
+    } catch {
+      return null;
+    }
+  }
+
+  /** What's live right now, cheaply (no bundle download). null = offline. */
+  async liveMeta(): Promise<LiveMeta | null> {
+    try {
+      const res = await fetch("/api/content?meta=1", { cache: "no-store" });
+      return res.ok ? ((await res.json()) as LiveMeta) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * If live has moved past what this session has, merge it with the local
+   * draft (local work always kept) WITHOUT applying it yet — the caller
+   * applies at a quiet moment so nothing changes under someone's cursor.
+   * null = nothing new, offline, Electron (disk is truth), or a draft that
+   * predates base tracking (can't tell its edits from stale copies).
+   */
+  async prepareSync(
+    opts: { force?: boolean; resolutions?: Record<string, Resolution> } = {}
+  ): Promise<PendingSync | null> {
+    if (isElectron()) return null;
+    const revision = this.revision;
+    const meta = await this.liveMeta();
+    if (!meta || (!opts.force && meta.id === this.publishedInfo?.id)) return null;
+    let live: { id: string; publishedAt: string; note?: string; by?: string | null; files: Record<string, unknown> };
+    try {
+      const res = await fetch("/api/content", { cache: "no-store" });
+      if (!res.ok) return null;
+      live = await res.json();
+    } catch {
+      return null;
+    }
+    this.versionCache.set(live.id, live.files);
+    const liveMeta: LiveMeta = {
+      ...meta, id: live.id, at: live.publishedAt ?? meta.at, by: live.by ?? meta.by, note: live.note ?? meta.note,
+    };
+    if (this.overlayFileNames.length === 0) {
+      // No local draft: live simply replaces what this session had.
+      const files = { ...bundledFiles(), ...live.files };
+      return {
+        meta: liveMeta, files, baseId: null, clearDraft: true, collisions: [], revision,
+        incoming: summarizeDiff(diffBundles(mergedFiles(this.files), mergedFiles(files)), 40),
+      };
+    }
+    const from = this.overlayBaseId;
+    if (!from) return null;
+    const baseFiles = await this.fetchVersion(from);
+    if (!baseFiles) return null;
+    const r = rebaseDraft(baseFiles, live.files, this.files, this.deletedInOverlay, opts.resolutions);
+    return {
+      meta: liveMeta,
+      files: r.files,
+      // Collisions keep the old base so the publish step still sees them.
+      baseId: r.collisions.length ? from : live.id,
+      clearDraft: !r.hasLocalChanges,
+      incoming: r.incoming,
+      collisions: r.collisions,
+      revision,
+    };
+  }
+
+  /** Apply a prepared sync. false = a local edit landed since it was
+   *  computed (it's dropped; the next poll recomputes on top of the edit). */
+  applySync(p: PendingSync): boolean {
+    if (p.revision !== this.revision) return false;
+    this.files = p.files;
+    for (const rel of [...this.deletedInOverlay]) {
+      if (rel in this.files) this.deletedInOverlay.delete(rel);
+    }
+    this.publishedInfo = { id: p.meta.id, publishedAt: p.meta.at ?? "", note: p.meta.note, by: p.meta.by };
+    if (p.clearDraft) {
+      this.clearOverlay();
+    } else {
+      this.overlayBaseId = p.baseId;
+      this.persistOverlay();
+    }
+    this.collisions = p.collisions;
+    this.content = assemble(this.files);
+    this.revision++;
+    return true;
+  }
+
+  /** After a successful publish: take live as the new truth (applying the
+   *  person's keep-mine / take-theirs choices) so the draft is clean and the
+   *  next publish starts from what everyone has. */
+  async adoptPublished(id: string, merged: boolean, resolutions: Record<string, Resolution> = {}): Promise<void> {
+    const p = await this.prepareSync({ force: true, resolutions });
+    if (p && p.meta.id === id && this.applySync(p)) return;
+    this.markPublished(id, merged); // couldn't adopt (offline / raced): the old rule
+  }
+
   /** Full export for sharing/backup (web builds especially). */
   exportAll(): string {
     return JSON.stringify(this.files, null, 2);
@@ -397,6 +551,7 @@ export class ContentStore {
     localStorage.removeItem(LS_KEY);
     this.overlayFileNames = [];
     this.overlayBaseId = null;
+    this.collisions = [];
   }
 }
 

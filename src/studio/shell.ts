@@ -8,6 +8,8 @@
 // tries work in the real game, publishes when happy, can always undo.
 import type { ContentStore } from "../data/content";
 import { el, toast } from "../editor/forms";
+import type { ConflictGroup, Resolution } from "../../functions/api/_merge.js";
+import { describeIncoming, ensureWhoAmI, notice, resolveConflicts, startLiveSync } from "./collab";
 
 export interface StudioCredential {
   /** localStorage key the password is remembered under. */
@@ -67,8 +69,12 @@ export function tryInGame(roomId?: string): void {
 }
 
 /** Publish the whole draft through the studio's scoped credential. The
- *  server overlays only this studio's fields onto live, so sending every
- *  file is safe by construction. Resolves true on success. */
+ *  server overlays only this studio's fields onto live and 3-way merges
+ *  against the draft's base (`baseId`), so sending every file is safe by
+ *  construction and someone else's newer work is never reverted. If both
+ *  sides changed the same thing the server answers 409 with the list; she
+ *  picks keep mine / take theirs per item and it resends with those
+ *  choices. Resolves true on success. */
 export async function publishScoped(
   cred: StudioCredential,
   store: ContentStore,
@@ -76,30 +82,68 @@ export async function publishScoped(
 ): Promise<boolean> {
   const pass = localStorage.getItem(cred.passKey) ?? "";
   if (!confirm(opts.confirm)) return false;
+  const author = await ensureWhoAmI();
+  if (author === null) return false;
+  let resolutions: Record<string, Resolution> = {};
   try {
-    const res = await fetch("/api/content", {
-      method: "POST",
-      headers: { [cred.header]: pass, "content-type": "application/json" },
-      body: JSON.stringify({ files: store.allFiles(), note: opts.note }),
-    });
-    const data = (await res.json()) as {
-      ok: boolean; id?: string; error?: string; changes?: string[]; merged?: boolean;
-    };
-    if (!data.ok) {
-      toast(res.status === 401
-        ? "The password didn't work — check it with Sean (it may have changed)."
-        : `Publish failed: ${data.error ?? "unknown error"}`, false);
-      return false;
+    for (;;) {
+      const res = await fetch("/api/content", {
+        method: "POST",
+        headers: { [cred.header]: pass, "content-type": "application/json" },
+        body: JSON.stringify({
+          files: store.allFiles(), note: opts.note, author,
+          baseId: store.publishBaseId(), resolutions,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean; id?: string; error?: string; changes?: string[]; merged?: boolean;
+        conflicts?: ConflictGroup[]; liveBy?: string | null;
+      };
+      if (res.status === 409 && data.conflicts?.length) {
+        const picked = await resolveConflicts(data.conflicts, data.liveBy ?? null);
+        if (!picked) {
+          toast("Nothing published — your work is still saved here as a draft.");
+          return false;
+        }
+        resolutions = { ...resolutions, ...picked };
+        continue; // live may have moved again meanwhile; the server re-checks
+      }
+      if (!data.ok) {
+        toast(res.status === 401
+          ? "The password didn't work — check it with Sean (it may have changed)."
+          : `Publish failed: ${data.error ?? "unknown error"}`, false);
+        return false;
+      }
+      // Live now holds her work plus everyone else's: take it as the new
+      // starting point so the draft is clean for the next round.
+      await store.adoptPublished(data.id!, data.merged ?? true, resolutions);
+      const what = data.changes?.length ? ` (${data.changes.slice(0, 3).join("; ")}${data.changes.length > 3 ? "…" : ""})` : "";
+      toast(`🎉 Published! Everyone gets your ${opts.what} on their next load${what}`);
+      return true;
     }
-    // Scoped publishes are always overlaid onto live server-side (merged).
-    store.markPublished(data.id!, data.merged ?? true);
-    const what = data.changes?.length ? ` (${data.changes.slice(0, 3).join("; ")}${data.changes.length > 3 ? "…" : ""})` : "";
-    toast(`🎉 Published! Everyone gets your ${opts.what} on their next load${what}`);
-    return true;
   } catch {
     toast("Couldn't reach the server — are you online? Your work is still saved as a draft here.", false);
     return false;
   }
+}
+
+/** Background sync for a studio: other people's publishes flow into the
+ *  open session (local work kept) and the page re-renders at a quiet
+ *  moment. Returns a stop function for dispose(). */
+export function studioLiveSync(store: ContentStore, rerender: () => void): () => void {
+  return startLiveSync(store, {
+    onApplied: (p) => {
+      rerender();
+      notice(describeIncoming(p));
+      if (p.collisions.length) {
+        notice(
+          `⚠ You and ${p.meta.by || "they"} both changed ${p.collisions.map((c) => c.label).slice(0, 3).join(", ")}` +
+          `${p.collisions.length > 3 ? "…" : ""} — your version stays here; publishing will ask which to keep.`,
+          { warn: true, ms: 12000 }
+        );
+      }
+    },
+  });
 }
 
 export const STUDIO_CSS = `

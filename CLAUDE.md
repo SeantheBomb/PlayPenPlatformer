@@ -178,14 +178,32 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `content/` back to KV as a new version; `npm run deploy` chains it automatically so
   code and content always ship together. Never edit repo `content/` and deploy code
   without pushing content — that's the "pseudo regression" class this exists to kill.
-- **Publishes 3-way merge, git-style (2026-08-08)**: every publish carries a `baseId`
-  (browser: stamped into the localStorage overlay at the draft's first write; repo:
-  `.content-base.json`). If live moved since that base, the server (and
-  `content:push` locally) merges via `functions/api/_merge.js` — per id-entry for
-  the id-keyed arrays, per nested key for game.json, atomic per file for rooms —
-  so Sean's level edits and AI behavior/object edits published concurrently BOTH
-  survive; anything both sides changed goes to the LAST publisher (Sean's call —
-  no conflict UI). `tests/content-merge.test.ts` pins these semantics. A merged
+- **Publishes 3-way merge, git-style (2026-08-08; field-level + conflicts
+  2026-11-04)**: every publish carries a `baseId` (browser: stamped into the
+  localStorage overlay at the draft's first write; repo: `.content-base.json`) —
+  the studios too now, plus an `author` name (asked once per browser,
+  `playpen.whoami`; shown as `by` in history and toasts). If live moved since that
+  base, the server (and `content:push` locally) merges via
+  `functions/api/_merge.js` `mergeBundlesDetailed` down to individual FIELDS:
+  plain objects per key all the way down, keyed lists per item (any array whose
+  items all carry a unique `id` — tiles, a layer set's layers, a layer's props —
+  and a room's `entities` keyed `npc:<npcId>` / `type@x,y`); a room's char-map
+  `tiles` and frame lists are indivisible. A value BOTH sides changed differently
+  is a CONFLICT (Sean, 2026-11-04 — replaces "last publisher wins, no conflict
+  UI"): the server answers 409 `{ conflicts }` grouped per item
+  (`tiles.json#wall`, `layers.json#<set>/<layer>`, `rooms/x.json#npc:toby`), the
+  client shows keep mine / take theirs side by side (`src/studio/collab.ts`
+  `resolveConflicts`, used by both studios and the editor) and resends with
+  `resolutions`. `content:push` stops and lists them unless `--mine`/`--theirs`.
+  **Scoped (artist/writer) publishes merge through a PROJECTION**: base and
+  incoming are each overlaid onto live first, so only in-scope fields can merge
+  or conflict — this fixed an artist's older open session silently reverting
+  another artist's newer art on every publish (studios send every file they
+  loaded). No baseId (old cached client) / pruned base = old overlay/wholesale
+  behavior. MAX_VERSIONS is 60. `mergeBundles` (legacy API, used by draft
+  rebases) still settles unasked conflicts on the incoming side. Pinned by
+  `tests/content-merge.test.ts` + `tests/collab-publish.test.ts` (drives the
+  real endpoint over an in-memory KV). A merged
   push writes the result back into `content/` (review with `git diff content/`).
   `npm run content:diff` previews what a push would change vs live;
   `npm run content:push -- --wholesale` skips the merge (recovery hatch when live
@@ -206,6 +224,36 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   the draft's stale copies look like local edits). Pinned by
   `tests/draft-rebase.test.ts`. A base pruned past MAX_VERSIONS can't rebase —
   the publish tab says so.
+- **Live sync mid-session (2026-11-04)**: every publish also writes a small
+  `live-meta` KV key (`GET /api/content?meta=1`: id/at/by/note/changes — restore
+  and `content:push` write it too). Open studios poll it every 15 s + on focus
+  (`startLiveSync` in `src/studio/collab.ts`); a newer publish is merged into the
+  draft by `ContentStore.prepareSync` (local work always wins) and APPLIED by
+  `applySync` only when nobody's mid-gesture (`defaultBusy`: pointer down, typed
+  in the last 2.5 s, a focused text field/select, a modal open) — then the studio
+  rebuilds from `store.content` (closures hold old objects; never patch in
+  place). `store.revision` bumps on every save; a sync computed before an edit is
+  dropped, never applied over it. COLLISIONS (both changed it) keep the local
+  value AND keep the draft's base behind them, so the publish step still sees
+  and asks — moving the base would silently make the local value win. The
+  editor gets a "Pull in / Later" banner instead of auto-apply (too much open
+  state) and re-opens itself on the same tab. After a successful publish,
+  `adoptPublished` takes live (with the person's resolutions) as the new base
+  and clears the draft.
+- **Art Studio coordination board (2026-11-04, Casey + Miranda)**: per-asset
+  workflow status (To do / In progress / Ready for review / Changes requested /
+  Done), owner and short note — in Cloudflare D1 (`BOARD` binding, database
+  `playpen-board`, table auto-created by `functions/api/board.js`), NOT content:
+  never published, versioned, merged or seen by players. Gated by the artist or
+  editor password. `src/studio/board.ts` polls `?since=` every 5 s + focus; a
+  change re-renders at a quiet moment (same `defaultBusy`). Keys are the
+  gallery's asset keys plus `layerset:<id>` for environment sets. Gallery
+  filters: level (`src/studio/levels.ts` `assetLevels` — placed, transformed
+  into, handed out, or craftable there; pinned by `tests/asset-levels.test.ts`),
+  status, owner ("Mine"). Local testing: `.dev.vars` (gitignored, throwaway
+  passwords) + the `playpen-pages-local` launch config (`wrangler pages dev
+  dist` on :8788 — local KV and D1); use `localhost` vs `127.0.0.1` as two
+  people with separate drafts.
 - Player bug reports: `REPORTS` KV via `/api/report`; pull with `npm run reports`
   (add `-- --clear` to delete pulled reports from KV once they're fixed).
 - Anonymous gameplay telemetry (room attempts/completions/durations, deaths,

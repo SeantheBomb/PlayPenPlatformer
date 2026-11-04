@@ -1,27 +1,51 @@
 // Published game content: what every player loads on boot.
-//   GET  /api/content  -> the live content bundle (public)
-//   POST /api/content  -> publish a new version (password-gated)
+//   GET  /api/content         -> the live content bundle (public)
+//   GET  /api/content?meta=1  -> just { id, at, by, note, changes } of live —
+//                                what open studios/editors poll to notice
+//                                someone else's publish without downloading
+//                                the whole bundle every 15 s
+//   POST /api/content         -> publish a new version (password-gated)
 // Versions are kept in KV under ver:<id> with an index for history/rollback.
 //
 // Publishes carry a `baseId` (the published version the publisher last synced
 // from). If someone else published since that base, the server 3-way merges
-// per file / per id-entry / per game.json key, so concurrent work on
-// DIFFERENT content survives from both sides; anything both sides touched
-// goes to the publisher (last-writer-wins — Sean, 2026-08-08). No baseId
-// (or a pruned one) keeps the old wholesale-replace behavior.
-import { mergeBundles, diffBundles, summarizeDiff } from "./_merge.js";
+// down to individual fields (_merge.js), so concurrent work on DIFFERENT
+// things survives from both sides. A value BOTH sides changed is a conflict:
+// the publish is refused with 409 { conflicts } and the client asks the
+// person, per item, keep mine / take theirs, then resends with
+// `resolutions` (Sean, 2026-11-04 — replaces silent last-writer-wins).
+//
+// Scoped (artist/writer) publishes merge through a PROJECTION: base and
+// incoming are each overlaid onto live first, so all three sides agree on
+// everything outside the scope and only in-scope fields can merge or
+// conflict. Without that an artist's stale open session reverted another
+// artist's newer art on every publish. No baseId (an old cached client) or a
+// base pruned from history keeps the old behavior: overlay / replace.
+import { mergeBundlesDetailed, groupConflicts, diffBundles, summarizeDiff } from "./_merge.js";
 import { overlayArtBundle } from "./_artscope.js";
 import { overlayStoryBundle } from "./_writerscope.js";
 
 const INDEX_KEY = "index";
 const LIVE_KEY = "live";
-const MAX_VERSIONS = 30;
+const META_KEY = "live-meta";
+const MAX_VERSIONS = 60;
 
 export async function onRequestGet({ request, env }) {
   // ?id=v… returns one past version — public like live, since every version
   // was live (public) once. Browser drafts need their base version to rebase
   // onto newer publishes on load (ContentStore.load / rebaseDraft).
-  const id = new URL(request.url).searchParams.get("id");
+  const params = new URL(request.url).searchParams;
+  if (params.has("meta")) {
+    let meta = await env.CONTENT.get(META_KEY);
+    if (!meta) {
+      // Published before live-meta existed: derive it once from live.
+      const liveRaw = await env.CONTENT.get(LIVE_KEY);
+      if (!liveRaw) return json({ ok: false, error: "nothing published yet" }, 404);
+      meta = JSON.stringify(metaOf(JSON.parse(liveRaw)));
+    }
+    return new Response(meta, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  }
+  const id = params.get("id");
   if (id) {
     const record = await env.CONTENT.get(`ver:${id}`);
     if (!record) return json({ ok: false, error: "unknown version" }, 404);
@@ -65,23 +89,36 @@ export async function onRequestPost({ request, env }) {
   const liveRaw = await env.CONTENT.get(LIVE_KEY);
   const live = liveRaw ? JSON.parse(liveRaw) : null;
   const baseId = typeof body.baseId === "string" ? body.baseId : null;
+  const resolutions = isPlainObj(body.resolutions) ? body.resolutions : {};
+  const by = String(body.author ?? "").trim().slice(0, 40) || null;
 
-  let files = body.files;
-  let merged = false;
-  if (isArtist || isWriter) {
-    if (!live) return json({ ok: false, error: "nothing published yet" }, 409);
-    files = isArtist
-      ? overlayArtBundle(live.files, body.files)
-      : overlayStoryBundle(live.files, body.files);
-    merged = true; // scoped publishes always start from live by construction
-  } else if (live && baseId && baseId !== live.id) {
+  const scope = isArtist ? overlayArtBundle : isWriter ? overlayStoryBundle : null;
+  if (scope && !live) return json({ ok: false, error: "nothing published yet" }, 409);
+  // Scoped: everything outside the scope comes from live, by construction.
+  const project = (f) => (scope ? scope(live.files, f) : f);
+
+  let files = project(body.files);
+  let merged = !!scope;
+  if (live && baseId && baseId !== live.id) {
     // Someone published since this draft's base — merge their work in.
     const baseRaw = await env.CONTENT.get(`ver:${baseId}`);
     if (baseRaw) {
-      files = mergeBundles(JSON.parse(baseRaw).files, live.files, body.files);
+      const r = mergeBundlesDetailed(project(JSON.parse(baseRaw).files), live.files, files, resolutions);
+      const open = r.conflicts.filter((c) => !c.resolved);
+      if (open.length) {
+        return json({
+          ok: false,
+          error: "conflicts",
+          liveId: live.id,
+          liveBy: live.by ?? null,
+          liveAt: live.publishedAt ?? null,
+          conflicts: groupConflicts(open),
+        }, 409);
+      }
+      files = r.files;
       merged = true;
     }
-    // Base pruned from history: fall through to wholesale replace, as before.
+    // Base pruned from history: overlay / wholesale replace, as before.
   }
 
   const changes = summarizeDiff(diffBundles(live?.files ?? {}, files));
@@ -92,18 +129,21 @@ export async function onRequestPost({ request, env }) {
     id,
     publishedAt: new Date().toISOString(),
     note,
+    by,
     baseId,
     changes,
     files,
   });
   await env.CONTENT.put(`ver:${id}`, record);
   await env.CONTENT.put(LIVE_KEY, record);
+  await env.CONTENT.put(META_KEY, JSON.stringify(metaOf(JSON.parse(record))));
 
   const index = JSON.parse((await env.CONTENT.get(INDEX_KEY)) ?? "[]");
   index.unshift({
     id,
     at: new Date().toISOString(),
     note,
+    by,
     bytes: record.length,
     merged,
     changes,
@@ -113,6 +153,19 @@ export async function onRequestPost({ request, env }) {
   }
   await env.CONTENT.put(INDEX_KEY, JSON.stringify(index));
   return json({ ok: true, id, merged, changes });
+}
+
+const isPlainObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The small summary of a published record that pollers read. */
+export function metaOf(record) {
+  return {
+    id: record.id,
+    at: record.publishedAt ?? null,
+    by: record.by ?? null,
+    note: record.note ?? "",
+    changes: record.changes ?? [],
+  };
 }
 
 export function checkPassword(request, env) {

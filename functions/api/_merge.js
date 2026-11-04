@@ -3,16 +3,28 @@
 //   - functions/api/content.js   (server-side merge on every publish)
 //   - tools/publish-content.mjs  (repo pushes merge before writing KV)
 //   - tools/diff-content.mjs     (CLI "what would this push change")
+//   - src/data/content.ts        (background sync / rebase of open drafts)
 //   - src/editor/*               (publish-tab diff views)
 // Plain ESM, no Cloudflare/Node/browser-specific APIs — keep it that way.
 //
-// Merge semantics (Sean, 2026-08-08): last publisher wins on anything BOTH
-// sides changed since the common base; the point of the merge is that work
-// on DIFFERENT files/entries/keys survives from both sides. Granularity:
-//   - id-keyed arrays (tiles/items/behaviors/...) merge per entry by id
-//   - game.json merges per nested key
-//   - rooms/*.json and everything else are atomic per file (a char-map grid
-//     can't be half-merged)
+// Merge semantics (Sean, 2026-11-04 — replaces 2026-08-08's silent
+// last-publisher-wins): work on different things always survives from both
+// sides, down to the individual FIELD — Sean changing a tile's damage while an
+// artist changes its sprite is not a conflict. Granularity:
+//   - plain objects merge per key, all the way down (entries, game.json,
+//     layers.json, script.json, and a room file's own keys)
+//   - keyed lists merge per item: id-keyed arrays anywhere (tiles, a layer
+//     set's layers, a layer's props…), and a room's `entities` keyed by
+//     npcId / type@x,y (the writer scope's own match)
+//   - everything else (a room's char-map `tiles`, a sprite's frame list, …)
+//     is one indivisible value — a char-map grid can't be half-merged
+// A CONFLICT is one such value both sides changed since the common base, to
+// different results. mergeBundlesDetailed reports them grouped by item
+// ("tiles.json#wall", "layers.json#facility/far", "rooms/vents.json"), and
+// the publish paths stop and ask a person — keep mine / take theirs —
+// instead of choosing silently. mergeBundles (the legacy API) still settles
+// unasked conflicts on the incoming side, for callers rebasing a local draft
+// (where "incoming" IS the person's own unpublished work).
 
 /** Files whose top level is an array of { id } entries, merged per entry. */
 export const ID_ARRAY_FILES = new Set([
@@ -21,13 +33,9 @@ export const ID_ARRAY_FILES = new Set([
   "enemies.json", "taunts.json", "tracks.json",
 ]);
 
-/** Files merged recursively per nested key. layers.json is keyed by set id
- *  and room id all the way down, so this gives per-set and per-room-binding
- *  merging for free; each set's `layers` array stays atomic (an array hits
- *  `pick`), which is the right grain — two people restacking the same set's
- *  layers concurrently is a genuine conflict, and last-publisher-wins is the
- *  established call there. script.json (the Master Script's notes + line
- *  ledger) is keyed by room / event key, so two writers' notes merge too. */
+/** Files whose top level is a plain object. Every file merges per key now;
+ *  this list is kept for the diff views, which describe these files by
+ *  dotted path rather than by entry. */
 export const DEEP_OBJECT_FILES = new Set(["game.json", "layers.json", "script.json"]);
 
 export function deepEqual(a, b) {
@@ -47,12 +55,7 @@ export function deepEqual(a, b) {
 
 const isPlainObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** The one merge rule: if the incoming side didn't touch it since base, the
- *  live side's version (including a live-side delete) stands; any incoming
- *  change — including a delete — wins. `undefined` means "absent". */
-const pick = (base, live, incoming) => (deepEqual(incoming, base) ? live : incoming);
-
-/** True when every entry is an object with a string id (per-entry merge is safe). */
+/** True when every entry is an object with a string id (the diff views use this). */
 function idArrayLike(...arrays) {
   for (const arr of arrays) {
     if (arr === undefined) continue;
@@ -64,36 +67,114 @@ function idArrayLike(...arrays) {
   return true;
 }
 
-function mergeIdArray(base = [], live = [], incoming = []) {
-  const byId = (arr) => new Map(arr.map((e) => [e.id, e]));
-  const b = byId(base), l = byId(live), i = byId(incoming);
+/** A stable key for an item in a keyed list, or null if it has none. Room
+ *  entities have no id, so they're keyed the way the writer scope matches
+ *  them: a resident by npcId, anything else by type + tile position (a moved
+ *  entity reads as removed-here + added-there, which merges correctly). */
+function itemKey(e, roomEntities) {
+  if (!isPlainObj(e)) return null;
+  if (typeof e.id === "string") return e.id;
+  if (!roomEntities) return null;
+  if (typeof e.npcId === "string") return `npc:${e.npcId}`;
+  if (typeof e.type === "string" && typeof e.x === "number" && typeof e.y === "number") {
+    return `${e.type}@${e.x},${e.y}`;
+  }
+  return null;
+}
+
+/** Can these arrays merge item by item? Every item needs a key that's unique
+ *  within its own array — otherwise the list is one indivisible value. */
+function keyedLike(roomEntities, ...arrays) {
+  let any = false;
+  for (const arr of arrays) {
+    if (arr === undefined) continue;
+    if (!Array.isArray(arr)) return false;
+    const seen = new Set();
+    for (const e of arr) {
+      const k = itemKey(e, roomEntities);
+      if (k === null || seen.has(k)) return false;
+      seen.add(k);
+    }
+    any = true;
+  }
+  return any;
+}
+
+/** The ITEM a conflict belongs to — what a person decides about as a unit
+ *  (one tile, one layer, one room entity), plus a readable label. */
+function groupOf(file, path) {
+  const key = (s) => (typeof s === "object" ? s.key : s);
+  const short = file.replace(/\.json$/, "");
+  if (file.startsWith("rooms/")) {
+    const ent = path[0] === "entities" && typeof path[1] === "object" ? path[1].key : null;
+    return {
+      group: ent ? `${file}#${ent}` : file,
+      label: `room ${short.slice(6)}${ent ? ` — ${ent}` : ""}`,
+    };
+  }
+  if (path.length === 0) return { group: file, label: short };
+  if (typeof path[0] === "object") return { group: `${file}#${path[0].key}`, label: `${short}: ${path[0].key}` };
+  if (file === "layers.json" && path[0] === "sets" && path.length >= 2) {
+    const layer = path[2] === "layers" && typeof path[3] === "object" ? path[3].key : null;
+    return {
+      group: `layers.json#${path[1]}${layer ? `/${layer}` : ""}`,
+      label: `environment ${path[1]}${layer ? ` — layer ${layer}` : ""}`,
+    };
+  }
+  const head = path.slice(0, 2).map(key).join(".");
+  return { group: `${file}#${head}`, label: `${short}: ${head}` };
+}
+
+/**
+ * 3-way merge of one value, `path` locating it inside `file` (string keys
+ * and { key } list-item markers). Returns the merged value; records any
+ * conflict on ctx.
+ */
+function mergeValue(b, l, i, file, path, ctx) {
+  if (deepEqual(l, i)) return l; // same result on both sides (or untouched)
+  if (deepEqual(i, b)) return l; // only live changed it (incl. a live delete)
+  if (deepEqual(l, b)) return i; // only incoming changed it (incl. a delete)
+  // Both changed it, differently. Descend if it has parts that can merge…
+  if (isPlainObj(l) && isPlainObj(i) && (b === undefined || isPlainObj(b))) {
+    const out = {};
+    const keys = new Set([...Object.keys(l), ...Object.keys(i), ...(isPlainObj(b) ? Object.keys(b) : [])]);
+    for (const k of keys) {
+      const v = mergeValue(b?.[k], l[k], i[k], file, [...path, k], ctx);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  const roomEntities = file.startsWith("rooms/") && path.length === 1 && path[0] === "entities";
+  if (Array.isArray(l) && Array.isArray(i) && keyedLike(roomEntities, b, l, i)) {
+    return mergeKeyedArray(b ?? [], l, i, file, path, ctx, roomEntities);
+  }
+  // …otherwise it's a genuine conflict on one indivisible value.
+  const { group, label } = groupOf(file, path);
+  const choice = ctx.resolutions[group];
+  ctx.conflicts.push({ group, label, file, path, base: b, live: l, incoming: i, resolved: choice ?? null });
+  return choice === "theirs" ? l : i;
+}
+
+function mergeKeyedArray(base, live, incoming, file, path, ctx, roomEntities) {
+  const byKey = (arr) => new Map(arr.map((e) => [itemKey(e, roomEntities), e]));
+  const b = byKey(base), l = byKey(live), i = byKey(incoming);
   const out = [];
   const seen = new Set();
   // Incoming's order first (it's the publisher's authored order)...
   for (const e of incoming) {
-    seen.add(e.id);
-    const v = pick(b.get(e.id), l.get(e.id), e);
+    const k = itemKey(e, roomEntities);
+    seen.add(k);
+    const v = mergeValue(b.get(k), l.get(k), e, file, [...path, { key: k }], ctx);
     if (v !== undefined) out.push(v);
   }
-  // ...then anything only the live side has (its additions, plus entries the
-  // incoming side deleted — pick() decides which of those survive).
+  // ...then anything only the live side has (its additions, plus items the
+  // incoming side deleted — mergeValue decides which of those survive).
   for (const e of live) {
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-    const v = pick(b.get(e.id), e, i.get(e.id));
+    const k = itemKey(e, roomEntities);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const v = mergeValue(b.get(k), e, i.get(k), file, [...path, { key: k }], ctx);
     if (v !== undefined) out.push(v);
-  }
-  return out;
-}
-
-function mergeDeep(base, live, incoming) {
-  if (!isPlainObj(live) || !isPlainObj(incoming)) return pick(base, live, incoming);
-  const out = {};
-  const keys = new Set([...Object.keys(live), ...Object.keys(incoming)]);
-  if (isPlainObj(base)) for (const k of Object.keys(base)) keys.add(k);
-  for (const k of keys) {
-    const v = mergeDeep(base?.[k], live[k], incoming[k]);
-    if (v !== undefined) out[k] = v;
   }
   return out;
 }
@@ -101,28 +182,46 @@ function mergeDeep(base, live, incoming) {
 /**
  * 3-way merge of whole content-file maps. `base` is the published version the
  * incoming side last synced from; `live` is what's published now; `incoming`
- * is the new publish. Returns a fresh file map.
+ * is the new publish (or, when rebasing, the local draft).
+ *
+ * `resolutions` maps a conflict group to "mine" (incoming) or "theirs"
+ * (live). Unresolved conflicts take the incoming side in `files`, and every
+ * conflict is listed (with `resolved`) so a caller can stop and ask.
  */
-export function mergeBundles(base, live, incoming) {
+export function mergeBundlesDetailed(base, live, incoming, resolutions = {}) {
   base = base ?? {};
   live = live ?? {};
   incoming = incoming ?? {};
+  const ctx = { conflicts: [], resolutions: resolutions ?? {} };
   const out = {};
-  const files = new Set([...Object.keys(live), ...Object.keys(incoming), ...Object.keys(base)]);
-  for (const f of files) {
-    const b = base[f], l = live[f], i = incoming[f];
-    let v;
-    if (ID_ARRAY_FILES.has(f) && idArrayLike(b, l, i)) {
-      if (l === undefined || i === undefined) v = pick(b, l, i);
-      else v = mergeIdArray(b ?? [], l, i);
-    } else if (DEEP_OBJECT_FILES.has(f)) {
-      v = mergeDeep(b, l, i);
-    } else {
-      v = pick(b, l, i);
-    }
+  for (const f of new Set([...Object.keys(live), ...Object.keys(incoming), ...Object.keys(base)])) {
+    const v = mergeValue(base[f], live[f], incoming[f], f, [], ctx);
     if (v !== undefined) out[f] = v;
   }
-  return out;
+  return { files: out, conflicts: ctx.conflicts };
+}
+
+/** Legacy API: the merged file map, unasked conflicts settled on the incoming side. */
+export function mergeBundles(base, live, incoming) {
+  return mergeBundlesDetailed(base, live, incoming).files;
+}
+
+/**
+ * Conflicts as a person sees them: one row per ITEM, with every conflicting
+ * value inside it (paths as plain strings) — the shape the publish dialogs
+ * and the 409 response carry.
+ */
+export function groupConflicts(conflicts) {
+  const groups = new Map();
+  for (const c of conflicts) {
+    const g = groups.get(c.group) ?? { group: c.group, label: c.label, file: c.file, resolved: c.resolved, values: [] };
+    g.values.push({
+      path: c.path.map((p) => (typeof p === "object" ? p.key : p)),
+      base: c.base, live: c.live, incoming: c.incoming,
+    });
+    groups.set(c.group, g);
+  }
+  return [...groups.values()];
 }
 
 /** Dotted paths of leaves that differ between two nested objects. */

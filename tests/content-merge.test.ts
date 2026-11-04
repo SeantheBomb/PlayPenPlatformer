@@ -1,11 +1,13 @@
 // Pins the publish merge/diff contract (functions/api/_merge.js) — the code
 // that lets Sean (browser editor) and AI (repo pushes) publish concurrently
-// without clobbering each other. Locked semantics (Sean, 2026-08-08):
-// last publisher wins anything BOTH sides changed since the common base;
-// work on different files / id-entries / game.json keys survives from both.
+// without clobbering each other. Semantics (Sean, 2026-11-04): work on
+// different files / entries / FIELDS survives from both; a value both sides
+// changed is a CONFLICT the publish paths ask about (keep mine / take theirs).
+// mergeBundles (legacy API, still used for draft rebases) settles an unasked
+// conflict on the incoming side — the "last publisher wins" tests below pin that.
 import { describe, expect, it } from "vitest";
 import {
-  deepEqual, diffBundles, mergeBundles, summarizeDiff,
+  deepEqual, diffBundles, groupConflicts, mergeBundles, mergeBundlesDetailed, summarizeDiff,
 } from "../functions/api/_merge.js";
 
 const room = (id: string, map: string[]) => ({ id, name: id, map });
@@ -97,7 +99,7 @@ describe("mergeBundles", () => {
     expect(out.rooms.greenhouse.setId).toBe("green");        // live's binding
   });
 
-  it("rooms are atomic: incoming wins a room both sides edited", () => {
+  it("a room's char-map is indivisible: incoming wins a map both sides edited", () => {
     const base = { "rooms/vents.json": room("vents", [".."]) };
     const live = { "rooms/vents.json": room("vents", ["#."]) };
     const incoming = { "rooms/vents.json": room("vents", [".#"]) };
@@ -180,5 +182,93 @@ describe("deepEqual", () => {
     expect(deepEqual({ a: 1 }, { a: 1, b: undefined })).toBe(false);
     expect(deepEqual(null, {})).toBe(false);
     expect(deepEqual([], {})).toBe(false);
+  });
+});
+
+describe("mergeBundlesDetailed (field-level merge + conflicts, 2026-11-04)", () => {
+  it("different FIELDS of one entry both survive — no conflict", () => {
+    const base = { "tiles.json": [{ id: "wall", damage: 0, sprite: "a" }] };
+    const live = { "tiles.json": [{ id: "wall", damage: 1, sprite: "a" }] };      // Sean
+    const incoming = { "tiles.json": [{ id: "wall", damage: 0, sprite: "b" }] };  // artist
+    const { files, conflicts } = mergeBundlesDetailed(base, live, incoming);
+    expect(files["tiles.json"]).toEqual([{ id: "wall", damage: 1, sprite: "b" }]);
+    expect(conflicts).toEqual([]);
+  });
+
+  it("the same field changed both ways is a conflict, grouped by item", () => {
+    const base = { "tiles.json": [{ id: "wall", sprite: "a", spriteFps: 4 }] };
+    const live = { "tiles.json": [{ id: "wall", sprite: "casey", spriteFps: 6 }] };
+    const incoming = { "tiles.json": [{ id: "wall", sprite: "miranda", spriteFps: 8 }] };
+    const { files, conflicts } = mergeBundlesDetailed(base, live, incoming);
+    const groups = groupConflicts(conflicts);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].group).toBe("tiles.json#wall");
+    expect(groups[0].values.map((v) => v.path.join("."))).toEqual(["wall.sprite", "wall.spriteFps"]);
+    expect(groups[0].resolved).toBeNull();
+    // Unasked: incoming side (legacy behavior) — callers decide whether to stop.
+    expect((files["tiles.json"] as { sprite: string }[])[0].sprite).toBe("miranda");
+  });
+
+  it("resolutions pick per group: theirs keeps live, mine keeps incoming", () => {
+    const base = { "tiles.json": [{ id: "a", sprite: "0" }, { id: "b", sprite: "0" }] };
+    const live = { "tiles.json": [{ id: "a", sprite: "L" }, { id: "b", sprite: "L" }] };
+    const incoming = { "tiles.json": [{ id: "a", sprite: "I" }, { id: "b", sprite: "I" }] };
+    const { files, conflicts } = mergeBundlesDetailed(base, live, incoming, {
+      "tiles.json#a": "theirs", "tiles.json#b": "mine",
+    });
+    expect(files["tiles.json"]).toEqual([{ id: "a", sprite: "L" }, { id: "b", sprite: "I" }]);
+    expect(conflicts.every((c) => c.resolved !== null)).toBe(true);
+  });
+
+  it("a layer set's layers and props merge per item", () => {
+    const set = (layers: unknown[]) => ({ "layers.json": { sets: { lab: { layers } }, rooms: {} } });
+    const far = { id: "far", scrollX: 0.2, props: [{ id: "moon", x: 10 }] };
+    const near = { id: "near", scrollX: 0.8 };
+    const base = set([far, near]);
+    const live = set([{ ...far, props: [{ id: "moon", x: 10 }, { id: "star", x: 3 }] }, near]);
+    const incoming = set([far, { ...near, scrollX: 0.9 }, { id: "fog", scrollX: 1.2 }]);
+    const { files, conflicts } = mergeBundlesDetailed(base, live, incoming);
+    const layers = (files["layers.json"] as { sets: { lab: { layers: { id: string; scrollX: number; props?: { id: string }[] }[] } } }).sets.lab.layers;
+    expect(conflicts).toEqual([]);
+    expect(layers.map((l) => l.id)).toEqual(["far", "near", "fog"]);
+    expect(layers[0].props?.map((p) => p.id)).toEqual(["moon", "star"]); // live's new prop
+    expect(layers[1].scrollX).toBe(0.9);                                  // incoming's retune
+  });
+
+  it("a layer conflict names the set and layer", () => {
+    const set = (x: number) => ({ "layers.json": { sets: { lab: { layers: [{ id: "far", scrollX: x }] } } } });
+    const groups = groupConflicts(mergeBundlesDetailed(set(0.1), set(0.2), set(0.3)).conflicts);
+    expect(groups.map((g) => g.group)).toEqual(["layers.json#lab/far"]);
+  });
+
+  it("room entities merge per npcId / type@x,y; the char-map stays indivisible", () => {
+    const r = (tiles: string[], entities: unknown[]) => ({ "rooms/v.json": { id: "v", tiles, entities } });
+    const base = r([".."], [{ type: "npc", npcId: "toby", x: 1, y: 1, dialog: "hi" }, { type: "note", x: 3, y: 1, text: "a" }]);
+    const live = r(["#."], [{ type: "npc", npcId: "toby", x: 2, y: 1, dialog: "hi" }, { type: "note", x: 3, y: 1, text: "a" }]);
+    const incoming = r([".."], [{ type: "npc", npcId: "toby", x: 1, y: 1, dialog: "hello" }, { type: "note", x: 3, y: 1, text: "b" }]);
+    const { files, conflicts } = mergeBundlesDetailed(base, live, incoming);
+    expect(conflicts).toEqual([]);
+    expect(files["rooms/v.json"]).toEqual(
+      r(["#."], [{ type: "npc", npcId: "toby", x: 2, y: 1, dialog: "hello" }, { type: "note", x: 3, y: 1, text: "b" }])["rooms/v.json"]
+    );
+    const both = mergeBundlesDetailed(base, r(["#."], []), r([".#"], [])).conflicts;
+    expect(groupConflicts(both).map((g) => g.group)).toEqual(["rooms/v.json"]);
+  });
+
+  it("entries without unique ids fall back to one indivisible list", () => {
+    const base = { "x.json": { list: [{ v: 1 }] } };
+    const live = { "x.json": { list: [{ v: 2 }] } };
+    const incoming = { "x.json": { list: [{ v: 3 }] } };
+    const { conflicts } = mergeBundlesDetailed(base, live, incoming);
+    expect(conflicts.map((c) => c.path)).toEqual([["list"]]);
+  });
+
+  it("edit vs delete of the same entry is a conflict (whole entry)", () => {
+    const base = { "items.json": [{ id: "torch", color: "#f80" }] };
+    const live = { "items.json": [] };
+    const incoming = { "items.json": [{ id: "torch", color: "#ff0" }] };
+    const r = mergeBundlesDetailed(base, live, incoming, { "items.json#torch": "theirs" });
+    expect(r.files["items.json"]).toEqual([]);
+    expect(groupConflicts(r.conflicts)[0].group).toBe("items.json#torch");
   });
 });
