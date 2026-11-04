@@ -85,11 +85,9 @@ if (wholesale) {
     const r = mergeBundlesDetailed(base.files, live.files, files);
     const groups = groupConflicts(r.conflicts);
     if (groups.length && !side) {
-      console.error(`
-${groups.length} conflict(s) — both the repo and live (${live.by ?? "someone"}) changed:`);
+      console.error(`\n${groups.length} conflict(s) — both the repo and live (${live.by ?? "someone"}) changed:`);
       for (const g of groups) console.error(`  ${g.label}   (${g.values.map((v) => v.path.join(".")).join(", ")})`);
-      console.error("
-Nothing published. Re-run with --mine (repo wins these) or --theirs (live wins these),");
+      console.error("\nNothing published. Re-run with --mine (repo wins these) or --theirs (live wins these),");
       console.error("or `npm run content:pull` and redo the repo-side edit on top.");
       process.exit(1);
     }
