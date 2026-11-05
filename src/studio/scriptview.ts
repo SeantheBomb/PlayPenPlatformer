@@ -12,9 +12,11 @@ import { el } from "../editor/forms";
 import { drawWardenPortrait } from "../engine/renderer";
 import { bannerPreview, dialogPreview, lintStrip, npcPortraitDrawer } from "./linepreview";
 import {
-  buildScript, continuityFlags, diffSignature, readTarget, signatureOf, writeTarget,
+  buildScript, castNoteKey, continuityFlags, diffSignature, openReminders, readTarget, sceneNoteKey, signatureOf,
+  WARDEN_NOTE_KEY, writeTarget,
   type Beat, type BeatTarget, type ScriptModel, type ScriptSignature, type StructFlag,
 } from "./script";
+import { buildCast } from "./characters";
 import { closeUp, recipeCard, wideShot } from "./storyboard";
 import { lintLine, type LintFlag } from "./voice";
 import { EMOTIONS } from "./warden";
@@ -32,6 +34,8 @@ const ui = {
   openShared: new Set<string>(),
   /** Keys edited this session (the gutter's "edited" marker). */
   edited: new Set<string>(),
+  /** Outline notes open for editing (script.json note keys). */
+  openNotes: new Set<string>(),
 };
 
 const readBoards = () => { try { return localStorage.getItem(BOARDS_KEY) !== "0"; } catch { return true; } };
@@ -65,6 +69,7 @@ interface PageCtx {
 export function scriptView(ctx: WriterContext): HTMLElement {
   ensureScriptFont();
   closeInspector(); // a re-render detached the old one
+  firstWardenTagged = false;
   const content = ctx.store.content;
   setCapsNames(content);
   const script = content.script;
@@ -227,15 +232,13 @@ function navColumn(pc: PageCtx, model: ScriptModel, full: ScriptModel): HTMLElem
     const was = pc.prev ? pc.prev.order.indexOf(s.roomId) + 1 : 0;
     const note = [`${n.lines} lines`, n.empty ? `${n.empty} empty` : "", was && was !== s.num ? `was ${was}` : "", s.inDemo ? "demo" : ""]
       .filter(Boolean).join(" · ");
-    list.append(el("a", { className: "ms-navitem", href: `#ms-scene-${s.roomId}`,
-      onclick: (e: Event) => {
-        e.preventDefault();
-        document.getElementById(`ms-scene-${s.roomId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      } },
+    list.append(navEntry(pc, sceneNoteKey(s.roomId), `Scene ${s.num} · ${s.name}`, () => jumpTo(`ms-scene-${s.roomId}`),
       el("span", { className: "ms-mono", style: "color:#ffd166;min-width:20px" }, String(s.num)),
       el("span", { style: "flex:1;display:flex;flex-direction:column;gap:1px" },
         el("span", {}, s.name), el("span", { className: "st-dim" }, note))));
   }
+  const reminders = remindersBox(pc, model, full);
+  if (reminders) nav.append(reminders);
   nav.append(
     el("div", { className: "ms-navhead" }, "THE SCRIPT"),
     el("div", { style: "font-size:13px;margin-bottom:6px" },
@@ -273,21 +276,36 @@ function navColumn(pc: PageCtx, model: ScriptModel, full: ScriptModel): HTMLElem
         "What doesn't happen collapses to a dashed placeholder, and the frames drop anyone who isn't there."
       : "Every branch at once. Shaded blocks only happen on some runs. Tap a name to read a run without them."));
 
-  // Threads legend.
-  nav.append(el("div", { className: "ms-navhead" }, "STORY THREADS"));
-  for (const t of full.threads) {
-    const shown = model.threads.find((x) => x.npcId === t.npcId);
-    const rooms = [...new Set(t.deps.map((d) => pc.content.rooms[d.roomId]?.name ?? d.roomId))];
-    const early = t.deps.some((d) => d.early);
-    const text = !shown ? "Not helped on this run — no thread."
-      : early ? `Something pays off before #67 can have helped them — see the red dot.`
-      : `Helped in ${t.startRoom ? pc.content.rooms[t.startRoom]?.name : "?"} → ${rooms.length ? rooms.join(", ") : "nothing pays it off yet"}`;
-    nav.append(el("div", { className: "ms-thread" },
-      el("span", { className: "ms-threadbar", style: `background:${t.color};${shown ? "" : "opacity:.3"}` }),
-      el("span", {}, el("b", { style: "font-weight:600" }, t.name), el("br", {}),
-        el("span", { style: `color:${early && shown ? "#ff9b8f" : shown ? "#c9c1e0" : "#8f86a8"}` }, text))));
+  // The cast: the Warden, then every resident in the order #67 meets them,
+  // each with their story thread (if they have one) and a note.
+  nav.append(el("div", { className: "ms-navhead" }, "THE CAST & STORY THREADS"));
+  nav.append(navEntry(pc, WARDEN_NOTE_KEY, "The Warden", () => jumpTo("ms-first-warden"),
+    el("span", { className: "ms-thread" },
+      el("span", { className: "ms-threadbar", style: `background:${pc.content.game.antagonist.color}` }),
+      el("span", {}, el("b", { style: "font-weight:600" }, "The Warden"), el("br", {}),
+        el("span", { style: "color:#c9c1e0" }, "Every scene — his banner lines")))));
+  for (const m of buildCast(pc.content)) {
+    const t = full.threads.find((x) => x.npcId === m.npcId);
+    const shown = t && model.threads.find((x) => x.npcId === m.npcId);
+    const scenes = m.appearances.filter((a) => a.order < 999).length;
+    let text = `${scenes} scene${scenes === 1 ? "" : "s"} · no quest, so no thread`;
+    let color = "#c9c1e0";
+    if (t) {
+      const rooms = [...new Set(t.deps.map((d) => pc.content.rooms[d.roomId]?.name ?? d.roomId))];
+      const early = t.deps.some((d) => d.early);
+      text = !shown ? "Not helped on this run — no thread."
+        : early ? "Something pays off before #67 can have helped them — see the red dot."
+        : `Helped in ${t.startRoom ? pc.content.rooms[t.startRoom]?.name : "?"} → ${rooms.length ? rooms.join(", ") : "nothing pays it off yet"}`;
+      color = early && shown ? "#ff9b8f" : shown ? "#c9c1e0" : "#8f86a8";
+    }
+    const first = firstLineKey(full, m.npcId);
+    nav.append(navEntry(pc, castNoteKey(m.npcId), m.name, () => first && jumpTo(`ms-k-${first}`),
+      el("span", { className: "ms-thread" },
+        el("span", { className: "ms-threadbar", style: `background:${m.color};${!t || shown ? "" : "opacity:.3"}` }),
+        el("span", {}, el("b", { style: "font-weight:600" }, m.name), el("br", {}), el("span", { style: `color:${color}` }, text)))));
   }
-  nav.append(el("div", { className: "st-hint" }, "Each line in the margin starts where #67 helps them and runs to every beat that depends on it."));
+  nav.append(el("div", { className: "st-hint" },
+    "Each line in the script's margin starts where #67 helps a resident and runs to every beat that depends on it. ✎ adds a note to any scene or character — tick “Reminder” to track it."));
 
   // Frames on / off.
   nav.append(
@@ -341,12 +359,15 @@ function paper(pc: PageCtx, model: ScriptModel): HTMLElement {
           el("span", {}, "drawn from the level"))));
     }
     if (noteText !== undefined) {
-      const ta = el("textarea", { rows: 2, placeholder: "Continuity, ideas, questions for Sean…", value: noteText }) as HTMLTextAreaElement;
-      ta.addEventListener("input", () => { pc.script.notes[s.roomId] = ta.value; pc.saveScript(); });
+      const key = sceneNoteKey(s.roomId);
+      const ta = el("textarea", { rows: 2, placeholder: "Continuity, ideas, questions for Sean…", value: noteText, "data-note": key }) as HTMLTextAreaElement;
+      ta.addEventListener("input", () => { pc.script.notes[key] = ta.value; pc.saveScript(); mirrorNote(ta); });
       head.append(el("div", { className: "ms-wnote ms-sans" },
-        el("div", { style: "display:flex;justify-content:space-between;gap:8px;align-items:center" },
+        el("div", { style: "display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap" },
           el("b", { style: "font-size:11px;letter-spacing:.06em" }, "WRITER'S NOTE — STAYS IN THE STUDIO, NEVER IN THE GAME"),
-          el("button", { className: "ms-small", onclick: () => { delete pc.script.notes[s.roomId]; void pc.ctx.save("script.json", pc.script).then(() => pc.ctx.render()); } }, "Remove")),
+          el("span", { style: "display:flex;gap:10px;align-items:center" },
+            ...reminderControls(pc, key),
+            el("button", { className: "ms-small", onclick: () => { removeNote(pc, key); } }, "Remove"))),
         ta));
     }
     section.append(head);
@@ -408,6 +429,9 @@ function drawRails(model: ScriptModel, rails: Rails): void {
   });
 }
 
+/** The first Warden beat on the page gets the outline's jump anchor. */
+let firstWardenTagged = false;
+
 function renderBeat(
   pc: PageCtx, b: Beat, roomId: string, sceneName: string, nextShot: () => string, helped: ReadonlySet<string>
 ): HTMLElement {
@@ -435,8 +459,14 @@ function renderBeat(
     case "skip": wrap.append(el("div", { className: "ms-skip" },
       el("span", { className: "ms-sans", style: "font-size:11px;font-weight:700;letter-spacing:.06em" }, "NOT ON THIS RUN"),
       el("span", {}, caps(b.text ?? "")))); break;
-    case "line": wrap.append(lineBeat(pc, b, roomId, sceneName, wrap)); break;
-    case "warden": wrap.append(wardenBeat(pc, b, roomId, wrap)); break;
+    case "line":
+      if (b.key && !document.getElementById(`ms-k-${b.key}`)) wrap.id = `ms-k-${b.key}`;
+      wrap.append(lineBeat(pc, b, roomId, sceneName, wrap));
+      break;
+    case "warden":
+      if (!firstWardenTagged) { wrap.id = "ms-first-warden"; firstWardenTagged = true; }
+      wrap.append(wardenBeat(pc, b, roomId, wrap));
+      break;
     case "alt": {
       const grid = el("div", { className: "ms-alt" });
       for (const c of b.columns ?? []) {
@@ -691,4 +721,139 @@ function inspector(
 function markEdited(row: HTMLElement): void {
   const g = row.querySelector(".ms-gutter");
   if (g && !g.querySelector(".ms-edited")) g.append(el("span", { className: "ms-edited" }, "edited"));
+}
+
+// ---- Outline notes & reminders ----
+
+function jumpTo(id: string): void {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function firstLineKey(m: ScriptModel, npcId: string): string | undefined {
+  for (const s of m.scenes) {
+    const walk = (bs: Beat[]): string | undefined => {
+      for (const b of bs) {
+        if (b.kind === "line" && b.npcId === npcId && b.key) return b.key;
+        for (const c of b.columns ?? []) { const k = walk(c.beats); if (k) return k; }
+      }
+      return undefined;
+    };
+    const k = walk(s.beats);
+    if (k) return k;
+  }
+  return undefined;
+}
+
+function saveNow(pc: PageCtx): void {
+  void pc.ctx.save("script.json", pc.script).then(() => pc.ctx.render());
+}
+
+function removeNote(pc: PageCtx, key: string): void {
+  const text = pc.script.notes[key];
+  if (text?.trim() && !confirm(`Remove this note?\n\n“${text}”`)) return;
+  delete pc.script.notes[key];
+  delete pc.script.reminders[key];
+  ui.openNotes.delete(key);
+  saveNow(pc);
+}
+
+/** Keep the outline's copy and the scene page's copy of a note in step. */
+function mirrorNote(ta: HTMLTextAreaElement): void {
+  const k = ta.dataset.note;
+  if (!k) return;
+  for (const other of document.querySelectorAll<HTMLTextAreaElement>(`textarea[data-note="${CSS.escape(k)}"]`)) {
+    if (other !== ta) other.value = ta.value;
+  }
+}
+
+/** "Reminder" (track this note as a to-do) and, once tracked, "Done". */
+function reminderControls(pc: PageCtx, key: string): HTMLElement[] {
+  const rem = pc.script.reminders?.[key];
+  const box = (label: string, checked: boolean, onChange: (on: boolean) => void) => {
+    const cb = el("input", { type: "checkbox" }) as HTMLInputElement;
+    cb.checked = checked;
+    cb.addEventListener("change", () => onChange(cb.checked));
+    return el("label", { className: "ms-remctl" }, cb, label);
+  };
+  const out = [box("Reminder", !!rem, (on) => {
+    pc.script.reminders ??= {};
+    if (on) pc.script.reminders[key] = "open"; else delete pc.script.reminders[key];
+    saveNow(pc);
+  })];
+  if (rem) out.push(box("Done", rem === "done", (on) => { pc.script.reminders[key] = on ? "done" : "open"; saveNow(pc); }));
+  return out;
+}
+
+/** One outline row: the item (jumps to it in the script) + its note. */
+function navEntry(pc: PageCtx, key: string, label: string, jump: () => void, ...content: HTMLElement[]): HTMLElement {
+  const text = pc.script.notes?.[key];
+  const has = !!text?.trim();
+  const rem = pc.script.reminders?.[key];
+  const open = ui.openNotes.has(key);
+  const toggle = () => {
+    if (open) {
+      ui.openNotes.delete(key);
+      if (!pc.script.notes[key]?.trim() && !pc.script.reminders?.[key]) delete pc.script.notes[key];
+      saveNow(pc);
+    } else {
+      ui.openNotes.add(key);
+      pc.ctx.render();
+      setTimeout(() => document.querySelector<HTMLTextAreaElement>(`.ms-nav textarea[data-note="${CSS.escape(key)}"]`)?.focus(), 0);
+    }
+  };
+  const wrap = el("div", { className: "ms-navwrap" });
+  wrap.append(el("div", { className: "ms-navitem" },
+    el("button", { className: "ms-navjump", onclick: jump }, ...content),
+    el("button", {
+      className: `ms-notebtn${has ? " has" : ""}${rem === "open" ? " rem" : ""}`,
+      title: open ? "Close the note" : has ? "Open your note" : "Add a note",
+      "aria-label": `${open ? "Close" : has ? "Open" : "Add"} writer's note for ${label}`,
+      "aria-expanded": open ? "true" : "false",
+      onclick: toggle,
+    }, "✎")));
+  if (open) {
+    const ta = el("textarea", { rows: 3, placeholder: `A note on ${label} — a reminder, a reference, a question for Sean…`, value: text ?? "", "data-note": key }) as HTMLTextAreaElement;
+    ta.addEventListener("input", () => { pc.script.notes[key] = ta.value; pc.saveScript(); mirrorNote(ta); });
+    wrap.append(el("div", { className: "ms-noteedit" }, ta,
+      el("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap" },
+        ...reminderControls(pc, key),
+        el("span", { className: "st-spacer" }),
+        has ? el("button", { className: "ms-small", onclick: () => removeNote(pc, key) }, "Remove") : null,
+        el("button", { className: "ms-small", onclick: toggle }, "Done editing"))));
+  } else if (has || rem) {
+    wrap.append(el("button", { className: "ms-notepreview", title: "Edit this note", onclick: toggle },
+      rem ? el("span", { className: `ms-rembadge${rem === "done" ? " done" : ""}` }, rem === "done" ? "✓ done" : "Reminder") : null,
+      el("span", { className: "ms-notetext" }, has ? text! : "(no text yet)")));
+  }
+  return wrap;
+}
+
+/** Open reminders across the whole outline, pinned at the top of the column. */
+function remindersBox(pc: PageCtx, model: ScriptModel, full: ScriptModel): HTMLElement | null {
+  const cast = buildCast(pc.content);
+  const keys = openReminders(pc.script, full.scenes.map((s) => s.roomId), cast.map((m) => m.npcId));
+  if (!keys.length) return null;
+  const labelOf = (k: string) => {
+    if (k === WARDEN_NOTE_KEY) return "The Warden";
+    const m = cast.find((c) => castNoteKey(c.npcId) === k);
+    if (m) return m.name;
+    const s = model.scenes.find((x) => x.roomId === k);
+    return s ? `Scene ${s.num} · ${s.name}` : pc.content.rooms[k]?.name ?? k;
+  };
+  const jumpOf = (k: string) => {
+    if (k === WARDEN_NOTE_KEY) return () => jumpTo("ms-first-warden");
+    const m = cast.find((c) => castNoteKey(c.npcId) === k);
+    if (m) { const f = firstLineKey(full, m.npcId); return () => f && jumpTo(`ms-k-${f}`); }
+    return () => jumpTo(`ms-scene-${k}`);
+  };
+  const box = el("div", { className: "ms-reminders" },
+    el("div", { className: "ms-navhead", style: "margin-top:0;color:#ffd166" }, `REMINDERS · ${keys.length} open`));
+  for (const k of keys) {
+    const cb = el("input", { type: "checkbox", title: "Mark done", "aria-label": `Mark the reminder on ${labelOf(k)} done` }) as HTMLInputElement;
+    cb.addEventListener("change", () => { pc.script.reminders[k] = "done"; saveNow(pc); });
+    box.append(el("div", { className: "ms-remrow" }, cb,
+      el("button", { className: "ms-remjump", onclick: jumpOf(k) },
+        el("b", {}, labelOf(k)), el("span", { className: "ms-notetext" }, pc.script.notes?.[k] ?? ""))));
+  }
+  return box;
 }

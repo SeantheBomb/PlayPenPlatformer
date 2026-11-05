@@ -357,7 +357,10 @@ art, or game rules even by accident. Log in once; the browser remembers you.
   levels or moves people, a banner says what changed, your lines stay with
   their moments, and anything that may read differently is flagged; a line
   whose moment is gone waits under "Lines without a place" until you rehome
-  or discard it. Writer's notes on each scene are for you and Sean only.
+  or discard it. Writer's notes are for you and Sean only: the ✎ beside any
+  scene, resident or the Warden in the left column adds one (a scene's note is
+  the same one shown on its page), and ticking "Reminder" tracks it — open
+  reminders collect at the top of the column until you tick them done.
 
 **Seeing a line land.** Type in a box and the real dialog box or Warden banner
 next to it updates as you go — real portrait, real typewriter, real wrap. Small

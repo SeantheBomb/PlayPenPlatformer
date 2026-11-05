@@ -111,8 +111,10 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   IF-HELPED / IF-NOT alternate (empty side = "ask Sean" — writers can't
   create entities); each quest-giver's helped flag is a margin thread from
   JUST DONE to every gated beat, red dot = payoff before setup. New file
-  `content/script.json` (`ScriptDoc`: writer's notes per room + a line
-  LEDGER by event key): never read by the game, wholly writer-owned
+  `content/script.json` (`ScriptDoc`: writer's notes + reminders + a line
+  LEDGER by event key; notes/reminders keyed by outline item — bare room id
+  for a scene, so the outline note IS the scene-page note; `npc:<id>` for a
+  resident; `warden` — see `sceneNoteKey`/`castNoteKey`/`openReminders`): never read by the game, wholly writer-owned
   (`WRITER_OWNED_FILES` in `_writerscope.js`), merged per nested key
   (`DEEP_OBJECT_FILES`). The ledger is only consulted for keys that no
   longer exist → "Lines without a place" (rehome / discard). "Since you

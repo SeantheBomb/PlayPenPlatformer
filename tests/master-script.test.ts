@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { assembleContent } from "../src/data/content";
 import type { Content, RoomDef, RoomEntity, TauntDef } from "../src/data/types";
 import {
-  allLineBeats, buildScript, continuityFlags, diffSignature, presentOnRun, signatureOf, type Beat,
+  allLineBeats, buildScript, castNoteKey, continuityFlags, diffSignature, openReminders, presentOnRun, sceneNoteKey, signatureOf, type Beat,
 } from "../src/studio/script";
 import { overlayStoryBundle } from "../functions/api/_writerscope.js";
 import { mergeBundles } from "../functions/api/_merge.js";
@@ -184,5 +184,25 @@ describe("script.json publishing", () => {
     const live = { "script.json": { notes: { a: "Sean's" }, lines: {} } };
     const mine = { "script.json": { notes: { b: "Lorne's" }, lines: {} } };
     expect((mergeBundles(base, live, mine)["script.json"] as { notes: object }).notes).toEqual({ a: "Sean's", b: "Lorne's" });
+  });
+});
+
+describe("outline notes & reminders", () => {
+  it("lists open reminders in reading order: scenes, then the cast, then the Warden, then strays", () => {
+    const doc = { reminders: { warden: "open", "npc:toby": "open", b: "open", a: "done", gone_room: "open", "npc:marla": "open" } as Record<string, "open" | "done"> };
+    expect(openReminders(doc, ["a", "b", "c"], ["marla", "toby"])).toEqual(["b", "npc:marla", "npc:toby", "warden", "gone_room"]);
+    expect(openReminders({}, [], [])).toEqual([]);
+  });
+
+  it("a scene's outline note is the same note as the one on its page (bare room id)", () => {
+    expect(sceneNoteKey("cell_block")).toBe("cell_block");
+    expect(castNoteKey("marla")).toBe("npc:marla");
+  });
+
+  it("reminders merge per key like notes", () => {
+    const base = { "script.json": { notes: {}, reminders: {}, lines: {} } };
+    const live = { "script.json": { notes: {}, reminders: { a: "open" }, lines: {} } };
+    const mine = { "script.json": { notes: {}, reminders: { "npc:deb": "done" }, lines: {} } };
+    expect((mergeBundles(base, live, mine)["script.json"] as { reminders: object }).reminders).toEqual({ a: "open", "npc:deb": "done" });
   });
 });

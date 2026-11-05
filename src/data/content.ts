@@ -152,7 +152,7 @@ function assemble(files: Record<string, unknown>): Content {
     // the renderer an undefined it reads every frame.
     layers: deepDefaults(BUNDLED["layers.json"], files["layers.json"]) as Content["layers"],
     // Writers Studio notes + line ledger: nested-key merge, same reasoning.
-    script: deepDefaults(BUNDLED["script.json"] ?? { notes: {}, lines: {} }, files["script.json"]) as Content["script"],
+    script: deepDefaults(BUNDLED["script.json"] ?? { notes: {}, reminders: {}, lines: {} }, files["script.json"]) as Content["script"],
   };
 }
 

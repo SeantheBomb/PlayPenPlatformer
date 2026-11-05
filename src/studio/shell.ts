@@ -277,8 +277,29 @@ export const STUDIO_CSS = `
 .ms-nav { flex:0 1 270px; min-width:230px; position:sticky; top:0; max-height:100vh; overflow:auto; box-sizing:border-box;
   background:#1c1730; border:1px solid #322a4e; border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:6px; }
 .ms-navhead { font-size:11px; font-weight:700; letter-spacing:.08em; color:#c9c1e0; margin-top:10px; }
-.ms-navitem { display:flex; gap:10px; align-items:center; text-decoration:none; color:#ece6f8; padding:7px 10px; border-radius:8px; background:#241d3c; }
+.ms-navwrap { display:flex; flex-direction:column; gap:3px; }
+.ms-navitem { display:flex; align-items:stretch; color:#ece6f8; border-radius:8px; background:#241d3c; }
 .ms-navitem:hover { background:#2f2752; }
+.ms-navjump { flex:1; min-width:0; display:flex; gap:10px; align-items:center; background:none; border:0; color:inherit;
+  text-align:left; padding:7px 4px 7px 10px; cursor:pointer; font:inherit; font-size:14px; }
+.ms-notebtn { flex:none; background:none; border:0; color:#6f6790; cursor:pointer; padding:0 10px; font-size:15px; border-radius:0 8px 8px 0; }
+.ms-notebtn:hover { color:#ffd166; background:#352c52; }
+.ms-notebtn.has { color:#ffd166; }
+.ms-notebtn.rem { color:#1d1a26; background:#ffd166; }
+.ms-notepreview { display:flex; gap:6px; align-items:flex-start; text-align:left; margin-left:12px; padding:6px 8px; border:0; border-radius:6px;
+  background:#fff3b0; color:#3d3300; font:12px/1.4 "Segoe UI", system-ui, sans-serif; cursor:pointer; }
+.ms-notetext { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; }
+.ms-rembadge { flex:none; font-size:10px; font-weight:700; letter-spacing:.04em; background:#b07a12; color:#fffaea; border-radius:6px; padding:1px 6px; }
+.ms-rembadge.done { background:#cfe3cf; color:#1e5c3d; }
+.ms-noteedit { margin-left:12px; background:#fff3b0; color:#3d3300; border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px; font-size:12px; }
+.ms-noteedit textarea { width:100%; box-sizing:border-box; border:0; background:transparent; resize:vertical; font:13px/1.45 "Segoe UI", system-ui, sans-serif; color:#3d3300; outline:none; }
+.ms-remctl { display:inline-flex; gap:4px; align-items:center; font:12px "Segoe UI", system-ui, sans-serif; cursor:pointer; }
+.ms-reminders { background:#2a2214; border:1px solid #b07a12; border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:6px; }
+.ms-remrow { display:flex; gap:8px; align-items:flex-start; }
+.ms-remrow input { margin-top:3px; }
+.ms-remjump { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; text-align:left; background:none; border:0; color:#ece6f8;
+  cursor:pointer; font:12px/1.4 "Segoe UI", system-ui, sans-serif; padding:0; }
+.ms-remjump .ms-notetext { color:#e8d9a8; }
 .ms-segs { display:flex; flex-wrap:wrap; border:1px solid #4a4070; border-radius:8px; overflow:hidden; }
 .ms-seg { flex:1; border:0; padding:8px 6px; font-size:12px; cursor:pointer; background:#100d1c; color:#c9c1e0; }
 .ms-seg.on { background:#453a6e; color:#fff; font-weight:600; }

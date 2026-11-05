@@ -499,3 +499,29 @@ export function allLineBeats(m: ScriptModel): Beat[] {
   walk(m.ending);
   return out;
 }
+
+// ---- Writer's notes on the outline (scenes, residents, the Warden) ----
+
+/** script.json `notes` / `reminders` keys. A scene keeps the bare room id —
+ *  the shape scene notes shipped with — so the note in the outline and the
+ *  one on the scene's page are the same note. */
+export const sceneNoteKey = (roomId: string) => roomId;
+export const castNoteKey = (npcId: string) => `npc:${npcId}`;
+export const WARDEN_NOTE_KEY = "warden";
+
+/** Open reminders in reading order: scenes in campaign order, then the cast
+ *  in the order given, then the Warden, then anything left over (a scene or
+ *  resident since removed — never silently dropped). */
+export function openReminders(
+  doc: { reminders?: Record<string, "open" | "done"> }, sceneOrder: string[], castOrder: string[]
+): string[] {
+  const open = Object.entries(doc.reminders ?? {}).filter(([, v]) => v === "open").map(([k]) => k);
+  const rank = (k: string) => {
+    const s = sceneOrder.indexOf(k);
+    if (s >= 0) return s;
+    const c = castOrder.map(castNoteKey).indexOf(k);
+    if (c >= 0) return 1000 + c;
+    return k === WARDEN_NOTE_KEY ? 2000 : 3000;
+  };
+  return open.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}

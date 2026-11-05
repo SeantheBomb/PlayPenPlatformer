@@ -689,9 +689,14 @@ export interface Content {
  *  (functions/api/_writerscope.js takes it wholesale from a writer publish),
  *  merged per nested key like game.json. */
 export interface ScriptDoc {
-  /** Writer's notes per scene (room id) — continuity, ideas, questions for
-   *  Sean. Studio-only; nothing in the game shows them. */
+  /** Writer's notes — continuity, ideas, questions for Sean — keyed by what
+   *  they're about: a scene by its bare room id (the original shape),
+   *  a resident by `npc:<npcId>`, the Warden by `warden`. Studio-only;
+   *  nothing in the game shows them. */
   notes: Record<string, string>;
+  /** Notes the writer is tracking as to-dos, same keys as `notes`. Absent =
+   *  just a note. */
+  reminders: Record<string, "open" | "done">;
   /** The last text written in the Master Script for each story event, by the
    *  event's stable key (see src/studio/script.ts). Only consulted when the
    *  event no longer exists — that's how a line Sean's change left without a
