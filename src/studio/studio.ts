@@ -11,7 +11,7 @@ import type { ContentStore } from "../data/content";
 import type { Game } from "../game/game";
 import { el, toast } from "../editor/forms";
 import { openPixelEditor } from "../editor/pixeleditor";
-import { getImage } from "../engine/renderer";
+import { getImage, spriteRect } from "../engine/renderer";
 import { TILE } from "../engine/tilemap";
 import { artBox, buildAssets, assetStatus, GROUP_ORDER, withEditedFrames, type ArtAsset, type AssetGroup } from "./assets";
 import { sourceRef, timingFor, type AseImport } from "./aseprite";
@@ -495,13 +495,24 @@ class Studio {
         if (uri) {
           const img = getImage(uri);
           if (img) {
-            // Custom art still previews at its TRUE stretched box aspect
-            // (matching real in-game rendering exactly, distortion and
-            // all), just centered within the padded canvas instead of
-            // filling it — the canvas is a viewport, not the box.
+            // Custom art previews exactly as the game maps it onto the box
+            // (spriteRect — the same function drawSprite uses): stretched
+            // for "fill" slots, its own shape for "height" slots. Centered
+            // within the padded canvas — the canvas is a viewport.
             const bw = box.w * z, bh = box.h * z;
+            const bx = (cv.width - bw) / 2, by = (cv.height - bh) / 2;
+            const r = spriteRect(img.naturalWidth, img.naturalHeight, bx, by, bw, bh, a.fit ?? "fill");
             ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(img, (cv.width - bw) / 2, (cv.height - bh) / 2, bw, bh);
+            ctx.drawImage(img, r.x, r.y, r.w, r.h);
+            if (a.fit === "height") {
+              // The hitbox, faintly — so "it sticks out a bit sideways"
+              // reads as intended, not as a mistake.
+              ctx.save();
+              ctx.strokeStyle = "rgba(255,209,102,0.45)";
+              ctx.setLineDash([3, 3]);
+              ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+              ctx.restore();
+            }
             return;
           }
         }
@@ -512,7 +523,9 @@ class Studio {
     wrap.append(el("div", { className: "st-card" },
       el("div", { className: "st-hint" }, isPattern
         ? `One copy of your pattern covers ${box.spanX}×${box.spanY} tiles (${box.w}×${box.h} at 1×). Any resolution works — ${box.w * 2}×${box.h * 2} or bigger just looks crisper. Keep the ${box.spanX}:${box.spanY} shape so each tile's piece stays square.`
-        : `The game draws this in a ${a.drawnW}×${a.drawnH} box. Any resolution works — art is fitted to the box (higher res = crisper on screen). Match the ${a.drawnW}:${a.drawnH} shape to avoid stretching.`),
+        : a.fit === "height"
+          ? `The game's box for this is ${a.drawnW}×${a.drawnH} (the dashed outline once you add art). Draw at any size and shape — your art keeps its own proportions: it's scaled so its height fills the box, feet on the bottom edge, centered. Wider art just overhangs the box a little sideways; collision doesn't change. Leave no empty rows under the feet, or it'll float.`
+          : `The game draws this in a ${a.drawnW}×${a.drawnH} box. Any resolution works — art is fitted to the box (higher res = crisper on screen). Match the ${a.drawnW}:${a.drawnH} shape to avoid stretching.`),
       zoomRow));
 
     // Frames + fps
@@ -587,6 +600,7 @@ class Studio {
       const result = await importFiles(files);
       if (result.aseprite) {
         const said = await this.applyAseprite(a, result.aseprite, "main");
+        if (said) said.push(...await this.fitNotes(a, a.read().frames[0]));
         showNotes([...result.notes, ...(said ?? ["Import cancelled — nothing changed."])], result.errors);
         if (!said) return;
         if (a.pattern) {
@@ -617,6 +631,8 @@ class Studio {
       }
       await a.write({ ...a.read(), frames, fps: a.read().fps, durations: undefined, source: undefined });
       this.dirty = true;
+      const fit = await this.fitNotes(a, frames[0]);
+      if (fit.length) showNotes([...result.notes, ...fit], result.errors);
       if (a.pattern) {
         // A 32×32 image on a 16×16 tile could be extra detail OR a 2×2
         // pattern — ambiguous by nature, so ask instead of guessing.
@@ -685,6 +701,20 @@ class Studio {
     // Secondary-state slot (open door, unlit brazier, …)
     if (a.altLabel) wrap.append(this.altSlot(a));
     return wrap;
+  }
+
+  /** For slots that keep the art's shape: say plainly what an off-shape
+   *  image will do in-game, so the overhang is never a surprise. */
+  private async fitNotes(a: ArtAsset, uri: string | undefined): Promise<string[]> {
+    if (a.fit !== "height" || !uri) return [];
+    const dims = await imageSize(uri);
+    if (!dims) return [];
+    const artAspect = dims.w / dims.h, boxAspect = a.drawnW / a.drawnH;
+    if (Math.abs(artAspect / boxAspect - 1) < 0.05) return [];
+    const w = +(a.drawnH * artAspect).toFixed(1);
+    return [artAspect > boxAspect
+      ? `Your art is ${dims.w}×${dims.h}, a bit wider than the ${a.drawnW}×${a.drawnH} box. It keeps its shape: ${w}×${a.drawnH} in-game, feet on the ground, overhanging the box ${+((w - a.drawnW) / 2).toFixed(1)}px each side. Collision is unchanged.`
+      : `Your art is ${dims.w}×${dims.h}, a bit narrower than the ${a.drawnW}×${a.drawnH} box. It keeps its shape: ${w}×${a.drawnH} in-game, centered in the box. Collision is unchanged.`];
   }
 
   /**

@@ -155,6 +155,15 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `spriteAltSource` ("file.aseprite#tag" provenance) are in `_artscope.js`
   `SPRITE_FIELDS` — a new art field missing from that list is silently
   stripped by every artist publish.
+- **Sprite fit (2026-11-04)**: custom art on characters (player, NPC bodies,
+  enemies, the Warden) and objects (entities.json kinds) keeps its OWN shape —
+  `drawSprite(..., fit: "height")` scales it evenly so its height fills the
+  box, feet on the box's bottom edge, centered, overhanging sideways if wider;
+  collision never changes. Tiles, items and portraits stay `"fill"`
+  (stretched to the box). `spriteRect` in renderer.ts is the one mapping —
+  the studio's zoom preview calls it too, and `ArtAsset.fit` says which slots
+  use it. drawBlob passes its squash as `stretchX = sx/sy`. Pinned by
+  `tests/sprite-fit.test.ts`.
 - **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
   + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
   the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,

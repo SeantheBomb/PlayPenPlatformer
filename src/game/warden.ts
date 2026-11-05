@@ -70,7 +70,7 @@ export class Warden {
     ctx.ellipse(this.centerX, this.centerY, W * 0.9, H * 0.9, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = t;
-    if (!drawSprite(ctx, antagonist, this.x, this.y, W, H, this.facing)) {
+    if (!drawSprite(ctx, antagonist, this.x, this.y, W, H, this.facing, undefined, "height")) {
       // Blob-creature body with the Warden's signature lidded eye
       drawBlob(
         ctx, this.x, this.y, W, H,

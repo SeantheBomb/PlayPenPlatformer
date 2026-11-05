@@ -11,7 +11,7 @@ import type {
 import {
   currentFrame, drawBlob, drawEntityPreview, drawItemIcon, drawNpcAvatar,
   drawTile, getImage, PREVIEWABLE_ALT_ENTITY_KINDS, PREVIEWABLE_ENTITY_KINDS,
-  tilePattern, type TilePattern,
+  tilePattern, type SpriteFit, type TilePattern,
 } from "../engine/renderer";
 import { TILE } from "../engine/tilemap";
 
@@ -52,6 +52,9 @@ export interface ArtAsset {
   altLabel?: string;
   /** Portraits and alt slots are stills; false = no animation UI. */
   animatable: boolean;
+  /** How the game maps custom art onto the box (see SpriteFit in
+   *  renderer.ts): "height" keeps the art's own shape; default "fill". */
+  fit?: SpriteFit;
   read(): AssetArt;
   write(art: AssetArt): Promise<void>;
   clear(): Promise<void>;
@@ -195,7 +198,7 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   const player = c.game.player;
   assets.push({
     key: "player", group: "Characters", label: "The Player", sublabel: "Subject #67",
-    drawnW: player.width, drawnH: player.height, animatable: true,
+    drawnW: player.width, drawnH: player.height, animatable: true, fit: "height",
     read: () => spriteArt(player),
     write: async (art) => { applySpriteArt(player, art, false); await store.saveFile("game.json", c.game); },
     clear: async () => { applySpriteArt(player, { frames: [], fps: 6 }, false); await store.saveFile("game.json", c.game); },
@@ -207,7 +210,7 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   const warden = c.game.antagonist;
   assets.push({
     key: "warden", group: "Characters", label: "The Warden", sublabel: "boss chase body",
-    drawnW: 52, drawnH: 44, animatable: true,
+    drawnW: 52, drawnH: 44, animatable: true, fit: "height",
     read: () => spriteArt(warden),
     write: async (art) => { applySpriteArt(warden, art, false); await store.saveFile("game.json", c.game); },
     clear: async () => { applySpriteArt(warden, { frames: [], fps: 6 }, false); await store.saveFile("game.json", c.game); },
@@ -268,7 +271,7 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
     assets.push({
       key: `npc:${npcId}`, group: "Characters",
       label: `${name} — body`, sublabel: `NPC in ${roomNames}`,
-      drawnW: 12, drawnH: 16, animatable: true,
+      drawnW: 12, drawnH: 16, animatable: true, fit: "height",
       read: () => spriteArt(first),
       write: async (art) => {
         for (const { e } of instances) applySpriteArt(e, art, false);
@@ -391,7 +394,7 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
     assets.push({
       key: `entity:${et.id}`, group: "Objects", label: meta.label,
       sublabel: et.note ? undefined : undefined,
-      drawnW: et.width, drawnH: et.height, altLabel: meta.alt, animatable: true,
+      drawnW: et.width, drawnH: et.height, altLabel: meta.alt, animatable: true, fit: "height",
       read: () => spriteArt(et),
       write: async (art) => { applySpriteArt(et, art, true); await saveArr("entities.json", c.entityTypes); },
       clear: async () => { applySpriteArt(et, { frames: [], fps: 6 }, true); await saveArr("entities.json", c.entityTypes); },
@@ -433,7 +436,7 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   for (const en of c.enemies) {
     assets.push({
       key: `enemy:${en.id}`, group: "Enemies", label: en.name, sublabel: en.description?.slice(0, 40),
-      drawnW: en.width, drawnH: en.height, animatable: true,
+      drawnW: en.width, drawnH: en.height, animatable: true, fit: "height",
       read: () => spriteArt(en),
       write: async (art) => { applySpriteArt(en, art, false); await saveArr("enemies.json", c.enemies); },
       clear: async () => { applySpriteArt(en, { frames: [], fps: 6 }, false); await saveArr("enemies.json", c.enemies); },

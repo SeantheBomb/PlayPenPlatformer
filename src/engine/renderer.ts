@@ -84,6 +84,33 @@ export function timedFrameIndex(durations: number[], frameCount: number, nowMs: 
 /** One cell of an image split into cols×rows equal slices. */
 export interface SpriteRegion { col: number; row: number; cols: number; rows: number }
 
+/**
+ * How custom art maps onto its box.
+ *  - "fill": stretched to exactly the box (tiles, items, portraits — square
+ *    slots whose art is drawn to that shape).
+ *  - "height": keeps the ART's own shape — scaled evenly so its height
+ *    matches the box, bottom-anchored (feet on the floor) and centered
+ *    sideways, so wider art may overhang the hitbox. Characters, enemies,
+ *    the Warden and objects: an artist draws them at whatever canvas she
+ *    likes, and stretching a square canvas into a 12×14 player box made
+ *    every character tall and thin (Sean, 2026-11-04).
+ */
+export type SpriteFit = "fill" | "height";
+
+/** Where art of size imgW×imgH lands for a box at (x,y,w,h). `stretchX`
+ *  is an extra horizontal factor on top of the even scale (the blob's
+ *  squash & stretch, which must still read on custom art). Pure — the
+ *  studio previews call this too, so preview and game can't disagree. */
+export function spriteRect(
+  imgW: number, imgH: number,
+  x: number, y: number, w: number, h: number,
+  fit: SpriteFit = "fill", stretchX = 1
+): { x: number; y: number; w: number; h: number } {
+  if (fit === "fill" || imgW <= 0 || imgH <= 0) return { x, y, w, h };
+  const dw = (imgW / imgH) * h * stretchX;
+  return { x: x + (w - dw) / 2, y, w: dw, h };
+}
+
 /** Draw a custom sprite if one is set and loaded. Returns true if drawn.
  *  With `region`, only that slice of the image is drawn into the box. */
 export function drawSprite(
@@ -91,7 +118,9 @@ export function drawSprite(
   s: SpriteFields,
   x: number, y: number, w: number, h: number,
   facing = 1,
-  region?: SpriteRegion
+  region?: SpriteRegion,
+  fit: SpriteFit = "fill",
+  stretchX = 1
 ): boolean {
   const uri = currentFrame(s);
   if (!uri) return false;
@@ -102,12 +131,15 @@ export function drawSprite(
   if (region && (region.cols > 1 || region.rows > 1)) {
     const sw = img.naturalWidth / region.cols, sh = img.naturalHeight / region.rows;
     ctx.drawImage(img, region.col * sw, region.row * sh, sw, sh, x, y, w, h);
-  } else if (facing < 0) {
-    ctx.translate(x + w, y);
-    ctx.scale(-1, 1);
-    ctx.drawImage(img, 0, 0, w, h);
   } else {
-    ctx.drawImage(img, x, y, w, h);
+    const r = spriteRect(img.naturalWidth, img.naturalHeight, x, y, w, h, fit, stretchX);
+    if (facing < 0) {
+      ctx.translate(r.x + r.w, r.y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, 0, r.w, r.h);
+    } else {
+      ctx.drawImage(img, r.x, r.y, r.w, r.h);
+    }
   }
   ctx.restore();
   return true;
@@ -1154,7 +1186,9 @@ export function drawBlob(
   const dh = h * sy;
   const dx = x + (w - dw) / 2;
   const dy = y + (h - dh); // keep feet planted when squashing
-  if (opts.sprite && drawSprite(ctx, opts.sprite, dx, dy, dw, dh, facing)) return;
+  // Custom art keeps its own shape (height-fit); the squash/stretch still
+  // applies on top as a horizontal factor relative to the vertical one.
+  if (opts.sprite && drawSprite(ctx, opts.sprite, dx, dy, dw, dh, facing, undefined, "height", sx / sy)) return;
   if (opts.sketch) {
     // Half-loaded: translucent body, dashed edge, one corner missing.
     ctx.save();
