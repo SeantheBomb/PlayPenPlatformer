@@ -2651,11 +2651,11 @@ export class RoomRuntime {
       : e.kind === "locker" ? !!e.occupied
       : !!e.open;
     if (alt) {
-      if (def.spriteAlt) return drawSprite(ctx, { sprite: def.spriteAlt }, e.x, e.y, e.w, e.h, 1, undefined, "height");
-      if (e.kind === "locker") return drawSprite(ctx, def, e.x, e.y, e.w, e.h, 1, undefined, "height");
+      if (def.spriteAlt) return drawSprite(ctx, { sprite: def.spriteAlt }, e.x, e.y, e.w, e.h, 1, undefined, "natural");
+      if (e.kind === "locker") return drawSprite(ctx, def, e.x, e.y, e.w, e.h, 1, undefined, "natural");
       return false;
     }
-    return drawSprite(ctx, def, e.x, e.y, e.w, e.h, 1, undefined, "height");
+    return drawSprite(ctx, def, e.x, e.y, e.w, e.h, 1, undefined, "natural");
   }
 
   private drawEntity(ctx: CanvasRenderingContext2D, e: EntityInstance, animT: number): void {

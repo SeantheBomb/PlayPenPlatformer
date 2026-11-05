@@ -3,7 +3,7 @@ import type { GameConfig } from "../data/types";
 import type { Input } from "../engine/input";
 import { TILE, TileMap, type TileHit } from "../engine/tilemap";
 import { clamp, lerp } from "../engine/math";
-import { drawBlob } from "../engine/renderer";
+import { drawBlob, spriteContentSize } from "../engine/renderer";
 import { simNow } from "../engine/simclock";
 import type { RunState } from "./state";
 
@@ -72,14 +72,12 @@ export class Player {
   private blinking = false;
 
   constructor(private cfg: GameConfig["player"]) {
-    this.w = cfg.width;
-    this.h = cfg.height;
+    ({ w: this.w, h: this.h } = playerHitbox(cfg));
   }
 
   setConfig(cfg: GameConfig["player"]): void {
     this.cfg = cfg;
-    this.w = cfg.width;
-    this.h = cfg.height;
+    ({ w: this.w, h: this.h } = playerHitbox(cfg));
   }
 
   get centerX() { return this.x + this.w / 2; }
@@ -522,4 +520,15 @@ export class Player {
     }
     ctx.globalAlpha = 1;
   }
+}
+
+/** The player's collision box: the configured width/height, or — when
+ *  `hitboxFromArt` is on and the custom art's visible size is known — that
+ *  size, so the box matches what's drawn. Pure content → replay-stable. */
+export function playerHitbox(cfg: GameConfig["player"]): { w: number; h: number } {
+  if (cfg.hitboxFromArt) {
+    const art = spriteContentSize(cfg);
+    if (art) return art;
+  }
+  return { w: cfg.width, h: cfg.height };
 }

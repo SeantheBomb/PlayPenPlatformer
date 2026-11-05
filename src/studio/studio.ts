@@ -17,6 +17,7 @@ import { artBox, buildAssets, assetStatus, GROUP_ORDER, withEditedFrames, type A
 import { sourceRef, timingFor, type AseImport } from "./aseprite";
 import { chooseFromAseprite } from "./asepick";
 import { patternPanel } from "./tilepattern";
+import { artSizeCard, collisionBox } from "./artsize";
 import { assetLevels, levelOrder } from "./levels";
 import { Board, BOARD_CSS, boardBadge, boardPanel, STATUS_LABEL, STATUS_ORDER } from "./board";
 import { defaultBusy, whoAmI } from "./collab";
@@ -87,6 +88,8 @@ class Studio {
   /** A tile image whose size fits several pattern layouts, just imported —
    *  the pattern panel asks which one she meant (never guessed). */
   private pendingLayout: { key: string; w: number; h: number } | null = null;
+  /** Natural-fit assets whose missing art bounds were measured this session. */
+  private boundsTried = new Set<string>();
   /** The last .aseprite dropped on an asset this session — lets "use a
    *  different tag" re-pick without asking her to find the file again. */
   private recentAse: { key: string; slot: "main" | "alt"; ase: AseImport } | null = null;
@@ -448,6 +451,20 @@ class Studio {
     }
     const box = artBox(a);
     const isPattern = box.spanX > 1 || box.spanY > 1;
+    if (a.natural) {
+      // Art saved before bounds were recorded: measure it once, quietly.
+      const cur = a.read();
+      if ((cur.frames.length || cur.alt) && !a.natural.bounds() && !this.boundsTried.has(a.key)) {
+        this.boundsTried.add(a.key);
+        void a.natural.refreshBounds().then(() => this.render());
+      }
+      wrap.append(artSizeCard({
+        asset: a,
+        content: this.store.content,
+        frameUri: () => this.animFrame(a.read()),
+        changed: () => { this.dirty = true; this.render(); },
+      }));
+    }
 
     // Big preview at the in-game box, shown at 3 zooms so stretching and
     // detail are obvious before she ever hits play.
@@ -501,18 +518,9 @@ class Studio {
             // within the padded canvas — the canvas is a viewport.
             const bw = box.w * z, bh = box.h * z;
             const bx = (cv.width - bw) / 2, by = (cv.height - bh) / 2;
-            const r = spriteRect(img.naturalWidth, img.naturalHeight, bx, by, bw, bh, a.fit ?? "fill");
+            const r = spriteRect(img.naturalWidth, img.naturalHeight, bx, by, bw, bh, { fit: a.fit ?? "fill" });
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(img, r.x, r.y, r.w, r.h);
-            if (a.fit === "height") {
-              // The hitbox, faintly — so "it sticks out a bit sideways"
-              // reads as intended, not as a mistake.
-              ctx.save();
-              ctx.strokeStyle = "rgba(255,209,102,0.45)";
-              ctx.setLineDash([3, 3]);
-              ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
-              ctx.restore();
-            }
             return;
           }
         }
@@ -520,12 +528,10 @@ class Studio {
       };
       zoomRow.append(el("div", {}, cv, el("div", { className: "st-hint", style: "text-align:center" }, `${z}×`)));
     }
-    wrap.append(el("div", { className: "st-card" },
+    if (!a.natural) wrap.append(el("div", { className: "st-card" },
       el("div", { className: "st-hint" }, isPattern
         ? `One copy of your pattern covers ${box.spanX}×${box.spanY} tiles (${box.w}×${box.h} at 1×). Any resolution works — ${box.w * 2}×${box.h * 2} or bigger just looks crisper. Keep the ${box.spanX}:${box.spanY} shape so each tile's piece stays square.`
-        : a.fit === "height"
-          ? `The game's box for this is ${a.drawnW}×${a.drawnH} (the dashed outline once you add art). Draw at any size and shape — your art keeps its own proportions: it's scaled so its height fills the box, feet on the bottom edge, centered. Wider art just overhangs the box a little sideways; collision doesn't change. Leave no empty rows under the feet, or it'll float.`
-          : `The game draws this in a ${a.drawnW}×${a.drawnH} box. Any resolution works — art is fitted to the box (higher res = crisper on screen). Match the ${a.drawnW}:${a.drawnH} shape to avoid stretching.`),
+        : `The game draws this in a ${a.drawnW}×${a.drawnH} box. Any resolution works — art is fitted to the box (higher res = crisper on screen). Match the ${a.drawnW}:${a.drawnH} shape to avoid stretching.`),
       zoomRow));
 
     // Frames + fps
@@ -668,10 +674,13 @@ class Studio {
         title: "Draw at higher resolution for extra detail — the game fits it into the box either way, so a higher resolution just looks crisper on screen",
         onchange: (ev: Event) => this.pixelResMult.set(a.key, Number((ev.target as HTMLSelectElement).value)),
       },
-      ...mults.map((m) => el(
-        "option", { value: m, selected: mult === m },
-        `${m}× (${box.w * m}×${box.h * m}px)`
-      ))
+      ...mults.map((m) => {
+        // Natural-size art edits on its own canvas, not the collision box.
+        const own = a.natural && art.frames[0] ? getImage(art.frames[0]) : null;
+        const gw = own ? Math.max(own.naturalWidth, own.naturalHeight) : box.w;
+        const gh = own ? gw : box.h;
+        return el("option", { value: m, selected: mult === m }, `${m}× (${gw * m}×${gh * m}px)`);
+      })
     );
     wrap.append(el("div", { className: "st-row", style: "margin-top:12px" },
       resSelect,
@@ -703,18 +712,18 @@ class Studio {
     return wrap;
   }
 
-  /** For slots that keep the art's shape: say plainly what an off-shape
-   *  image will do in-game, so the overhang is never a surprise. */
+  /** For art drawn at its own size: say plainly how big it'll be in-game
+   *  and how that compares to its collision box, so nothing's a surprise. */
   private async fitNotes(a: ArtAsset, uri: string | undefined): Promise<string[]> {
-    if (a.fit !== "height" || !uri) return [];
-    const dims = await imageSize(uri);
-    if (!dims) return [];
-    const artAspect = dims.w / dims.h, boxAspect = a.drawnW / a.drawnH;
-    if (Math.abs(artAspect / boxAspect - 1) < 0.05) return [];
-    const w = +(a.drawnH * artAspect).toFixed(1);
-    return [artAspect > boxAspect
-      ? `Your art is ${dims.w}×${dims.h}, a bit wider than the ${a.drawnW}×${a.drawnH} box. It keeps its shape: ${w}×${a.drawnH} in-game, feet on the ground, overhanging the box ${+((w - a.drawnW) / 2).toFixed(1)}px each side. Collision is unchanged.`
-      : `Your art is ${dims.w}×${dims.h}, a bit narrower than the ${a.drawnW}×${a.drawnH} box. It keeps its shape: ${w}×${a.drawnH} in-game, centered in the box. Collision is unchanged.`];
+    if (!a.natural || !uri) return [];
+    const b = a.natural.bounds();
+    if (!b) return [];
+    const k = a.natural.scale();
+    const w = +(b[2] / k).toFixed(1), h = +(b[3] / k).toFixed(1);
+    const box = collisionBox(a, this.store.content);
+    if (Math.abs(w - box.w) <= 1 && Math.abs(h - box.h) <= 1) return [];
+    return [`Drawn ${w}×${h} px in-game (the visible part of your art${k !== 1 ? `, art scale ${k}` : ", unscaled"}). ` +
+      (box.followsArt ? "The collision box follows it." : `Its collision box is ${box.w}×${box.h} — see “Size in game” above.`)];
   }
 
   /**
@@ -901,7 +910,11 @@ class Studio {
     const box = artBox(a);
     const isPattern = box.spanX > 1 || box.spanY > 1;
     if (a.pattern && isPattern) return this.openPixelForPattern(a);
-    const size = Math.max(a.drawnW, a.drawnH, 16) * (this.pixelResMult.get(a.key) ?? 1);
+    // Art drawn at its own size: the grid is the art's own canvas, never
+    // the collision box (a 32×32 character must not flatten to 16×16).
+    const own = a.natural && art.frames[0] ? getImage(art.frames[0]) : null;
+    const base = own ? Math.max(own.naturalWidth, own.naturalHeight) : Math.max(a.drawnW, a.drawnH, 16);
+    const size = base * (this.pixelResMult.get(a.key) ?? 1);
     const hiRes = art.frames.some((f) => {
       if (f.startsWith("data:image/svg")) return true;
       const img = getImage(f);

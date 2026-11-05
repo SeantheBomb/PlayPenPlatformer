@@ -11,7 +11,7 @@ import type {
 import {
   currentFrame, drawBlob, drawEntityPreview, drawItemIcon, drawNpcAvatar,
   drawTile, getImage, PREVIEWABLE_ALT_ENTITY_KINDS, PREVIEWABLE_ENTITY_KINDS,
-  tilePattern, type SpriteFit, type TilePattern,
+  tilePattern, type SpriteBounds, type SpriteFit, type TilePattern,
 } from "../engine/renderer";
 import { TILE } from "../engine/tilemap";
 
@@ -53,8 +53,10 @@ export interface ArtAsset {
   /** Portraits and alt slots are stills; false = no animation UI. */
   animatable: boolean;
   /** How the game maps custom art onto the box (see SpriteFit in
-   *  renderer.ts): "height" keeps the art's own shape; default "fill". */
+   *  renderer.ts): "natural" = the art's own size; default "fill". */
   fit?: SpriteFit;
+  /** natural-fit slots: art scale + the art's visible bounds. */
+  natural?: AssetNatural;
   read(): AssetArt;
   write(art: AssetArt): Promise<void>;
   clear(): Promise<void>;
@@ -69,6 +71,15 @@ export interface ArtAsset {
   /** Tiles only: world-aligned pattern layout (one image spread across a
    *  block of tiles — see TileDef.spriteSpanX). */
   pattern?: AssetPattern;
+}
+
+export interface AssetNatural {
+  /** Art pixels per game pixel (1 = unscaled). */
+  scale(): number;
+  bounds(): SpriteBounds | undefined;
+  setScale(n: number): Promise<void>;
+  /** Recompute bounds from the current art (old art saved before bounds existed). */
+  refreshBounds(): Promise<void>;
 }
 
 export interface AssetPattern {
@@ -110,6 +121,66 @@ const spriteArt = (s: ArtHost): AssetArt => ({
   alt: s.spriteAlt,
   altSource: s.spriteAltSource,
 });
+
+/** Union of the visible (non-transparent) pixels across every frame and
+ *  the second look, in art pixels — stored as `spriteBounds` so the game
+ *  can anchor the art and size a follow-the-art hitbox synchronously. */
+export async function contentBounds(uris: string[]): Promise<SpriteBounds | undefined> {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const uri of uris) {
+    const img = await new Promise<HTMLImageElement | null>((res) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => res(null);
+      i.src = uri;
+    });
+    if (!img || !img.naturalWidth) continue;
+    const cv = document.createElement("canvas");
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    const g = cv.getContext("2d")!;
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    for (let y = 0; y < cv.height; y++) {
+      for (let x = 0; x < cv.width; x++) {
+        if (d[(y * cv.width + x) * 4 + 3] === 0) continue;
+        if (x < x0) x0 = x;
+        if (x + 1 > x1) x1 = x + 1;
+        if (y < y0) y0 = y;
+        if (y + 1 > y1) y1 = y + 1;
+      }
+    }
+  }
+  return x1 > x0 ? [x0, y0, x1 - x0, y1 - y0] : undefined;
+}
+
+/** Recompute a natural-fit host's spriteBounds from its current art. */
+async function refreshBounds(s: ArtHost): Promise<void> {
+  const uris = [...(s.spriteFrames?.length ? s.spriteFrames : s.sprite ? [s.sprite] : []), ...(s.spriteAlt ? [s.spriteAlt] : [])];
+  const b = uris.length ? await contentBounds(uris) : undefined;
+  if (b) s.spriteBounds = b;
+  else delete s.spriteBounds;
+}
+
+/** "Revert to built-in look" takes the art's scale and bounds with it. */
+function clearNatural(s: ArtHost): void {
+  delete s.spriteScale;
+  delete s.spriteBounds;
+}
+
+/** Natural-fit art settings for a slot (see ArtAsset.natural). */
+function naturalOf(s: ArtHost, save: () => Promise<void>): AssetNatural {
+  return {
+    scale: () => (s.spriteScale && s.spriteScale > 0 ? s.spriteScale : 1),
+    bounds: () => s.spriteBounds,
+    setScale: async (n) => {
+      if (n === 1) delete s.spriteScale;
+      else s.spriteScale = n;
+      await save();
+    },
+    refreshBounds: async () => { await refreshBounds(s); await save(); },
+  };
+}
 
 function applySpriteArt(s: ArtHost, art: AssetArt, withAlt: boolean): void {
   delete s.sprite;
@@ -198,10 +269,11 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   const player = c.game.player;
   assets.push({
     key: "player", group: "Characters", label: "The Player", sublabel: "Subject #67",
-    drawnW: player.width, drawnH: player.height, animatable: true, fit: "height",
+    drawnW: player.width, drawnH: player.height, animatable: true, fit: "natural",
     read: () => spriteArt(player),
-    write: async (art) => { applySpriteArt(player, art, false); await store.saveFile("game.json", c.game); },
-    clear: async () => { applySpriteArt(player, { frames: [], fps: 6 }, false); await store.saveFile("game.json", c.game); },
+    write: async (art) => { applySpriteArt(player, art, false); await refreshBounds(player); await store.saveFile("game.json", c.game); },
+    clear: async () => { applySpriteArt(player, { frames: [], fps: 6 }, false); clearNatural(player); await store.saveFile("game.json", c.game); },
+    natural: naturalOf(player, () => store.saveFile("game.json", c.game)),
     drawCurrent: drawSpriteOr(player, (ctx, x, y, cell) => {
       const s = (cell - 8) / 14;
       drawBlob(ctx, x + (cell - 12 * s) / 2, y + (cell - 14 * s) / 2, 12 * s, 14 * s, player.color, player.eyeColor, 1, {});
@@ -210,10 +282,11 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   const warden = c.game.antagonist;
   assets.push({
     key: "warden", group: "Characters", label: "The Warden", sublabel: "boss chase body",
-    drawnW: 52, drawnH: 44, animatable: true, fit: "height",
+    drawnW: 52, drawnH: 44, animatable: true, fit: "natural",
     read: () => spriteArt(warden),
-    write: async (art) => { applySpriteArt(warden, art, false); await store.saveFile("game.json", c.game); },
-    clear: async () => { applySpriteArt(warden, { frames: [], fps: 6 }, false); await store.saveFile("game.json", c.game); },
+    write: async (art) => { applySpriteArt(warden, art, false); await refreshBounds(warden); await store.saveFile("game.json", c.game); },
+    clear: async () => { applySpriteArt(warden, { frames: [], fps: 6 }, false); clearNatural(warden); await store.saveFile("game.json", c.game); },
+    natural: naturalOf(warden, () => store.saveFile("game.json", c.game)),
     drawCurrent: drawSpriteOr(warden, (ctx, x, y, cell) => {
       const s = (cell - 8) / 52;
       drawBlob(ctx, x + 4, y + (cell - 44 * s) / 2, 52 * s, 44 * s, warden.color, "#2a1020", 1, {});
@@ -271,15 +344,37 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
     assets.push({
       key: `npc:${npcId}`, group: "Characters",
       label: `${name} — body`, sublabel: `NPC in ${roomNames}`,
-      drawnW: 12, drawnH: 16, animatable: true, fit: "height",
+      drawnW: 12, drawnH: 16, animatable: true, fit: "natural",
       read: () => spriteArt(first),
       write: async (art) => {
         for (const { e } of instances) applySpriteArt(e, art, false);
+        await refreshBounds(first);
+        for (const { e } of instances) {
+          if (first.spriteBounds) e.spriteBounds = [...first.spriteBounds] as SpriteBounds;
+          else delete e.spriteBounds;
+        }
         await saveAll();
       },
       clear: async () => {
-        for (const { e } of instances) applySpriteArt(e, { frames: [], fps: 6 }, false);
+        for (const { e } of instances) { applySpriteArt(e, { frames: [], fps: 6 }, false); clearNatural(e); }
         await saveAll();
+      },
+      // One character, every room it appears in — scale fans out too.
+      natural: {
+        scale: () => (first.spriteScale && first.spriteScale > 0 ? first.spriteScale : 1),
+        bounds: () => first.spriteBounds,
+        setScale: async (n) => {
+          for (const { e } of instances) { if (n === 1) delete e.spriteScale; else e.spriteScale = n; }
+          await saveAll();
+        },
+        refreshBounds: async () => {
+          await refreshBounds(first);
+          for (const { e } of instances) {
+            if (first.spriteBounds) e.spriteBounds = [...first.spriteBounds] as SpriteBounds;
+            else delete e.spriteBounds;
+          }
+          await saveAll();
+        },
       },
       drawCurrent: drawSpriteOr(first, fallback),
     });
@@ -394,10 +489,11 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
     assets.push({
       key: `entity:${et.id}`, group: "Objects", label: meta.label,
       sublabel: et.note ? undefined : undefined,
-      drawnW: et.width, drawnH: et.height, altLabel: meta.alt, animatable: true, fit: "height",
+      drawnW: et.width, drawnH: et.height, altLabel: meta.alt, animatable: true, fit: "natural",
       read: () => spriteArt(et),
-      write: async (art) => { applySpriteArt(et, art, true); await saveArr("entities.json", c.entityTypes); },
-      clear: async () => { applySpriteArt(et, { frames: [], fps: 6 }, true); await saveArr("entities.json", c.entityTypes); },
+      write: async (art) => { applySpriteArt(et, art, true); await refreshBounds(et); await saveArr("entities.json", c.entityTypes); },
+      clear: async () => { applySpriteArt(et, { frames: [], fps: 6 }, true); clearNatural(et); await saveArr("entities.json", c.entityTypes); },
+      natural: naturalOf(et, () => saveArr("entities.json", c.entityTypes)),
       // The real procedural look (same drawing code the game itself uses
       // for these kinds — see engine/renderer.ts drawEntityPreview and
       // room.ts's drawEntity, which calls the live version of the same
@@ -436,10 +532,11 @@ export function buildAssets(store: ContentStore): ArtAsset[] {
   for (const en of c.enemies) {
     assets.push({
       key: `enemy:${en.id}`, group: "Enemies", label: en.name, sublabel: en.description?.slice(0, 40),
-      drawnW: en.width, drawnH: en.height, animatable: true, fit: "height",
+      drawnW: en.width, drawnH: en.height, animatable: true, fit: "natural",
       read: () => spriteArt(en),
-      write: async (art) => { applySpriteArt(en, art, false); await saveArr("enemies.json", c.enemies); },
-      clear: async () => { applySpriteArt(en, { frames: [], fps: 6 }, false); await saveArr("enemies.json", c.enemies); },
+      write: async (art) => { applySpriteArt(en, art, false); await refreshBounds(en); await saveArr("enemies.json", c.enemies); },
+      clear: async () => { applySpriteArt(en, { frames: [], fps: 6 }, false); clearNatural(en); await saveArr("enemies.json", c.enemies); },
+      natural: naturalOf(en, () => saveArr("enemies.json", c.enemies)),
       drawCurrent: drawSpriteOr(en, (ctx, x, y, cell) => {
         const s = (cell - 10) / Math.max(en.width, en.height);
         drawBlob(ctx, x + (cell - en.width * s) / 2, y + (cell - en.height * s) / 2,

@@ -157,15 +157,26 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   `spriteAltSource` ("file.aseprite#tag" provenance) are in `_artscope.js`
   `SPRITE_FIELDS` — a new art field missing from that list is silently
   stripped by every artist publish.
-- **Sprite fit (2026-11-04)**: custom art on characters (player, NPC bodies,
-  enemies, the Warden) and objects (entities.json kinds) keeps its OWN shape —
-  `drawSprite(..., fit: "height")` scales it evenly so its height fills the
-  box, feet on the box's bottom edge, centered, overhanging sideways if wider;
-  collision never changes. Tiles, items and portraits stay `"fill"`
-  (stretched to the box). `spriteRect` in renderer.ts is the one mapping —
-  the studio's zoom preview calls it too, and `ArtAsset.fit` says which slots
-  use it. drawBlob passes its squash as `stretchX = sx/sy`. Pinned by
-  `tests/sprite-fit.test.ts`.
+- **Sprite fit + art scale (2026-11-04)**: custom art on characters (player,
+  NPC bodies, enemies, the Warden) and objects (entities.json kinds) is drawn
+  at the ART's own size — `drawSprite(..., fit: "natural")`: 1 art px =
+  1/`spriteScale` game px (default 1, unscaled), the art's visible content
+  (`spriteBounds`, [x,y,w,h] art px, union over frames + second look) standing
+  on the box's bottom edge, centered; facing flips about the box center.
+  Sean: "the collision box should match the artwork, not the other way
+  around" — the art decides how big things look; `spriteScale` is the knob
+  for bringing something back down. Tiles, items and portraits stay `"fill"`.
+  `spriteRect` in renderer.ts is the one mapping (studio previews call it).
+  `spriteBounds` is MEASURED by the studio on every art write
+  (`contentBounds`/`refreshBounds` in assets.ts, backfilled on first view of
+  older art) — never at draw time: decoding is async and a hitbox built from
+  it must be replay-stable. Editor sprite panels that replace frames delete it
+  (stale). Both fields are in `SPRITE_FIELDS`. **Player hitbox**:
+  `game.player.hitboxFromArt` (gameplay switch, editor-only — the artist scope
+  can't write it) makes `playerHitbox` = spriteBounds ÷ spriteScale, else
+  width/height. A 23×31 body (Casey's player) can't pass the_vault's
+  swim-under passage or mess_hall's 1-wide shaft/crawlway — levels were built
+  for 12×14; check before turning it on. Pinned by `tests/sprite-fit.test.ts`.
 - **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
   + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
   the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,

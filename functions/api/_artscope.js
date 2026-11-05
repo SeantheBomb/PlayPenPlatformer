@@ -29,6 +29,7 @@ export const SPRITE_FIELDS = [
   "sprite", "spriteFrames", "spriteFps", "spriteAlt", "portrait",
   "spriteDurations", "spriteSource", "spriteAltSource",
   "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
+  "spriteScale", "spriteBounds",
 ];
 const ART_ARRAY_FILES = ["tiles.json", "items.json", "enemies.json", "entities.json"];
 

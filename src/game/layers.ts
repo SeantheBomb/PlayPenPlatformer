@@ -8,7 +8,7 @@
 import type { Content, LayerSet, LayersFile, ParallaxLayer, SpriteFields } from "../data/types";
 
 /** The art fields a layer carries (SpriteFields) — no defaults; absent = no art. */
-type ArtKeys = "sprite" | "spriteFrames" | "spriteFps" | "spriteDurations" | "spriteSource";
+type ArtKeys = keyof SpriteFields;
 
 /** True when a strip or prop has any art to draw, still or animated. */
 export const hasArt = (s: SpriteFields | undefined): boolean =>

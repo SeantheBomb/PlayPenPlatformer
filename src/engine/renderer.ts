@@ -86,29 +86,60 @@ export interface SpriteRegion { col: number; row: number; cols: number; rows: nu
 
 /**
  * How custom art maps onto its box.
- *  - "fill": stretched to exactly the box (tiles, items, portraits — square
- *    slots whose art is drawn to that shape).
- *  - "height": keeps the ART's own shape — scaled evenly so its height
- *    matches the box, bottom-anchored (feet on the floor) and centered
- *    sideways, so wider art may overhang the hitbox. Characters, enemies,
- *    the Warden and objects: an artist draws them at whatever canvas she
- *    likes, and stretching a square canvas into a 12×14 player box made
- *    every character tall and thin (Sean, 2026-11-04).
+ *  - "fill": stretched to exactly the box (tiles, items, portraits — slots
+ *    whose art is drawn to that shape).
+ *  - "natural": drawn at the ART's own size — 1 art pixel = 1/spriteScale
+ *    game pixels (default 1:1) — with the art's visible content (its
+ *    `spriteBounds`, else the whole canvas) standing on the box's bottom
+ *    edge, centered. Characters, enemies, the Warden and objects: the art
+ *    decides how big they look, never the hitbox (Sean, 2026-11-04 —
+ *    "the collision box should match the artwork, not the other way
+ *    around"; a 32×32 player squeezed into its 12×14 box read tiny).
  */
-export type SpriteFit = "fill" | "height";
+export type SpriteFit = "fill" | "natural";
 
-/** Where art of size imgW×imgH lands for a box at (x,y,w,h). `stretchX`
- *  is an extra horizontal factor on top of the even scale (the blob's
- *  squash & stretch, which must still read on custom art). Pure — the
+/** Art-pixel bounding box of a sprite's visible content: [x, y, w, h]. */
+export type SpriteBounds = [number, number, number, number];
+
+export interface SpriteRectOpts {
+  fit?: SpriteFit;
+  /** natural fit: art pixels per game pixel (default 1). */
+  scale?: number;
+  /** natural fit: the visible content inside the canvas, art pixels. */
+  bounds?: SpriteBounds;
+  /** squash & stretch on top (the blob's juice), about the feet. */
+  sx?: number;
+  sy?: number;
+}
+
+/** Where art of size imgW×imgH lands for a box at (x,y,w,h). Pure — the
  *  studio previews call this too, so preview and game can't disagree. */
 export function spriteRect(
   imgW: number, imgH: number,
   x: number, y: number, w: number, h: number,
-  fit: SpriteFit = "fill", stretchX = 1
+  opts: SpriteRectOpts = {}
 ): { x: number; y: number; w: number; h: number } {
-  if (fit === "fill" || imgW <= 0 || imgH <= 0) return { x, y, w, h };
-  const dw = (imgW / imgH) * h * stretchX;
-  return { x: x + (w - dw) / 2, y, w: dw, h };
+  const sx = opts.sx ?? 1, sy = opts.sy ?? 1;
+  if (opts.fit !== "natural" || imgW <= 0 || imgH <= 0) {
+    // fill: the box itself (squashed about the feet, as drawBlob always did)
+    const dw = w * sx, dh = h * sy;
+    return { x: x + (w - dw) / 2, y: y + (h - dh), w: dw, h: dh };
+  }
+  const k = 1 / (opts.scale && opts.scale > 0 ? opts.scale : 1);
+  const [bx, by, bw, bh] = opts.bounds ?? [0, 0, imgW, imgH];
+  // content's bottom-center → box's bottom-center
+  const dw = imgW * k * sx, dh = imgH * k * sy;
+  const cx = (bx + bw / 2) * k * sx;
+  const bottom = (by + bh) * k * sy;
+  return { x: x + w / 2 - cx, y: y + h - bottom, w: dw, h: dh };
+}
+
+/** A sprite's visible size in game pixels under natural fit — what a
+ *  hitbox that follows the art is set to. Null without known bounds. */
+export function spriteContentSize(s: SpriteFields): { w: number; h: number } | null {
+  if (!s.spriteBounds) return null;
+  const k = 1 / (s.spriteScale && s.spriteScale > 0 ? s.spriteScale : 1);
+  return { w: Math.max(1, Math.round(s.spriteBounds[2] * k)), h: Math.max(1, Math.round(s.spriteBounds[3] * k)) };
 }
 
 /** Draw a custom sprite if one is set and loaded. Returns true if drawn.
@@ -120,9 +151,10 @@ export function drawSprite(
   facing = 1,
   region?: SpriteRegion,
   fit: SpriteFit = "fill",
-  stretchX = 1
+  squash?: { sx: number; sy: number },
+  uriOverride?: string
 ): boolean {
-  const uri = currentFrame(s);
+  const uri = uriOverride ?? currentFrame(s);
   if (!uri) return false;
   const img = getImage(uri);
   if (!img) return false; // still loading — procedural fallback this frame
@@ -132,14 +164,18 @@ export function drawSprite(
     const sw = img.naturalWidth / region.cols, sh = img.naturalHeight / region.rows;
     ctx.drawImage(img, region.col * sw, region.row * sh, sw, sh, x, y, w, h);
   } else {
-    const r = spriteRect(img.naturalWidth, img.naturalHeight, x, y, w, h, fit, stretchX);
+    const r = spriteRect(img.naturalWidth, img.naturalHeight, x, y, w, h, {
+      fit, scale: s.spriteScale, bounds: s.spriteBounds, sx: squash?.sx, sy: squash?.sy,
+    });
     if (facing < 0) {
-      ctx.translate(r.x + r.w, r.y);
+      // Mirror about the BOX's center line, so the content (centered on
+      // it) stays put however lopsided the canvas padding is.
+      const mid = x + w / 2;
+      ctx.translate(mid, 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(img, 0, 0, r.w, r.h);
-    } else {
-      ctx.drawImage(img, r.x, r.y, r.w, r.h);
+      ctx.translate(-mid, 0);
     }
+    ctx.drawImage(img, r.x, r.y, r.w, r.h);
   }
   ctx.restore();
   return true;
@@ -1188,7 +1224,7 @@ export function drawBlob(
   const dy = y + (h - dh); // keep feet planted when squashing
   // Custom art keeps its own shape (height-fit); the squash/stretch still
   // applies on top as a horizontal factor relative to the vertical one.
-  if (opts.sprite && drawSprite(ctx, opts.sprite, dx, dy, dw, dh, facing, undefined, "height", sx / sy)) return;
+  if (opts.sprite && drawSprite(ctx, opts.sprite, x, y, w, h, facing, undefined, "natural", { sx, sy })) return;
   if (opts.sketch) {
     // Half-loaded: translucent body, dashed edge, one corner missing.
     ctx.save();

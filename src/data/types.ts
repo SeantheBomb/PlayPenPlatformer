@@ -18,6 +18,12 @@ export interface GameConfig {
     sketch?: boolean;
     width: number;
     height: number;
+    /** Collision box follows the art: width/height become the custom
+     *  sprite's visible size (spriteBounds ÷ spriteScale) whenever it has
+     *  one; width/height above remain the fallback for procedural art.
+     *  A gameplay switch (editor), not an art field — turning it on
+     *  changes which gaps the player fits through. */
+    hitboxFromArt?: boolean;
     runSpeed: number;
     acceleration: number;
     friction: number;
@@ -247,6 +253,16 @@ export interface SpriteFields {
    *  whole timeline). Lets re-dropping an updated source file re-apply the
    *  same tag, and tells anyone looking where to edit it. */
   spriteSource?: string;
+  /** Art pixels per game pixel for slots drawn at the art's own size
+   *  (characters, enemies, objects — see SpriteFit "natural" in
+   *  renderer.ts). Default 1: unscaled. 2 = drawn at half size. */
+  spriteScale?: number;
+  /** Visible content of the art in art pixels, [x, y, w, h] — the union
+   *  over every frame (and the second look), computed by the Art Studio on
+   *  save. Anchors the art (content stands on the box's bottom edge) and is
+   *  what a hitbox that follows the art is sized from. Data, not a guess at
+   *  draw time: decoding is async and the hitbox must be replay-stable. */
+  spriteBounds?: [number, number, number, number];
 }
 
 export interface TileDef extends SpriteFields {

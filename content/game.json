@@ -10,6 +10,7 @@
     "eyeColor": "#241f31",
     "width": 12,
     "height": 14,
+    "hitboxFromArt": false,
     "runSpeed": 150,
     "acceleration": 1500,
     "friction": 1900,
@@ -40,7 +41,13 @@
       "jumpLiftSpeed": 320
     },
     "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAZtJREFUWIXVVzGOg0AMNKf8AwRItNvQrcRP0vAumvwEaTsa2khJlLyEa87RZll7bUjudNMAYdeeeMYYAP4YmXZDa8ziX0/zrI6hJvDupGoCHBnEVlIHbfK+P8LlfIO6KeFyvgEAQN2UAAMsW4ioJOisXSUOz0fnVCS+pAv7/iheR8m0iUBrzNJZK42nRrJUSKBuShiGkziwVAYRATyXVkLjA1YC33x+8tG5aNItINvw09ojomXam/xtEuyBtBVXErTGLFVevGhKVQPXxO5XeQEAsKQqQVagygsMQhosNCe3lkLUhNfH/YXE9XFXBUbiErDlCWcAAodR7Np/WEmMSEoQmgiHTuroS9Ias6TMGJUgbMPROeisfSbxSeE9n0RIhDPjqgKxZ0BnLWvEFDprybb82HNAit0EYpXhKpYkMM1zFm5GndHp/pH6PdxPeSBqwp/FT83wPVAL/CNcO5LTcJrnjBtKo3PPBH4nhDFSJFVvxYhhOL0E17wDhvj/XUCB6/1fIYBIkWBngfRbgALu50iIpmGImLu5JFw3fAOoYu1GN8iHgAAAAABJRU5ErkJggg==",
-    "sketch": true
+    "sketch": true,
+    "spriteBounds": [
+      4,
+      1,
+      23,
+      31
+    ]
   },
   "camera": {
     "lerp": 0.14,

@@ -28,7 +28,7 @@ import { describeIncoming, ensureWhoAmI, notice, resolveConflicts, startLiveSync
 const SPRITE_KEYS = [
   "sprite", "spriteFrames", "spriteFps", "portraits",
   "spriteDurations", "spriteSource", "spriteAltSource",
-  "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
+  "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY", "spriteScale", "spriteBounds",
 ];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
 
@@ -1512,6 +1512,7 @@ class EditorShell {
       // New frames from the editor no longer match an Aseprite import's
       // per-frame timing or source tag — drop both rather than leave them stale.
       delete target.spriteDurations;
+      delete target.spriteBounds; // measured from the old art — the studio re-measures
       delete target.spriteSource;
       if (newFrames.length > 1) {
         target.spriteFrames = newFrames;
@@ -1585,6 +1586,7 @@ class EditorShell {
           delete target.spriteFrames;
           delete target.spriteFps;
           delete target.spriteDurations;
+          delete target.spriteBounds;
           delete target.spriteSource;
           onChanged();
         },
