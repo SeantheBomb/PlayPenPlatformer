@@ -45,6 +45,7 @@ describe("spriteRect", () => {
 
 describe("player hitbox", () => {
   const base = JSON.parse(JSON.stringify(bundledGame.player));
+  delete base.spriteScale; // independent of whatever scale the shipped player uses
 
   it("uses width/height unless told to follow the art", () => {
     expect(playerHitbox({ ...base, hitboxFromArt: false, spriteBounds: [4, 1, 23, 31] })).toEqual({ w: base.width, h: base.height });

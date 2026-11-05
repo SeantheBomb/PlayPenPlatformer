@@ -10,7 +10,7 @@
     "eyeColor": "#241f31",
     "width": 12,
     "height": 14,
-    "hitboxFromArt": false,
+    "hitboxFromArt": true,
     "runSpeed": 150,
     "acceleration": 1500,
     "friction": 1900,
@@ -47,7 +47,8 @@
       1,
       23,
       31
-    ]
+    ],
+    "spriteScale": 2
   },
   "camera": {
     "lerp": 0.14,

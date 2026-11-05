@@ -176,7 +176,13 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   can't write it) makes `playerHitbox` = spriteBounds ÷ spriteScale, else
   width/height. A 23×31 body (Casey's player) can't pass the_vault's
   swim-under passage or mess_hall's 1-wide shaft/crawlway — levels were built
-  for 12×14; check before turning it on. Pinned by `tests/sprite-fit.test.ts`.
+  for 12×14; check before growing it. Shipped 2026-11-04 ON at spriteScale 2 →
+  12×16. Pinned by `tests/sprite-fit.test.ts`.
+- **Exact-fit passages** (`TileMap.move`): collisions park a body `eps` short
+  of what it hit, so its near edges ignore a ≤2·eps sliver (`near`) the same
+  way far edges already ignored `eps` — otherwise a body exactly one tile
+  tall/wide (the 12×16 player) can never enter a one-tile tunnel or shaft.
+  Pinned by `tests/tile-fit.test.ts` (16px fits 16px, 17px doesn't).
 - **World-aligned tile patterns (2026-09-23, Casey's ask)**: `TileDef.spriteSpanX/Y`
   + `spriteOffsetX/Y` spread one sprite over a block of tiles; `drawTile` picks
   the slice from the tile's WORLD position (`tilePatternCell` in renderer.ts,

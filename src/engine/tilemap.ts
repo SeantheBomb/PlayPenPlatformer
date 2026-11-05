@@ -79,6 +79,13 @@ export class TileMap {
       overlapping: [],
     };
     const eps = 0.001;
+    // Collisions park a body `eps` short of the tile it hit (below: feet at
+    // floor − eps), so a body exactly one tile tall/wide resting in a one-tile
+    // passage pokes eps into the tile on its far side. The far edges already
+    // ignore that sliver (− eps); the near edges must too, or a 16px-tall
+    // player can never walk through a 16px tunnel (2026-11-04, the vault's
+    // swim-under passage with the 12×16 art-sized hitbox).
+    const near = 2 * eps;
 
     // ---- X axis ----
     let nx = res.x + vx * dt;
@@ -86,7 +93,7 @@ export class TileMap {
       const dir = Math.sign(vx);
       const edge = dir > 0 ? nx + w : nx;
       const tx = Math.floor(edge / TILE);
-      const ty0 = Math.floor(res.y / TILE);
+      const ty0 = Math.floor((res.y + near) / TILE);
       const ty1 = Math.floor((res.y + h - eps) / TILE);
       for (let ty = ty0; ty <= ty1; ty++) {
         const def = this.at(tx, ty);
@@ -107,7 +114,7 @@ export class TileMap {
       const dir = Math.sign(vy);
       const edge = dir > 0 ? ny + h : ny;
       const ty = Math.floor(edge / TILE);
-      const tx0 = Math.floor(res.x / TILE);
+      const tx0 = Math.floor((res.x + near) / TILE);
       const tx1 = Math.floor((res.x + w - eps) / TILE);
       for (let tx = tx0; tx <= tx1; tx++) {
         const def = this.at(tx, ty);
