@@ -276,8 +276,37 @@ function preview(v: unknown): HTMLElement {
     const art = isImg(o.sprite) ? o.sprite : Array.isArray(o.spriteFrames) && isImg(o.spriteFrames[0]) ? o.spriteFrames[0] : null;
     if (art) return img(art);
   }
+  // Effect values (vfx.json layers, bindings, keyframes) read as a table of
+  // settings rather than raw JSON.
+  const table = valueTable(v);
+  if (table) return table;
   const text = typeof v === "string" ? v : JSON.stringify(v, (_k, x) => (isImg(x) ? "[image]" : x), 1);
   return h("pre", { className: "cb-text" }, text.length > 400 ? text.slice(0, 400) + "…" : text);
+}
+
+const isPrim = (x: unknown) => x === null || ["string", "number", "boolean"].includes(typeof x);
+const shortVal = (x: unknown): string => {
+  if (typeof x === "string" && x.startsWith("data:image")) return "[image]";
+  if (Array.isArray(x) && x.every((k) => Array.isArray(k) && k.length === 2)) return x.map((k) => `${k[0]}→${k[1]}`).join("  ");
+  if (Array.isArray(x) && x.every(isPrim)) return x.join(", ");
+  return isPrim(x) ? String(x) : JSON.stringify(x);
+};
+function valueTable(v: unknown): HTMLElement | null {
+  const rowsOf = (o: Record<string, unknown>) =>
+    Object.entries(o).map(([k, x]) => h("tr", {}, h("td", { className: "cb-field" }, k), h("td", {}, shortVal(x))));
+  if (Array.isArray(v) && v.length && v.every((x) => typeof x === "object" && x !== null && !Array.isArray(x))) {
+    const wrap = h("div", {});
+    for (const item of v as Record<string, unknown>[]) {
+      wrap.append(h("div", { className: "cb-sub" }, String(item.id ?? item.preset ?? item.kind ?? "")),
+        h("table", { className: "cb-table" }, ...rowsOf(item)));
+    }
+    return wrap;
+  }
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    if (Object.values(o).every((x) => isPrim(x) || Array.isArray(x))) return h("table", { className: "cb-table" }, ...rowsOf(o));
+  }
+  return null;
 }
 
 // ---------------- bits ----------------
@@ -295,6 +324,8 @@ function ensureStyles(): void {
   styled = true;
   const s = document.createElement("style");
   s.textContent = `
+.cb-table { border-collapse:collapse; font-size:12px; margin:2px 0 6px; }
+.cb-table td { padding:1px 8px 1px 0; vertical-align:top; }
 .cb-veil { position:fixed; inset:0; background:rgba(8,6,16,.72); z-index:1000; display:flex;
   align-items:center; justify-content:center; padding:16px; font:14px system-ui, sans-serif; }
 .cb-card { background:#1c1730; color:#efeaff; border:1px solid #4a4070; border-radius:12px;

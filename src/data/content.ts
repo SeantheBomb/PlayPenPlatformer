@@ -153,6 +153,10 @@ function assemble(files: Record<string, unknown>): Content {
     layers: deepDefaults(BUNDLED["layers.json"], files["layers.json"]) as Content["layers"],
     // Writers Studio notes + line ledger: nested-key merge, same reasoning.
     script: deepDefaults(BUNDLED["script.json"] ?? { notes: {}, reminders: {}, lines: {} }, files["script.json"]) as Content["script"],
+    // Tile effects: nested-key merge for the top-level shape only — presets
+    // and stages are arrays, so a draft that DELETED a preset keeps it deleted
+    // (arrays win outright in deepDefaults).
+    vfx: deepDefaults(BUNDLED["vfx.json"] ?? { presets: [], defaults: {}, stages: [] }, files["vfx.json"]) as Content["vfx"],
   };
 }
 
@@ -183,6 +187,7 @@ export function mergedFiles(files: Record<string, unknown>): Record<string, unkn
   out["tracks.json"] = c.tracks;
   out["layers.json"] = c.layers;
   out["script.json"] = c.script;
+  out["vfx.json"] = c.vfx;
   return out;
 }
 

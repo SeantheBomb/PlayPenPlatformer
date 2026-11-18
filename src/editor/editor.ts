@@ -21,6 +21,7 @@ import { renderReportsTab } from "./reports";
 import { diffBundles, summarizeDiff, type FileMap, type ConflictGroup, type Resolution } from "../../functions/api/_merge.js";
 import type { PendingSync } from "../data/content";
 import { describeIncoming, ensureWhoAmI, notice, resolveConflicts, startLiveSync } from "../studio/collab";
+import { effectsPanel, stopEffectsPreview } from "../studio/effects";
 
 // Art-owned fields, edited through the sprite panel / Art Studio rather
 // than as raw form fields (the pattern layout is dialed in with a live
@@ -29,6 +30,9 @@ const SPRITE_KEYS = [
   "sprite", "spriteFrames", "spriteFps", "portraits",
   "spriteDurations", "spriteSource", "spriteAltSource",
   "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY", "spriteScale", "spriteBounds",
+  // Effects: edited in the Effects panel below the form (same panel as the
+  // Art Studio's tile page), never as raw JSON.
+  "vfx", "vfxStage",
 ];
 const EMOTIONS: WardenEmotion[] = ["smug", "gleeful", "annoyed", "bored", "shocked", "proud"];
 
@@ -455,6 +459,7 @@ function reopenEditor(root: HTMLElement, store: ContentStore, game: Game, tab: T
 }
 
 export function closeEditor(root: HTMLElement): void {
+  stopEffectsPreview();
   activeShell?.dispose();
   root.replaceChildren();
   activeShell = null;
@@ -638,7 +643,7 @@ class EditorShell {
           }),
           label: (t) => `${t.char}  ${t.id}`,
           schema: TILE_SCHEMA,
-          extras: (item) => this.attachmentsWidget(item, "tile"),
+          extras: (item) => el("div", {}, this.attachmentsWidget(item, "tile"), this.effectsWidget(item, "tile")),
           thumb: (t, ctx) => {
             ctx.scale(1.5, 1.5);
             drawTile(ctx, t as unknown as TileDef, 0, 0, 0);
@@ -662,7 +667,7 @@ class EditorShell {
           }),
           label: (t) => `${t.id} (${t.kind})`,
           schema: ITEM_SCHEMA,
-          extras: (item) => this.attachmentsWidget(item, "item"),
+          extras: (item) => el("div", {}, this.attachmentsWidget(item, "item"), this.effectsWidget(item, "item")),
           thumb: (t, ctx) => drawItemIcon(ctx, t as unknown as ItemDef, 12, 12, 1.3),
           sprites: true,
           spriteSize: 16,
@@ -1363,6 +1368,20 @@ class EditorShell {
    * separate from a small params-only JSON row, instead of one combined
    * raw-JSON blob per attachment.
    */
+  /** The Effects panel (src/studio/effects.ts) — the same one the Art Studio
+   *  tile page mounts, so a fix lands in one place. Placed items only for
+   *  items (the Spring); every tile. */
+  private effectsWidget(item: Record<string, unknown>, kind: "tile" | "item"): HTMLElement {
+    const def = item as unknown as TileDef & ItemDef;
+    if (kind === "item" && def.placeType !== "spring") return el("span", {});
+    return effectsPanel({
+      content: this.store.content,
+      subject: kind === "tile" ? { kind: "tile", def } : { kind: "item", def },
+      save: async (file, data) => { await this.store.saveFile(file, data); this.game.setContent(this.store.content); },
+      changed: () => this.renderTab(),
+    });
+  }
+
   private attachmentsWidget(
     def: Record<string, unknown>, host: "enemy" | "item" | "tile" | "entity"
   ): HTMLElement {

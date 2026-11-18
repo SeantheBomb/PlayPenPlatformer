@@ -326,6 +326,46 @@ Nothing here can break the game: layers are pure decoration, and the game
 doesn't read them for anything except drawing. A half-finished set is always
 safe to leave in place — empty layers simply don't draw.
 
+## 5½. Effects — splashes, squish, sparks
+
+Every tile's page (and the placed Spring's) has an **✨ Effects** panel at the
+bottom. Effects play at **moments** — "Bounced on", "Meets a pool", "Catches
+fire", "Always"… The list only ever shows moments the game really has for
+that tile; a Wall can't "Catch fire", so it isn't offered.
+
+- **This tile / Every tile.** "Every tile" holds the game-wide looks (the
+  built-in dust, steam and sparks you've always seen). A tile plays those
+  *plus* its own, unless you tick **silence the every-tile effect here**.
+- **Add an effect** from the shared library, or make a new one of your own.
+  Click an effect to tune it:
+  - **Tweak for this tile** changes only this tile. A gold dot marks what you
+    changed; ↺ puts it back to the preset.
+  - **Edit shared preset** changes the preset itself, for everyone using it.
+    It turns red and tells you exactly who else changes.
+  - **⎘ Make it its own preset** copies it, with your tweaks, so you can take
+    it somewhere new without touching anyone else.
+- **Squish curves**: drag the dots. Double-click adds one; right-click removes
+  one. The dots are exactly what's saved.
+- **The preview is the real game** running a little stage — the player really
+  drops onto the pad, the fall really pours. Under it you'll see "✓ the game
+  raised it 6×" or "✗ it didn't happen". Pick **Real spot** to watch it in an
+  actual level. **▶ Fire now** is just a shortcut for looking; it doesn't
+  prove anything.
+- **Paint my own stage** if you need a different setup: @ is this tile, P the
+  player, E an element source, ~ water. **Record a clip** to move the player
+  with the arrow keys and Space. A stage only saves if the game really makes
+  the moment happen in it.
+- The **meter** shows live particles in the preview, plus an estimate for the
+  busiest screen in any level. There's a hard cap of 600, and the oldest
+  particles are dropped past it.
+- **🔒 rows** (sounds, hit-stop, the hard-landing shake) are game feel, set in
+  code. They're shown so nothing is hidden; ask Sean to change them.
+- Screen flashes are capped at 3 per second, and players can turn them off
+  from the pause menu.
+
+Effects are decoration only. They can't change how the game plays, so
+experiment freely.
+
 ## 6. Where to start
 
 There's no wrong order, but if you want a suggested path:

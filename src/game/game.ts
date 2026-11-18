@@ -1,14 +1,16 @@
 // Game orchestrator: scenes, room flow, interactions, death loop, win.
-import type { Content, ItemDef, RoomQuest, TauntTrigger } from "../data/types";
+import type { Content, ItemDef, RoomQuest, TauntTrigger, TileDef } from "../data/types";
 import { Input } from "../engine/input";
 import { Loop } from "../engine/loop";
 import { HitStop } from "../engine/hitstop";
 import { Camera } from "../engine/camera";
 import { Particles } from "../engine/particles";
+import { VfxPlayer } from "../engine/vfx";
+import { fluidAt } from "./vfxmoments";
 import { sfx } from "../engine/audio";
 import { music } from "../engine/music";
 import { TILE } from "../engine/tilemap";
-import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawParallaxLayers, drawSprite, roundRect } from "../engine/renderer";
+import { drawBackdrop, drawItemIcon, drawMap, drawNpcAvatar, drawParallaxLayers, drawSprite, roundRect, setTileTransforms } from "../engine/renderer";
 import { rectsOverlap, randRange, type Rect } from "../engine/math";
 import { RunState, emptyRoomMutations, type StateSnapshot } from "./state";
 import { tileProgress, entityProgress, enemyProgress, type Progress } from "./roomProgress";
@@ -35,6 +37,15 @@ import {
   type Toast,
   type Floaty, type OverlayButton,
 } from "./hud";
+
+/** Per-player "reduce flashing" (pause menu, saved per browser): no artist
+  *  screen flashes at all. Cosmetic, so it never touches the sim. */
+export function reduceFlashing(): boolean {
+  try { return localStorage.getItem("playpen.reduceFlashing") === "1"; } catch { return false; }
+}
+function toggleReduceFlashing(): void {
+  try { localStorage.setItem("playpen.reduceFlashing", reduceFlashing() ? "0" : "1"); } catch { /* private mode */ }
+}
 
 export const VIEW_W = 640;
 export const VIEW_H = 360;
@@ -87,6 +98,14 @@ export class Game {
   input: Input;
   camera = new Camera();
   particles = new Particles();
+  /** Tile effects (content/vfx.json) — cosmetic only, see engine/vfx.ts. */
+  vfx: VfxPlayer;
+  /** Preview stages (src/studio/stage.ts): a fixed camera + zoom and no HUD,
+   *  so the real game can show one effect in a small room. Null in play. */
+  previewFrame: { zoom: number; x: number; y: number } | null = null;
+  /** Fluid tile the player's middle was in last step (enter/exit moments).
+   *  Cosmetic bookkeeping, never read by the sim. */
+  private vfxFluidId: string | null = null;
   taunts: TauntManager;
   craftUI: CraftUI;
   loop: Loop;
@@ -145,6 +164,11 @@ export class Game {
     opts: { replay?: boolean } = {}
   ) {
     this.replay = !!opts.replay;
+    this.vfx = new VfxPlayer(content.vfx, {
+      shake: (i, s) => this.camera.shake(i, s),
+      particlesOn: () => this.content.game.juice.particles,
+      flashesOn: () => this.content.game.juice.flashes !== false && !reduceFlashing(),
+    });
     // A replay Game must never see real keyboard/touch input — its Input
     // listens on a detached element and is driven purely by inject().
     this.input = new Input(this.replay ? document.createElement("div") : window);
@@ -417,7 +441,9 @@ export class Game {
         break;
       case "pause": {
         const lx = VIEW_W / 2 - 70;
-        if (x >= lx && x <= lx + 200 && y >= 146 && y <= 160) {
+        if (x >= lx && x <= lx + 200 && y >= 116 && y <= 130) {
+          toggleReduceFlashing(); // "L — screen flashes ON/OFF"
+        } else if (x >= lx && x <= lx + 200 && y >= 146 && y <= 160) {
           // "M — sound ON/OFF" — mute has no touch/gamepad key otherwise.
           sfx.muted = !sfx.muted;
           music.muted = sfx.muted;
@@ -478,6 +504,7 @@ export class Game {
     this.camera.shakeEnabled = g.juice.screenShake;
     this.camera.shakeIntensity = g.juice.shakeIntensity;
     this.particles.enabled = g.juice.particles;
+    this.vfx.file = this.content.vfx;
     sfx.volume = g.audio.sfxVolume;
     sfx.muted = g.audio.muted;
     music.volume = g.audio.musicVolume;
@@ -605,6 +632,8 @@ export class Game {
       this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
     );
     this.particles.clear();
+    this.vfx.clear();
+    this.vfxFluidId = null;
     sfx.stopAllLoops(); // a capacitor's hum shouldn't carry over from the last room
     // ...but one already left ON in THIS room (persisted state) should hum
     // immediately — otherwise it stays silent until it next toggles off/on,
@@ -701,6 +730,7 @@ export class Game {
     this.animT += dt;
     this.camera.update(dt);
     this.particles.update(dt);
+    this.vfx.update(dt, this.animT);
     this.floaties = this.floaties.filter((f) => simNow() - f.bornAt < 1100);
 
     switch (this.scene) {
@@ -721,6 +751,76 @@ export class Game {
 
   private hitStop(ms: number): void {
     this.hitStopClock.trigger(ms);
+  }
+
+  private tileIndexFor: TileDef[] | null = null;
+  private tileIndex = new Map<string, TileDef>();
+  /** Tile def by id for effect lookup (rebuilt when content is replaced). */
+  tileDef(id: string): TileDef | undefined {
+    if (this.tileIndexFor !== this.content.tiles) {
+      this.tileIndexFor = this.content.tiles;
+      this.tileIndex = new Map(this.content.tiles.map((t) => [t.id, t]));
+    }
+    return this.tileIndex.get(id);
+  }
+
+  /** Enter/exit moments: the fluid tile under the player's middle changed.
+   *  Cosmetic only — reads the map, writes nothing the sim reads. */
+  private fluidMoments(): void {
+    const map = this.roomRt.map;
+    const tx = Math.floor(this.player.centerX / TILE);
+    const ty = Math.floor(this.player.centerY / TILE);
+    const fluid = fluidAt(map, this.player.centerX, this.player.centerY);
+    const id = fluid?.id ?? null;
+    if (id === this.vfxFluidId) return;
+    const prev = this.vfxFluidId ? this.tileDef(this.vfxFluidId) : undefined;
+    this.vfxFluidId = id;
+    // The surface of this column: the topmost fluid cell at/above the player.
+    const surface = (def: TileDef | undefined) => {
+      let sy = ty;
+      while (sy > 0 && map.at(tx, sy - 1)?.id === def?.id) sy--;
+      return sy;
+    };
+    if (prev) {
+      const sy = surface(prev);
+      this.vfx.play("exit", prev, { x: this.player.centerX, y: sy * TILE, color: prev.color, cell: { px: tx * TILE, py: sy * TILE } });
+    }
+    if (fluid) {
+      const sy = surface(fluid);
+      this.vfx.play("enter", fluid, { x: this.player.centerX, y: sy * TILE, color: fluid.color, cell: { px: tx * TILE, py: sy * TILE } });
+    }
+  }
+
+  private ambientFor: unknown = null;
+  private ambientIds = new Set<string>();
+  /** "Always" effects: every on-screen cell of a tile that binds ambient. */
+  private vfxAmbient(dt: number): void {
+    if (this.ambientFor !== this.content.tiles) {
+      this.ambientFor = this.content.tiles;
+      const all = (this.content.vfx.defaults.ambient ?? []).length > 0;
+      this.ambientIds = new Set(this.content.tiles.filter((t) => all || t.vfx?.some((b) => b.on === "ambient")).map((t) => t.id));
+    }
+    if (this.ambientIds.size === 0) return;
+    const map = this.roomRt.map;
+    const vw = VIEW_W / this.worldZoom, vh = VIEW_H / this.worldZoom;
+    const tx0 = Math.max(0, Math.floor(this.camera.x / TILE)), ty0 = Math.max(0, Math.floor(this.camera.y / TILE));
+    const tx1 = Math.min(map.width - 1, Math.ceil((this.camera.x + vw) / TILE));
+    const ty1 = Math.min(map.height - 1, Math.ceil((this.camera.y + vh) / TILE));
+    const cells: { tx: number; ty: number; def: TileDef }[] = [];
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        const def = map.at(tx, ty);
+        if (def && this.ambientIds.has(def.id)) cells.push({ tx, ty, def });
+      }
+    }
+    this.vfx.ambient(dt, cells);
+  }
+
+  /** Preview stages only (src/studio/stage.ts): apply an element to one cell
+   *  through the same call a tool use makes, and play what it causes. */
+  stageApplyElement(element: string, tx: number, ty: number): void {
+    const box = { x: tx * TILE + 2, y: ty * TILE + 2, w: TILE - 4, h: TILE - 4 };
+    this.handleElementEvents(this.roomRt.applyElementToTiles(element, box));
   }
 
   /** Replay driver: re-apply a recorded semantic craft-menu action. */
@@ -861,6 +961,7 @@ export class Game {
         music.muted = sfx.muted;
         music.applyVolume();
       }
+      if (this.input.justPressed("KeyL")) toggleReduceFlashing();
       if (this.input.justPressed("KeyQ")) {
         this.overlay = "none";
         this.scene = "menu";
@@ -891,20 +992,22 @@ export class Game {
     if (ev.landed) {
       if (ev.landSpeed > g.juice.landDustAtFallSpeed) {
         sfx.play("land");
-        this.particles.burst({
-          x: this.player.centerX, y: this.player.feetY,
-          count: 6, color: "#6a6284", speed: 50, upBias: 20, life: 0.35, gravity: 240,
+        const tx = Math.floor(this.player.centerX / TILE), ty = Math.floor((this.player.feetY + 1) / TILE);
+        this.vfx.play("land", this.roomRt.map.at(tx, ty) ?? undefined, {
+          x: this.player.centerX, y: this.player.feetY, cell: { px: tx * TILE, py: ty * TILE },
         });
       }
-      if (ev.landSpeed > 420) this.camera.shake(2.5, 0.15);
+      if (ev.landSpeed > 420) this.camera.shake(2.5, 0.15); // locked row: game feel
     }
     if (ev.bounced) {
       sfx.play("bounce");
-      this.particles.burst({
-        x: this.player.centerX, y: this.player.feetY,
-        count: 10, color: ev.bounced.def.color, speed: 80, upBias: 60, life: 0.4,
+      this.vfx.play("bounce", ev.bounced.def, {
+        x: this.player.centerX, y: this.player.feetY, color: ev.bounced.def.color,
+        cell: { px: ev.bounced.tx * TILE, py: ev.bounced.ty * TILE },
       });
     }
+    this.fluidMoments();
+    this.vfxAmbient(dt);
     if (ev.spikeDamage > 0) {
       // Repelling hazards report the tile's center so knockback pushes AWAY
       // from it (centerX would always shove rightward — hurt()'s sign(0)||1).
@@ -1070,9 +1173,11 @@ export class Game {
           this.player.squashX = 0.6;
           this.player.squashY = 1.45;
           sfx.play("bounce");
-          this.particles.burst({
-            x: p.x + p.w / 2, y: p.y,
-            count: 10, color: "#5ad1a5", speed: 80, upBias: 60, life: 0.4,
+          // The placed spring is the Spring ITEM, not the Bounce Pad tile —
+          // its effects live on the item (items.json vfx). Drawn at (x, y-8),
+          // which is where its squish attaches (see drawPlaced in room.ts).
+          this.vfx.play("bounce", this.content.items.find((i) => i.placeType === "spring"), {
+            x: p.x + p.w / 2, y: p.y, color: "#5ad1a5", cell: { px: p.x, py: p.y - 8 },
           });
           break;
         }
@@ -1289,6 +1394,11 @@ export class Game {
       VIEW_W / this.worldZoom, VIEW_H / this.worldZoom,
       this.roomRt.map.pixelWidth, this.roomRt.map.pixelHeight
     );
+    if (this.previewFrame) {
+      this.worldZoom = this.previewFrame.zoom;
+      this.camera.x = this.previewFrame.x;
+      this.camera.y = this.previewFrame.y;
+    }
 
     // ---- Button decoration context (mobile E verb + F item icon) ----
     this.touch.smartContext = this.computeSmartContext();
@@ -1628,65 +1738,36 @@ export class Game {
           this.noteChainReaction();
         }
       }
+      // Looks come from content/vfx.json (the tile's own effects + the
+      // every-tile defaults, which hold the values this switch used to
+      // hardcode). Sound, hit-stop, loops and floaties stay here: game feel.
+      this.vfx.play(ev.effect, ev.tileId ? this.tileDef(ev.tileId) : undefined, {
+        x: ev.x, y: ev.y, color: ev.color,
+        cell: ev.tx !== undefined && ev.ty !== undefined ? { px: ev.tx * TILE, py: ev.ty * TILE } : undefined,
+      });
       switch (ev.effect) {
-        case "ignite":
-          sfx.play("ignite");
-          this.particles.burst({ x: ev.x, y: ev.y, count: 8, color: "#ff7043", speed: 60, upBias: 40, life: 0.5, gravity: -60 });
-          break;
+        case "ignite": sfx.play("ignite"); break;
         case "extinguish":
         case "fizzle":
-          sfx.play("splash");
-          this.particles.burst({ x: ev.x, y: ev.y, count: 10, color: "#cfd8dc", speed: 50, upBias: 50, life: 0.6, gravity: -80 });
-          break;
         case "melt":
-        case "dissolve":
-          sfx.play("splash");
-          this.particles.burst({ x: ev.x, y: ev.y, count: 10, color: ev.color, speed: 70, life: 0.5 });
-          break;
-        case "freeze":
-          sfx.play("freeze");
-          this.particles.burst({ x: ev.x, y: ev.y, count: 12, color: "#b3e5fc", speed: 60, life: 0.5, gravity: 40 });
-          break;
+        case "dissolve": sfx.play("splash"); break;
+        case "freeze": sfx.play("freeze"); break;
         case "shatter":
           sfx.play("break");
-          this.camera.shake(3, 0.2);
           this.hitStop(this.content.game.juice.hitStopMs * 0.6);
-          this.particles.burst({ x: ev.x, y: ev.y, count: 14, color: ev.color, speed: 120, life: 0.55 });
-          break;
-        case "energize":
-          this.particles.burst({ x: ev.x, y: ev.y, count: 2, color: "#ffe95a", speed: 40, life: 0.25, gravity: 0 });
           break;
         case "capacitorOn":
           // A quiet ambient hum while it's live, not the fusebox's clink —
           // keyed by entity index so each capacitor gets its own loop.
           sfx.startLoop(`capacitor:${ev.entityIndex}`);
-          this.particles.burst({ x: ev.x, y: ev.y, count: 10, color: "#ffe95a", speed: 70, life: 0.4 });
           break;
-        case "capacitorOff":
-          sfx.stopLoop(`capacitor:${ev.entityIndex}`);
-          this.particles.burst({ x: ev.x, y: ev.y, count: 6, color: "#8f9bb3", speed: 50, life: 0.35 });
-          break;
+        case "capacitorOff": sfx.stopLoop(`capacitor:${ev.entityIndex}`); break;
         case "fuse":
           sfx.play("unlock");
-          this.camera.shake(2, 0.15);
-          this.particles.burst({ x: ev.x, y: ev.y, count: 14, color: "#ffe95a", speed: 90, life: 0.5 });
           this.floaty("CLUNK.", ev.x, ev.y - 6, "#9be8b0");
           break;
-        case "enemy_kill":
-          sfx.play("death");
-          this.camera.shake(3, 0.2);
-          this.particles.burst({ x: ev.x, y: ev.y, count: 20, color: ev.color, speed: 140, upBias: 50, life: 0.6 });
-          break;
-        case "enemy_stun":
-          sfx.play("stun");
-          this.particles.burst({ x: ev.x, y: ev.y, count: 8, color: ev.color, speed: 70, life: 0.4 });
-          break;
-        case "burnout":
-          this.particles.burst({ x: ev.x, y: ev.y, count: 6, color: "#5a5470", speed: 40, upBias: 30, life: 0.6, gravity: -40 });
-          break;
-        case "flow":
-          this.particles.burst({ x: ev.x, y: ev.y, count: 3, color: "#4fc3f7", speed: 25, life: 0.35, gravity: 20 });
-          break;
+        case "enemy_kill": sfx.play("death"); break;
+        case "enemy_stun": sfx.play("stun"); break;
       }
     }
     this.checkAchievements("counter");
@@ -2071,12 +2152,16 @@ export class Game {
     // Parallax: behind the world here, in front of it after the player below.
     const layers = this.roomLayers();
     drawParallaxLayers(ctx, layers.behind, camX, camY, vw, vh, this.animT);
+    // Tile-effect tweens (squish) apply to tiles and placed items drawn in
+    // this world pass only — cleared right after, so previews never see them.
+    setTileTransforms((px, py) => this.vfx.transformAt(px, py));
     drawMap(ctx, this.roomRt.map, camX, camY, vw, vh, this.animT);
     this.roomRt.resolveHintText = (raw) => raw.replace(
       /\{(move|jump|craft|use|interact|cycle|start)\}/g,
       (_, tok) => this.input.label(tok)
     );
     this.roomRt.draw(ctx, this.animT);
+    setTileTransforms(null);
     // Charging a throw: dotted arc preview that rises as the charge builds.
     const charge = this.chargedThrowVelocity();
     if (charge) {
@@ -2116,6 +2201,7 @@ export class Game {
     }
     this.warden.draw(ctx, this.content.game.antagonist, this.animT);
     this.particles.draw(ctx);
+    this.vfx.draw(ctx, this.animT * 1000);
     drawFloaties(ctx, this.floaties);
     // Foreground plane: over the world and the player, but UNDER the
     // interaction prompts below — foreground art may never hide a prompt.
@@ -2124,7 +2210,7 @@ export class Game {
       { x: this.player.centerX - camX, y: this.player.centerY - camY }
     );
     // Interaction prompt
-    if (this.overlay === "none") {
+    if (this.overlay === "none" && !this.previewFrame) {
       const iKey = this.input.label("interact");
       if (this.player.hiddenIn !== null) {
         drawPrompt(ctx, `${iKey} — leave locker`, this.player.centerX, this.player.y - 26);
@@ -2153,6 +2239,8 @@ export class Game {
       }
     }
     ctx.restore();
+    this.vfx.drawScreen(ctx, VIEW_W, VIEW_H);
+    if (this.previewFrame) return; // a preview stage shows the world only
 
     // Room name watermark
     ctx.fillStyle = "rgba(232,226,244,0.28)";
@@ -2235,6 +2323,8 @@ export class Game {
       ctx.font = "bold 16px monospace";
       ctx.fillText("PAUSED", VIEW_W / 2 - 30, 110);
       ctx.font = "10px monospace";
+      ctx.fillStyle = "#8f87ad";
+      ctx.fillText(`${scheme === "touch" ? "tap" : "L"} — screen flashes ${reduceFlashing() ? "ON" : "OFF"}`, VIEW_W / 2 - 70, 126);
       ctx.fillStyle = "#bbb3d6";
       ctx.fillText(resumeHint, VIEW_W / 2 - 70, 140);
       ctx.fillText(`${scheme === "touch" ? "tap" : "M"} — sound ${sfx.muted ? "ON" : "OFF"}`, VIEW_W / 2 - 70, 156);

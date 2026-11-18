@@ -1,5 +1,7 @@
 {
-  "notes": {},
+  "notes": {
+    "orientation": "Hello world!"
+  },
   "reminders": {},
   "lines": {
     "note:orientation@54,20": {

@@ -30,6 +30,9 @@ export const SPRITE_FIELDS = [
   "spriteDurations", "spriteSource", "spriteAltSource",
   "spriteSpanX", "spriteSpanY", "spriteOffsetX", "spriteOffsetY",
   "spriteScale", "spriteBounds",
+  // Tile/item effects (2026-11-18): which vfx.json presets play at which
+  // moments, and which stage previews each. Cosmetic only (src/engine/vfx.ts).
+  "vfx", "vfxStage",
 ];
 const ART_ARRAY_FILES = ["tiles.json", "items.json", "enemies.json", "entities.json"];
 
@@ -38,7 +41,9 @@ const ART_ARRAY_FILES = ["tiles.json", "items.json", "enemies.json", "entities.j
 // which is exactly why room->layer-set bindings live in THIS file rather than
 // on RoomDef: it keeps rooms/*.json structurally unwritable by an artist
 // publish while still letting her dress every room herself.
-const ART_OWNED_FILES = ["layers.json"];
+// vfx.json (effect presets, every-tile defaults, preview stages) is the same:
+// the VfxPlayer only reads the event stream, never writes the sim.
+const ART_OWNED_FILES = ["layers.json", "vfx.json"];
 
 /** Copy art fields from `src` def onto a clone of `dst` def. Fields absent
  *  on src are DELETED on the result — "revert to procedural" must publish. */

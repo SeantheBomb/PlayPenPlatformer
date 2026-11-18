@@ -7,12 +7,29 @@
   {
     "id": "note",
     "width": 12,
-    "height": 12
+    "height": 12,
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA0klEQVR4AaTOvQ3CMBCG4cAQFDRIlOzANhT0zEFPwTbsQIlEQ8ESwBPF1iWxkwLEyXffz6ssmz9/k4Dn/faZ41cByqv1tvFOQYoAJWVFr9temhFAWCmG3fSopb0HEBJO5uF4SmtD52ehWzKAKdTpjfL1ck5ne/PlsvhbMuC353+pnGBDSAZsdvvF+/VoISnsKMEiJAOEI8Q9LNMi3N0DECIkhsH4xpfK2UcAIlPIbpQTjM6nmyKAISRsr5V5VQAzQsDc9DiTAEGlWpk/CxAC8ZbmCwAA//86/iJGAAAABklEQVQDAC1rcyHowwInAAAAAElFTkSuQmCC",
+    "spriteSource": "objects_note.aseprite",
+    "spriteBounds": [
+      2,
+      1,
+      13,
+      14
+    ]
   },
   {
     "id": "door",
     "width": 16,
-    "height": 32
+    "height": 32,
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAgCAYAAAAbifjMAAABZ0lEQVR4AcyUvUoDQRSFr4sPEAsbt7cxqNhZ2fgcPpxvIdhY2YlKbOxEI0gEYyEh/mTNt3CHuZOZWQcJJPBxJzPnnLk7mWw1nbw3MSYfr81fqGT++fkcye3VuWFwfSE5mu/x3CnSBtwNbmT34NjQ3z+SHHhIaAMYwGz25bpI7Y7OxwRgqust2envJXdHYwLYlQmtjEswHZQYVbvCAfzOMbR1rdFHGL+NdL2zRgPUpUFh1XVqMgBTb2NTworJxwRwgYbDZ1G4roz9isYEcFA6sbbea28hohRoVI+3okUmzp6mcnp5LwhyoFXwVjwnEy+PD5Qi8LoOTg63BWgrh7+D6YAFjBxYDjRowXTABMa64++MBi0sdMBkCQsdlJjRth0w+A/uJvqH0xXoa11Alym1vrwA2owRdhLtgNMNhf53fz0agFhFYWXNJxnAJcEcVt/M2ATwDuAFAlzZWOWqY1RcALsBghxq1PoLAAD//zVpCGAAAAAGSURBVAMAIld/cC0IIOsAAAAASUVORK5CYII=",
+    "spriteAlt": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAgCAYAAAAbifjMAAAAAXNSR0IArs4c6QAAAT5JREFUSInllTFrg1AUhU8eTgZBE4IhZMjQDqEBO4qLdOm/6tSpf6RjoWs3l+AqJBQyBIciilRfKFjaJtrhNTZW2/pMh0DPcryPe793uDyw9fK8ylChNH2rOi5JAIDNa4j5zKk1sNXJRENLkBlgPnNwGZxzAS5wh8mpCcI1VaH9AXWX9WsCRSVcXgLEQQpFJbX97xPsvYP/DMjWtPFwtqYgNA4bA2gcgshKLz/oDkUul5XeZ4LuUMTjQ1LbSwl4hr9NwOOVO+BVIUET0Tg8hJd4WAApMJsDpMDEk2r92Fx1QQ5wVhTLhYZ+h9W7LgUm+h3g9t7L6xLA9RIYugM/Yg1+xIb9CGiPLUxtDQAwtTW0x1YZsNVywRq+JjF0B6OBCEMv/oSF3eL65ph9fNzmeglGA7HgsDW4XoKzoysAwDu90aPPxpvRcAAAAABJRU5ErkJggg==",
+    "spriteSource": "objects_door.aseprite",
+    "spriteBounds": [
+      0,
+      0,
+      16,
+      32
+    ]
   },
   {
     "id": "trapdoor",

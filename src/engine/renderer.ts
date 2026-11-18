@@ -455,6 +455,15 @@ export interface GooNeighbors {
   left: boolean; right: boolean; top: boolean; bottom: boolean;
 }
 
+/** Tile-effect tweens (squish…): the active game's VfxPlayer, set around its
+ *  world draw and cleared after, so previews/other games never see it.
+ *  Keyed by the world px a tile (or placed item) is drawn at. Cosmetic. */
+type TileXfLookup = (px: number, py: number) => { sx: number; sy: number; oy: number; anchor: "bottom" | "center" | "top" } | null;
+let tileXfLookup: TileXfLookup | null = null;
+export function setTileTransforms(fn: TileXfLookup | null): void {
+  tileXfLookup = fn;
+}
+
 export function drawTile(
   ctx: CanvasRenderingContext2D,
   def: TileDef,
@@ -463,6 +472,22 @@ export function drawTile(
   capped = false,
   gooNeighbors?: GooNeighbors
 ): void {
+  if (tileXfLookup) {
+    const xf = tileXfLookup(px, py);
+    if (xf) {
+      const look = tileXfLookup;
+      tileXfLookup = null; // draw the tile itself once, untransformed-lookup
+      const ax = px + TILE / 2;
+      const ay = py + (xf.anchor === "bottom" ? TILE : xf.anchor === "top" ? 0 : TILE / 2);
+      ctx.save();
+      ctx.translate(ax, ay + xf.oy);
+      ctx.scale(xf.sx, xf.sy);
+      ctx.translate(-ax, -ay);
+      try { drawTile(ctx, def, px, py, animT, capped, gooNeighbors); }
+      finally { ctx.restore(); tileXfLookup = look; }
+      return;
+    }
+  }
   // px/py are world pixels for every in-room caller (drawMap, grate-fluid
   // overlay, placed springs), which is what lets a pattern sprite pick its
   // slice from position alone — no per-tile state, so transformed/flowing

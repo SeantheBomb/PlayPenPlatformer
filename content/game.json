@@ -40,15 +40,19 @@
       "jumpPushSpeed": 180,
       "jumpLiftSpeed": 320
     },
-    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAZtJREFUWIXVVzGOg0AMNKf8AwRItNvQrcRP0vAumvwEaTsa2khJlLyEa87RZll7bUjudNMAYdeeeMYYAP4YmXZDa8ziX0/zrI6hJvDupGoCHBnEVlIHbfK+P8LlfIO6KeFyvgEAQN2UAAMsW4ioJOisXSUOz0fnVCS+pAv7/iheR8m0iUBrzNJZK42nRrJUSKBuShiGkziwVAYRATyXVkLjA1YC33x+8tG5aNItINvw09ojomXam/xtEuyBtBVXErTGLFVevGhKVQPXxO5XeQEAsKQqQVagygsMQhosNCe3lkLUhNfH/YXE9XFXBUbiErDlCWcAAodR7Np/WEmMSEoQmgiHTuroS9Ias6TMGJUgbMPROeisfSbxSeE9n0RIhDPjqgKxZ0BnLWvEFDprybb82HNAit0EYpXhKpYkMM1zFm5GndHp/pH6PdxPeSBqwp/FT83wPVAL/CNcO5LTcJrnjBtKo3PPBH4nhDFSJFVvxYhhOL0E17wDhvj/XUCB6/1fIYBIkWBngfRbgALu50iIpmGImLu5JFw3fAOoYu1GN8iHgAAAAABJRU5ErkJggg==",
     "sketch": true,
     "spriteBounds": [
-      4,
-      1,
-      23,
-      31
+      2,
+      0,
+      12,
+      16
     ],
-    "spriteScale": 2
+    "spriteFrames": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA50lEQVR4AZSRQQ6CQAxFqxfRxAuwcUfiTdxwLjbexISdG7YmavQkyiP5k04HCBo/bX/b/xlmawu/Y1V9hbmxRYFb329YVCSPmBXwzj5fJcDCqa6tac7mI/wqAYauXWdtezEf4SOKI8gF54i4TJ0JsKwlmrgTgc+phSTA8mG3H19ZTcSmcnHEJMBVPT9vkwiOEfQwYlFIAhASIY83QI0BPY9MAHVeG3ADDCo+7i/K8VqZG4vhkQkMdfFHrCAdkQlwBJ2bGeWK4pgjB5kAhJo4c244IjW5+uSgEID8B4UAHwjHKRF4+r73AwAA//+l3dPOAAAABklEQVQDAH8/hVMenxVJAAAAAElFTkSuQmCC",
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA5UlEQVR4AaSRQQrCUAxEoxdR8ALduCt4Ezc9VzfeROjOTbeCip5E+wrzyc+3pdDSaZJJMmnI1lY+swLHqvoKU3NmBW59v6FRFj9iUsBP9v4iARpOdW1NczZv4RcJUHTtOmvbi3kLH1GsoClMjojNxJkAzWoiyXQs8D6xkARoPuz24y8ridg/Xxw2CXCq5+dtEmFiBDkG0SgkAQiJ4McLEDOAnEcmgDq/DbgAhbKP+4twPCt1YzB8MoEhLl7ECtIRmQAraG9q5MuKow4fZAIQSjKZveGwxPjK44NCgP1oIBkBT97zPwAAAP//qx4lKQAAAAZJREFUAwANHYVT5GDv0AAAAABJRU5ErkJggg=="
+    ],
+    "spriteFps": 2,
+    "spriteSource": "characters_player_16.aseprite"
   },
   "camera": {
     "lerp": 0.14,
@@ -61,7 +65,8 @@
     "particles": true,
     "squashStretch": true,
     "hitStopMs": 70,
-    "landDustAtFallSpeed": 220
+    "landDustAtFallSpeed": 220,
+    "flashes": true
   },
   "rules": {
     "resetInventoryBetweenRooms": true,

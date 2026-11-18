@@ -17,6 +17,8 @@ import { artBox, buildAssets, assetStatus, GROUP_ORDER, withEditedFrames, type A
 import { sourceRef, timingFor, type AseImport } from "./aseprite";
 import { chooseFromAseprite } from "./asepick";
 import { patternPanel } from "./tilepattern";
+import { effectsPanel, stopEffectsPreview } from "./effects";
+import type { StageSubject } from "./stagebuild";
 import { artSizeCard, collisionBox } from "./artsize";
 import { assetLevels, levelOrder } from "./levels";
 import { Board, BOARD_CSS, boardBadge, boardPanel, STATUS_LABEL, STATUS_ORDER } from "./board";
@@ -47,7 +49,18 @@ export function openStudio(root: HTMLElement, store: ContentStore, game: Game): 
   active.render();
 }
 
+/** The effects preview keeps running across re-renders of the SAME page (so
+ *  a slider drag doesn't restart the loop); anywhere else, it stops. */
+let fxPage = "";
+function stopEffectsPreviewUnlessStaying(view: string, key: string | null): void {
+  const here = `${view}|${key}`;
+  if (view !== "detail" || here !== fxPage) stopEffectsPreview();
+  fxPage = here;
+}
+
 export function closeStudio(root: HTMLElement): void {
+  stopEffectsPreview();
+  fxPage = "";
   active?.dispose();
   root.replaceChildren();
   active = null;
@@ -143,6 +156,7 @@ class Studio {
 
   render(): void {
     stopEnvironmentPreview(); // never leave a rAF loop drawing into a detached canvas
+    stopEffectsPreviewUnlessStaying(this.view, this.selectedKey);
     // Re-rendering the SAME page (a setting changed, art saved) keeps her
     // scroll position — tweaking a control near the bottom must not jump
     // the page back to the top. Navigating somewhere new starts at the top.
@@ -709,7 +723,32 @@ class Studio {
 
     // Secondary-state slot (open door, unlit brazier, …)
     if (a.altLabel) wrap.append(this.altSlot(a));
+
+    // Effects (tiles + placed items): particles, squish, glow… on moments.
+    const fxSubject = this.effectsSubject(a);
+    if (fxSubject) {
+      wrap.append(effectsPanel({
+        content: this.store.content,
+        subject: fxSubject,
+        save: async (file, data) => { await this.store.saveFile(file, data); this.dirty = true; },
+        changed: () => this.render(),
+        open: (kind, id) => { this.selectedKey = `${kind}:${id}`; this.view = "detail"; this.render(); },
+      }));
+    }
     return wrap;
+  }
+
+  private effectsSubject(a: ArtAsset): StageSubject | null {
+    const c = this.store.content;
+    if (a.key.startsWith("tile:")) {
+      const t = c.tiles.find((x) => `tile:${x.id}` === a.key);
+      return t ? { kind: "tile", def: t } : null;
+    }
+    if (a.key.startsWith("item:")) {
+      const it = c.items.find((x) => `item:${x.id}` === a.key);
+      return it?.placeType === "spring" ? { kind: "item", def: it } : null;
+    }
+    return null;
   }
 
   /** For art drawn at its own size: say plainly how big it'll be in-game

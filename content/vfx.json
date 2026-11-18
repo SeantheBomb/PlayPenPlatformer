@@ -1,0 +1,683 @@
+{
+  "presets": [
+    {
+      "id": "builtin_ignite",
+      "name": "Catch fire (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 8,
+          "colors": [
+            "#ff7043"
+          ],
+          "speed": 60,
+          "upBias": 40,
+          "life": 0.5,
+          "gravity": -60
+        }
+      ]
+    },
+    {
+      "id": "builtin_extinguish",
+      "name": "Steam puff (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 10,
+          "colors": [
+            "#cfd8dc"
+          ],
+          "speed": 50,
+          "upBias": 50,
+          "life": 0.6,
+          "gravity": -80
+        }
+      ]
+    },
+    {
+      "id": "builtin_melt",
+      "name": "Melt drip (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 10,
+          "colors": [
+            "event"
+          ],
+          "speed": 70,
+          "life": 0.5
+        }
+      ]
+    },
+    {
+      "id": "builtin_freeze",
+      "name": "Frost (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 12,
+          "colors": [
+            "#b3e5fc"
+          ],
+          "speed": 60,
+          "life": 0.5,
+          "gravity": 40
+        }
+      ]
+    },
+    {
+      "id": "builtin_shatter",
+      "name": "Shatter (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 14,
+          "colors": [
+            "event"
+          ],
+          "speed": 120,
+          "life": 0.55
+        },
+        {
+          "id": "shake",
+          "kind": "shake",
+          "intensity": 3,
+          "seconds": 0.2
+        }
+      ]
+    },
+    {
+      "id": "builtin_energize",
+      "name": "Spark (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 2,
+          "colors": [
+            "#ffe95a"
+          ],
+          "speed": 40,
+          "life": 0.25,
+          "gravity": 0
+        }
+      ]
+    },
+    {
+      "id": "builtin_capacitor_on",
+      "name": "Capacitor on (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 10,
+          "colors": [
+            "#ffe95a"
+          ],
+          "speed": 70,
+          "life": 0.4
+        }
+      ]
+    },
+    {
+      "id": "builtin_capacitor_off",
+      "name": "Capacitor off (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 6,
+          "colors": [
+            "#8f9bb3"
+          ],
+          "speed": 50,
+          "life": 0.35
+        }
+      ]
+    },
+    {
+      "id": "builtin_fuse",
+      "name": "Fuse clunk (built-in)",
+      "layers": [
+        {
+          "id": "shake",
+          "kind": "shake",
+          "intensity": 2,
+          "seconds": 0.15
+        },
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 14,
+          "colors": [
+            "#ffe95a"
+          ],
+          "speed": 90,
+          "life": 0.5
+        }
+      ]
+    },
+    {
+      "id": "builtin_enemy_kill",
+      "name": "Enemy pop (built-in)",
+      "layers": [
+        {
+          "id": "shake",
+          "kind": "shake",
+          "intensity": 3,
+          "seconds": 0.2
+        },
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 20,
+          "colors": [
+            "event"
+          ],
+          "speed": 140,
+          "upBias": 50,
+          "life": 0.6
+        }
+      ]
+    },
+    {
+      "id": "builtin_enemy_stun",
+      "name": "Enemy stun (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 8,
+          "colors": [
+            "event"
+          ],
+          "speed": 70,
+          "life": 0.4
+        }
+      ]
+    },
+    {
+      "id": "builtin_burnout",
+      "name": "Burn out (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 6,
+          "colors": [
+            "#5a5470"
+          ],
+          "speed": 40,
+          "upBias": 30,
+          "life": 0.6,
+          "gravity": -40
+        }
+      ]
+    },
+    {
+      "id": "builtin_flow",
+      "name": "Flow trickle (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 3,
+          "colors": [
+            "#4fc3f7"
+          ],
+          "speed": 25,
+          "life": 0.35,
+          "gravity": 20
+        }
+      ]
+    },
+    {
+      "id": "builtin_land",
+      "name": "Landing dust (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 6,
+          "colors": [
+            "#6a6284"
+          ],
+          "speed": 50,
+          "upBias": 20,
+          "life": 0.35,
+          "gravity": 240
+        }
+      ]
+    },
+    {
+      "id": "builtin_bounce",
+      "name": "Bounce burst (built-in)",
+      "layers": [
+        {
+          "id": "burst",
+          "kind": "particles",
+          "count": 10,
+          "colors": [
+            "event"
+          ],
+          "speed": 80,
+          "upBias": 60,
+          "life": 0.4
+        }
+      ]
+    },
+    {
+      "id": "splash",
+      "name": "Splash",
+      "note": "Droplets thrown up where something lands in water.",
+      "layers": [
+        {
+          "id": "drops",
+          "kind": "particles",
+          "count": 8,
+          "dir": -90,
+          "cone": 110,
+          "speed": 110,
+          "speedMin": 0.4,
+          "gravity": 360,
+          "life": 0.6,
+          "size": 3,
+          "sizeEnd": 0.4,
+          "colors": [
+            "#e6f7ff",
+            "#9be1ff",
+            "#4fc3f7"
+          ],
+          "shape": "round",
+          "spreadX": 5,
+          "lifeMin": 0.5
+        }
+      ]
+    },
+    {
+      "id": "mist",
+      "name": "Mist",
+      "note": "Soft rising haze. Low count — it streams.",
+      "layers": [
+        {
+          "id": "puff",
+          "kind": "particles",
+          "count": 2,
+          "dir": -90,
+          "cone": 160,
+          "speed": 22,
+          "speedMin": 0.3,
+          "gravity": -18,
+          "life": 1.1,
+          "lifeMin": 0.7,
+          "size": 5,
+          "sizeEnd": 1.8,
+          "colors": [
+            "#e6f7ff"
+          ],
+          "fadeTo": "#9fb6c8",
+          "shape": "round",
+          "spreadX": 7
+        }
+      ]
+    },
+    {
+      "id": "embers",
+      "name": "Embers",
+      "note": "Glowing sparks that drift up from lava.",
+      "layers": [
+        {
+          "id": "sparks",
+          "kind": "particles",
+          "count": 3,
+          "dir": -90,
+          "cone": 90,
+          "speed": 70,
+          "speedMin": 0.35,
+          "gravity": -40,
+          "life": 0.8,
+          "lifeMin": 0.5,
+          "size": 2,
+          "sizeEnd": 0.3,
+          "colors": [
+            "#ffd166",
+            "#ff9f43",
+            "#ff6b3d"
+          ],
+          "fadeTo": "#7a2a1a",
+          "shape": "round",
+          "blend": "add",
+          "spreadX": 5
+        }
+      ]
+    },
+    {
+      "id": "squish",
+      "name": "Squish",
+      "note": "The pad flattens under you, then springs back past flat.",
+      "layers": [
+        {
+          "id": "squash",
+          "kind": "tween",
+          "ms": 260,
+          "anchor": "bottom",
+          "scaleY": [
+            [
+              0,
+              1
+            ],
+            [
+              0.25,
+              0.55
+            ],
+            [
+              0.6,
+              1.15
+            ],
+            [
+              1,
+              1
+            ]
+          ],
+          "scaleX": [
+            [
+              0,
+              1
+            ],
+            [
+              0.25,
+              1.25
+            ],
+            [
+              0.6,
+              0.92
+            ],
+            [
+              1,
+              1
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "ignite": [
+      {
+        "preset": "builtin_ignite"
+      }
+    ],
+    "extinguish": [
+      {
+        "preset": "builtin_extinguish"
+      }
+    ],
+    "fizzle": [
+      {
+        "preset": "builtin_extinguish"
+      }
+    ],
+    "melt": [
+      {
+        "preset": "builtin_melt"
+      }
+    ],
+    "dissolve": [
+      {
+        "preset": "builtin_melt"
+      }
+    ],
+    "freeze": [
+      {
+        "preset": "builtin_freeze"
+      }
+    ],
+    "shatter": [
+      {
+        "preset": "builtin_shatter"
+      }
+    ],
+    "energize": [
+      {
+        "preset": "builtin_energize"
+      }
+    ],
+    "capacitorOn": [
+      {
+        "preset": "builtin_capacitor_on"
+      }
+    ],
+    "capacitorOff": [
+      {
+        "preset": "builtin_capacitor_off"
+      }
+    ],
+    "fuse": [
+      {
+        "preset": "builtin_fuse"
+      }
+    ],
+    "enemy_kill": [
+      {
+        "preset": "builtin_enemy_kill"
+      }
+    ],
+    "enemy_stun": [
+      {
+        "preset": "builtin_enemy_stun"
+      }
+    ],
+    "burnout": [
+      {
+        "preset": "builtin_burnout"
+      }
+    ],
+    "flow": [
+      {
+        "preset": "builtin_flow"
+      }
+    ],
+    "land": [
+      {
+        "preset": "builtin_land"
+      }
+    ],
+    "bounce": [
+      {
+        "preset": "builtin_bounce"
+      }
+    ]
+  },
+  "stages": [
+    {
+      "id": "drop_onto",
+      "name": "Drop onto it",
+      "moments": [
+        "bounce",
+        "land"
+      ],
+      "seconds": 3,
+      "note": "The player falls straight onto the tile.",
+      "rows": [
+        "#.........#",
+        "#....P....#",
+        "#.........#",
+        "#.........#",
+        "#.........#",
+        "#.........#",
+        "#....@....#",
+        "###########"
+      ]
+    },
+    {
+      "id": "fall_basin",
+      "name": "Fall into a pool",
+      "moments": [
+        "fallImpact:fluid"
+      ],
+      "seconds": 4,
+      "note": "A fall pouring into a full basin.",
+      "rows": [
+        "#.....@.....#",
+        "#...........#",
+        "#...........#",
+        "#...........#",
+        "#~~~~~~~~~~~#",
+        "#~~~~~~~~~~~#",
+        "#############"
+      ]
+    },
+    {
+      "id": "fall_floor",
+      "name": "Fall onto the floor",
+      "moments": [
+        "fallImpact:solid"
+      ],
+      "seconds": 4,
+      "note": "A fall hitting a drain grate, so it never pools.",
+      "rows": [
+        "#.....@.....#",
+        "#...........#",
+        "#...........#",
+        "#...........#",
+        "#...........#",
+        "######D######"
+      ]
+    },
+    {
+      "id": "wade",
+      "name": "Walk through it",
+      "moments": [
+        "enter",
+        "exit"
+      ],
+      "seconds": 4,
+      "note": "The player walks in one side and climbs out the other.",
+      "rows": [
+        "#..................#",
+        "#..................#",
+        "#.P................#",
+        "####@@@@@@@@########",
+        "####@@@@@@@@########",
+        "####################"
+      ],
+      "clip": [
+        {
+          "f": 10,
+          "c": "ArrowRight",
+          "d": 1
+        },
+        {
+          "f": 60,
+          "c": "Space",
+          "d": 1
+        },
+        {
+          "f": 68,
+          "c": "Space",
+          "d": 0
+        },
+        {
+          "f": 90,
+          "c": "Space",
+          "d": 1
+        },
+        {
+          "f": 98,
+          "c": "Space",
+          "d": 0
+        },
+        {
+          "f": 110,
+          "c": "Space",
+          "d": 1
+        },
+        {
+          "f": 118,
+          "c": "Space",
+          "d": 0
+        },
+        {
+          "f": 130,
+          "c": "Space",
+          "d": 1
+        },
+        {
+          "f": 138,
+          "c": "Space",
+          "d": 0
+        },
+        {
+          "f": 150,
+          "c": "Space",
+          "d": 1
+        },
+        {
+          "f": 158,
+          "c": "Space",
+          "d": 0
+        },
+        {
+          "f": 170,
+          "c": "Space",
+          "d": 1
+        },
+        {
+          "f": 178,
+          "c": "Space",
+          "d": 0
+        },
+        {
+          "f": 230,
+          "c": "ArrowRight",
+          "d": 0
+        }
+      ]
+    },
+    {
+      "id": "ambient",
+      "name": "Just sitting there",
+      "moments": [
+        "ambient"
+      ],
+      "seconds": 3,
+      "rows": [
+        "#.........#",
+        "#.........#",
+        "#.........#",
+        "#...@@@...#",
+        "###########"
+      ]
+    },
+    {
+      "id": "element_touch",
+      "name": "Hit it with the element",
+      "moments": [
+        "ignite",
+        "extinguish",
+        "fizzle",
+        "melt",
+        "dissolve",
+        "freeze",
+        "shatter",
+        "energize",
+        "burnout"
+      ],
+      "seconds": 4,
+      "apply": 1.5,
+      "note": "Every 1.5 s the element that causes this moment is applied to the tile — the same engine call a tool makes.",
+      "rows": [
+        "#.........#",
+        "#.........#",
+        "#.........#",
+        "#....@....#",
+        "###########"
+      ]
+    }
+  ]
+}

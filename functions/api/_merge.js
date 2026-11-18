@@ -36,7 +36,7 @@ export const ID_ARRAY_FILES = new Set([
 /** Files whose top level is a plain object. Every file merges per key now;
  *  this list is kept for the diff views, which describe these files by
  *  dotted path rather than by entry. */
-export const DEEP_OBJECT_FILES = new Set(["game.json", "layers.json", "script.json"]);
+export const DEEP_OBJECT_FILES = new Set(["game.json", "layers.json", "script.json", "vfx.json"]);
 
 export function deepEqual(a, b) {
   if (a === b) return true;
@@ -120,6 +120,14 @@ function groupOf(file, path) {
       group: `layers.json#${path[1]}${layer ? `/${layer}` : ""}`,
       label: `environment ${path[1]}${layer ? ` — layer ${layer}` : ""}`,
     };
+  }
+  if (file === "vfx.json" && path.length >= 2) {
+    const id = key(path[1]);
+    const kind = { presets: "preset", defaults: "default", stages: "stage" }[path[0]];
+    if (kind) {
+      const label = { preset: `effect preset ${id}`, default: `every-tile effect: ${id}`, stage: `preview stage ${id}` }[kind];
+      return { group: `vfx.json#${kind}:${id}`, label };
+    }
   }
   const head = path.slice(0, 2).map(key).join(".");
   return { group: `${file}#${head}`, label: `${short}: ${head}` };

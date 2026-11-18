@@ -6,7 +6,9 @@
     "shape": "shard",
     "color": "#9aa7b8",
     "element": "metal",
-    "description": "A jagged bit of the facility that fell off. The Warden calls this 'decor'."
+    "description": "A jagged bit of the facility that fell off. The Warden calls this 'decor'.",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABMElEQVR4AbSPP0tCURjGH9uE7tAouOhYLVENjYUfwDEaglqjqU/QZ2hpaKkpShobInVyU5z8g4iiCFdQcfCKDv7jOXLEc871KogHnvu+9z3v83vfs4ctz+4AT7H4dJPlXDegOXp5BsZ1EFeANBFy//LuuYkB4FQaO20H1MVVBF4QA9C1G3KBRby7ia6EGICDQBCNqi3Mg15PRH4IiVzfGs8xAMsbOH4L+4M5JJ/N4fj0HDpEAfCtnOS3LLRGEOZgKIBi0+ESQqFwWIEogHoqDk7SzRO7hkI2A3nGo6FMoQBklQZOJiz3+7Mw97sdlEt5JGNfPtmrAP4/P3zfb684PDkS9+nEH2iS0s1sUgAsEPL88AiKhmqlIqYyX57MXsoAsEgIRYOMzHmnyxWgN3n9zwAAAP//iGUEHAAAAAZJREFUAwBCIJchzVuxuwAAAABJRU5ErkJggg==",
+    "spriteSource": "items_scrapmetal.aseprite"
   },
   {
     "id": "plank",
@@ -15,7 +17,9 @@
     "shape": "plank",
     "color": "#b08757",
     "element": "wood",
-    "description": "Certified 30% splinter by volume."
+    "description": "Certified 30% splinter by volume.",
+    "sprite": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAm0lEQVR4AeyQvQmEQBCF566MgzsOAzNrsAUbsABDazC0BiMbMDA0UCxBMBD8QcHMGlbeiAsGK/6kLnzs7Jvdt4950831GBDxDALfFcBzLHEU2zQE5s8GKNI4oaqsd0miVPa7ZsSzJcHYtHyAqAIXfvqX+mpAKZEJoPy1D6lAH8AE+wobILrqZ5W+MQiz4pUP02lgwglQXOUxIJoBAAD//60F8a4AAAAGSURBVAMAiHqhITychcoAAAAASUVORK5CYII=",
+    "spriteSource": "items_plank.aseprite"
   },
   {
     "id": "rope",
@@ -204,6 +208,13 @@
     "description": "A crate with a launch problem. F places it, anything that lands on it flies. E packs it back up.",
     "behaviors": [
       "usePlace"
+    ],
+    "vfx": [
+      {
+        "id": "squish",
+        "on": "bounce",
+        "preset": "squish"
+      }
     ]
   },
   {

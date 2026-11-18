@@ -268,6 +268,44 @@ solutions where possible. Tools are element carriers, not player stat powerups.
   state) and re-opens itself on the same tab. After a successful publish,
   `adoptPublished` takes live (with the person's resolutions) as the new base
   and clears the draft.
+- **Tile effects (2026-11-18, Casey + Miranda)**: `content/vfx.json` (presets,
+  every-tile `defaults` per moment, preview `stages`) + `vfx`/`vfxStage` art
+  fields on TileDef and ItemDef (`{ id, on, preset, params?, mode?, while? }`,
+  params keyed by LAYER id). **The sim wall:** `src/engine/vfx.ts` VfxPlayer
+  only reads moments (cosmetic Math.random particles, tweens on `animT`) and
+  never writes sim state — `tests/vfx-determinism.test.ts` pins it. Every
+  particle/shake that game.ts used to hardcode in the element-event switch,
+  land dust, tile bounce and placed-spring bounce is now a `builtin_*` preset
+  + default (exact old values, pinned by `tests/vfx-model.test.ts`); sound,
+  hit-stop, loops, floaties and the >420 hard-land shake stay in code and show
+  in the panel as LOCKED rows (`LOCKED_FEEDBACK`). Moments: bounce, land,
+  enter/exit (fluid under the player's middle — `fluidAt`), `fallImpact:fluid|
+  solid` (cosmetic event from `tickFalls`, every flow tick — `while` streams,
+  else once per spot until it pauses), ambient (per on-screen cell × `rate`),
+  and the element effects, whose room.ts events now carry `tileId`/`tx`/`ty`
+  (cosmetic; nothing in the sim reads them). `tileMoments()` in
+  `src/game/vfxmoments.ts` derives what a tile can have from tile fields +
+  rules.json via the same first-match logic as `findRule` —
+  `tests/vfx-moments.test.ts` proves listed ⇔ raised for every tile. The
+  placed Spring is the ITEM (items.json), not the Bounce Pad tile; the panel's
+  twin row copies bounce effects between them. Tile tweens hook `drawTile` via
+  `setTileTransforms` (keyed by the world px a tile/placed item is DRAWN at),
+  set only around Game's world pass. Caps: 600 particles (oldest dropped),
+  3 flashes/s, `juice.flashes` + per-player `playpen.reduceFlashing` (pause
+  menu L). **Previews are the real game**: `src/studio/stage.ts` runs a
+  replay-mode Game (`previewFrame` = fixed camera, no HUD) on a stage built by
+  `stagebuild.ts` (`@` tile, `P` player, `E` element source, `~` water,
+  `apply` beats call `Game.stageApplyElement` = the tool path; `prime` burns a
+  tile before water puts it out) or a real room; a custom stage only saves if
+  `proveStage` sees the moment for THIS def (`vfx.seen["moment|id"]`).
+  `tests/vfx-stages.test.ts` proves every tile × moment's default stage raises
+  it. Publish: `vfx`/`vfxStage` in `SPRITE_FIELDS`, vfx.json in
+  `ART_OWNED_FILES`, conflicts grouped `vfx.json#preset:<id>` /
+  `#default:<moment>` / `#stage:<id>` (`tests/vfx-publish.test.ts`). The panel
+  (`src/studio/effects.ts`) mounts on studio tile pages + the Spring item, and
+  in the editor's tile/item pages (vfx keys hidden from raw forms via
+  SPRITE_KEYS); its `.st-*` styles are scoped under `.fx-card` so the editor's
+  `.pp-*` look is untouched.
 - **Art Studio coordination board (2026-11-04, Casey + Miranda)**: per-asset
   workflow status (To do / In progress / Ready for review / Changes requested /
   Done), owner and short note — in Cloudflare D1 (`BOARD` binding, database

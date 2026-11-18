@@ -82,6 +82,13 @@ export interface ElementEvent {
   // (on/off events report different y — center vs top — so x,y alone can't
   // reliably pair them back up).
   entityIndex?: number;
+  /** COSMETIC ONLY (tile effects, 2026-11-18): the tile this happened TO —
+   *  the def before any transform — and its cell. Nothing in the sim reads
+   *  these; they let the VfxPlayer pick the tile's own effects (see
+   *  src/engine/vfx.ts). */
+  tileId?: string;
+  tx?: number;
+  ty?: number;
 }
 
 const SIGHT_HALF_SLOPE = 0.55; // vertical spread of the vision cone (~29°)
@@ -647,7 +654,7 @@ export class RoomRuntime {
       }
     }
     if (reacted) {
-      events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3" });
+      events.push({ effect: "extinguish", x: tx * TILE + 8, y: ty * TILE + 8, color: "#8f9bb3", tileId: def?.id, tx, ty });
     }
   }
 
@@ -924,9 +931,10 @@ export class RoomRuntime {
         const cx = tx * TILE + 8;
         const cy = ty * TILE + 8;
         // Water on a burning (but not water-element) tile: put it out.
+        const at = { tileId: def.id, tx, ty };
         if (element === "water" && this.burning.has(idx)) {
           this.burning.delete(idx);
-          events.push({ effect: "extinguish", x: cx, y: cy, color: "#4fc3f7" });
+          events.push({ effect: "extinguish", x: cx, y: cy, color: "#4fc3f7", ...at });
           continue;
         }
         const rule = this.findRule(element, def);
@@ -934,7 +942,7 @@ export class RoomRuntime {
         switch (rule.effect) {
           case "ignite":
             if (this.igniteTile(tx, ty)) {
-              events.push({ effect: "ignite", x: cx, y: cy, color: "#ff7043" });
+              events.push({ effect: "ignite", x: cx, y: cy, color: "#ff7043", ...at });
             }
             break;
           case "melt":
@@ -943,28 +951,28 @@ export class RoomRuntime {
             // only the tiles that opt in (cracked→lava) should respond.
             if (def.meltsTo === undefined) break;
             this.transformTile(tx, ty, def.meltsTo);
-            events.push({ effect: "melt", x: cx, y: cy, color: "#b3e5fc" });
+            events.push({ effect: "melt", x: cx, y: cy, color: "#b3e5fc", ...at });
             break;
           case "extinguish":
             this.transformTile(tx, ty, def.extinguishesTo);
-            events.push({ effect: "extinguish", x: cx, y: cy, color: "#8f9bb3" });
+            events.push({ effect: "extinguish", x: cx, y: cy, color: "#8f9bb3", ...at });
             break;
           case "dissolve":
             this.transformTile(tx, ty, def.dissolvesTo);
-            events.push({ effect: "dissolve", x: cx, y: cy, color: def.color });
+            events.push({ effect: "dissolve", x: cx, y: cy, color: def.color, ...at });
             break;
           case "freeze":
             this.freezeFrom(tx, ty, events);
             break;
           case "shatter":
             this.transformTile(tx, ty, def.shattersTo);
-            events.push({ effect: "shatter", x: cx, y: cy, color: def.color });
+            events.push({ effect: "shatter", x: cx, y: cy, color: def.color, ...at });
             break;
           case "energize":
             this.energizeFrom(tx, ty, events);
             break;
           case "fizzle":
-            events.push({ effect: "fizzle", x: cx, y: cy, color: "#cfd8dc" });
+            events.push({ effect: "fizzle", x: cx, y: cy, color: "#cfd8dc", ...at });
             break;
           // ignite_self is a carrier-item rule; Game handles it.
         }
@@ -1458,6 +1466,7 @@ export class RoomRuntime {
           continue;
         }
         // Genuinely open — the fall's own vertical body just keeps growing.
+        // (No fallImpact here: it hasn't met anything yet.)
         // (A grate flush against real ground further down is handled below,
         // as the base pool's landing spot, not as fall growth.)
         this.setTileById(tx, belowTy, def.id);
@@ -1475,6 +1484,20 @@ export class RoomRuntime {
       }
       // Mid-fall tiles (another fall tile below) do nothing; the base acts.
       if (below.id === def.id) continue;
+      // COSMETIC event for tile effects: where this fall meets what's under
+      // it, every flow tick it keeps doing so. Nothing in the sim reads it.
+      // A fall standing on the floor of its own pool (fluid on either side of
+      // its base) reads as "meets a pool" too — that's what the player sees.
+      {
+        const side = (x: number) => { const d = this.map.at(x, belowTy - 1); return !!d && this.isFluid(d); };
+        const besidePool = side(tx - 1) || side(tx + 1);
+        const intoFluid = this.isFluid(below) || besidePool;
+        events.push({
+          effect: intoFluid ? "fallImpact:fluid" : "fallImpact:solid",
+          x: tx * TILE + 8, y: (this.isFluid(below) || !besidePool ? belowTy : belowTy - 1) * TILE, color: def.color,
+          tileId: def.id, tx, ty: belowTy - 1,
+        });
+      }
       if (below.style === "drain") continue; // fully absorbed, nothing pools
       const fluidDef = this.tilesById.get(def.fallSpawns);
       if (!fluidDef) continue;
@@ -1708,6 +1731,7 @@ export class RoomRuntime {
       count++;
       events.push({
         effect: "freeze", x: cx * TILE + 8, y: cy * TILE + 8, color: "#b3e5fc",
+        tileId: def.id, tx: cx, ty: cy,
       });
       stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
     }
@@ -1730,6 +1754,7 @@ export class RoomRuntime {
       count++;
       events.push({
         effect: "energize", x: cx * TILE + 8, y: cy * TILE + 8, color: "#ffe95a",
+        tileId: def.id, tx: cx, ty: cy,
       });
       stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
     }
@@ -2330,7 +2355,7 @@ export class RoomRuntime {
         const ty = Math.floor(idx / this.map.width);
         const def = this.map.at(tx, ty);
         this.transformTile(tx, ty, def?.burnsTo);
-        events.push({ effect: "burnout", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470" });
+        events.push({ effect: "burnout", x: tx * TILE + 8, y: ty * TILE + 8, color: "#5a5470", tileId: def?.id, tx, ty });
       } else {
         this.burning.set(idx, next);
       }
@@ -2373,12 +2398,12 @@ export class RoomRuntime {
           if (!ndef) continue;
           const rule = this.findRule(elem, ndef);
           if (rule?.effect === "ignite" && this.igniteTile(nx, ny)) {
-            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043", element: elem });
+            events.push({ effect: "ignite", x: nx * TILE + 8, y: ny * TILE + 8, color: "#ff7043", element: elem, tileId: ndef.id, tx: nx, ty: ny });
             continue;
           }
           if (rule?.effect === "melt" && ndef.meltsTo !== undefined) {
             this.transformTile(nx, ny, ndef.meltsTo);
-            events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: elem });
+            events.push({ effect: "melt", x: nx * TILE + 8, y: ny * TILE + 8, color: "#b3e5fc", element: elem, tileId: ndef.id, tx: nx, ty: ny });
             // Whether the chain continues is heatSpread's `on meltChain(depth)`
             // policy — keepHot() lets the vacated cell radiate one more tick,
             // and a handler that stays silent is CHOOSING to stop the chain

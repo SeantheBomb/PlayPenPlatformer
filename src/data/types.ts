@@ -69,6 +69,9 @@ export interface GameConfig {
     squashStretch: boolean;
     hitStopMs: number;
     landDustAtFallSpeed: number;
+    /** Artist-made screen flashes (vfx.json "flash" layers). Off = none play.
+     *  Even on, at most 3 start per second (photosensitivity cap). */
+    flashes: boolean;
   };
   rules: {
     resetInventoryBetweenRooms: boolean;
@@ -317,6 +320,108 @@ export interface TileDef extends SpriteFields {
   /** Composable behavior attachments (behaviors.json ids) — reserved for
    *  tile-hosted rules (elementContact overrides and future tile scripting). */
   behaviors?: BehaviorAttachment[];
+  /** Tile effects (art-owned): which vfx.json presets play at which moments.
+   *  Cosmetic only — see src/engine/vfx.ts. */
+  vfx?: VfxBinding[];
+  /** Which preview stage (vfx.json stages) each moment previews on. */
+  vfxStage?: Record<string, string>;
+}
+
+// ---- Tile effects (content/vfx.json, 2026-11-18) ----
+// Wholly artist-owned and cosmetic by construction: the VfxPlayer reads the
+// event stream and never writes sim state, so republished effects can't
+// change how a recorded run plays.
+
+/** Keyframes: [t 0..1, value] pairs, sorted by t. Linear between. */
+export type VfxKeys = [number, number][];
+export type VfxLayerKind = "particles" | "tween" | "glow" | "shake" | "flash";
+
+export interface VfxLayer extends SpriteFields {
+  /** Stable id inside its preset — per-tile params are keyed by it. */
+  id: string;
+  kind: VfxLayerKind;
+  // particles
+  count?: number;        // per play (a burst)
+  speed?: number;        // px/s, top speed
+  speedMin?: number;     // fraction of speed for the slowest (default 0.3)
+  dir?: number;          // degrees, 0 = right, -90 = up
+  cone?: number;         // degrees of spread around dir (360 = every way)
+  upBias?: number;       // extra upward px/s
+  gravity?: number;      // px/s² (negative floats up)
+  life?: number;         // seconds, longest
+  lifeMin?: number;      // fraction of life for the shortest (default 0.6)
+  size?: number;         // px at birth
+  sizeEnd?: number;      // fraction of size at death (default 0.5)
+  colors?: string[];     // each particle picks one; "event" = the event's colour
+  fadeTo?: string;       // colour it fades toward over its life
+  shape?: "square" | "round" | "streak" | "art";
+  blend?: "normal" | "add";
+  spreadX?: number;      // spawn area half-width, px
+  spreadY?: number;      // spawn area half-height, px
+  rate?: number;         // "ambient" only: plays per second per on-screen cell
+  // tween (on the tile cell, or a placed item, that the moment happened at)
+  ms?: number;
+  anchor?: "bottom" | "center" | "top";
+  scaleX?: VfxKeys;
+  scaleY?: VfxKeys;
+  offsetY?: VfxKeys;     // px
+  // glow / flash
+  color?: string;
+  radius?: number;       // glow px
+  alpha?: number;
+  // shake
+  intensity?: number;
+  seconds?: number;
+}
+
+export interface VfxPreset {
+  id: string;
+  name: string;
+  layers: VfxLayer[];
+  note?: string;
+}
+
+export interface VfxBinding {
+  /** Stable id within this tile's list (merge key). */
+  id: string;
+  /** Moment key — see MOMENTS in src/engine/vfx.ts. */
+  on: string;
+  preset: string;
+  /** Per-tile tweaks over the preset, keyed by layer id. */
+  params?: Record<string, Partial<VfxLayer>>;
+  /** "add" (default) plays on top of the game-wide default for this moment;
+   *  "replace" silences that default for this tile. */
+  mode?: "add" | "replace";
+  /** Keep playing every time a continuous moment repeats (a fall meets its
+   *  pool every flow tick). Off = once per spot until it pauses. */
+  while?: boolean;
+}
+
+/** A small room an effect is previewed in — the real game runs it. */
+export interface VfxStage {
+  id: string;
+  name: string;
+  /** Char-map rows. tiles.json chars, plus: '@' the tile being previewed,
+   *  'P' where the player starts, 'E' an element source for this moment. */
+  rows: string[];
+  /** Recorded input, by fixed step (same shape as the session recorder). */
+  clip?: { f: number; c: string; d: 0 | 1 }[];
+  /** Loop length in seconds. */
+  seconds?: number;
+  /** Every N seconds, apply the element that causes the previewed moment to
+   *  the @ tile — the same engine call a tool use makes (element moments).
+   */
+  apply?: number;
+  /** Moments this stage is meant to show — the save check proves each. */
+  moments?: string[];
+  note?: string;
+}
+
+export interface VfxFile {
+  presets: VfxPreset[];
+  /** "Every tile": what plays for a moment when a tile has no replace. */
+  defaults: Record<string, { preset: string; params?: Record<string, Partial<VfxLayer>> }[]>;
+  stages: VfxStage[];
 }
 
 export type ItemKind = "material" | "tool" | "consumable" | "curio";
@@ -342,6 +447,9 @@ export interface ItemDef extends SpriteFields {
   scoopsInto?: Record<string, string>; // element -> item id this becomes when swung at it (bucket)
   emptiesTo?: string;    // item id this reverts to after a splash
   placeType?: "spring" | "trap";
+  /** Placed-item effects (a placed spring's bounce) — same model as tiles. */
+  vfx?: VfxBinding[];
+  vfxStage?: Record<string, string>;
   capabilities?: string[];
   params?: Record<string, number>;
   /** Composable behavior attachments (behaviors.json ids), run in order.
@@ -697,6 +805,7 @@ export interface Content {
   rooms: Record<string, RoomDef>;
   layers: LayersFile;
   script: ScriptDoc;
+  vfx: VfxFile;
 }
 
 // ---- Master Script (content/script.json) ----

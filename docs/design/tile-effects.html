@@ -1,0 +1,1030 @@
+<title>Tile Effects Studio</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column for the design doc; the mockups break out wider
+   and are drawn in the Art Studio's own (fixed, dark) palette so they read as the real tool. */
+:root {
+  --bg: #f6f4fb; --surface: #ffffff; --ink: #1d1830; --muted: #625a7d; --line: #ddd7ec;
+  --accent: #8a5a00; --accent-soft: #fff3d1; --new: #1f7a52; --new-soft: #e2f5ea;
+  --changed: #8a5a00; --changed-soft: #fff3d1; --same: #6e6890; --same-soft: #eeebf6;
+  --warn: #a3324f; --warn-soft: #fbe6ec;
+  --code-bg: #efecf7;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  /* The studio's own colors (src/studio/shell.ts STUDIO_CSS), identical in both themes. */
+  --st-bg: #141020; --st-card: #1c1730; --st-card2: #241d3c; --st-line: #322a4e; --st-line2: #4a4070;
+  --st-ink: #ece6f8; --st-dim: #9f96bd; --st-gold: #ffd166; --st-green: #2c5140;
+  --st-field: #100d1c; --st-on: #453a6e; --st-ok: #6fd6a0; --st-bad: #ff8aa5;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121019; --surface: #1a1726; --ink: #ece8f6; --muted: #a39cbd; --line: #2e2943;
+  --accent: #ffd166; --accent-soft: #3a3016; --new: #7fdcaa; --new-soft: #183527;
+  --changed: #ffd166; --changed-soft: #3a3016; --same: #a39cbd; --same-soft: #25213a;
+  --warn: #ff8aa5; --warn-soft: #3a1d27;
+  --code-bg: #221e33; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121019; --surface: #1a1726; --ink: #ece8f6; --muted: #a39cbd; --line: #2e2943;
+  --accent: #ffd166; --accent-soft: #3a3016; --new: #7fdcaa; --new-soft: #183527;
+  --changed: #ffd166; --changed-soft: #3a3016; --same: #a39cbd; --same-soft: #25213a;
+  --warn: #ff8aa5; --warn-soft: #3a1d27;
+  --code-bg: #221e33; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.page { max-width: 1080px; margin: 0 auto; padding-block: 40px 80px; }
+.prose { max-width: 720px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: 40px; margin: 6px 0 10px; letter-spacing: -0.01em; }
+h2 { font-size: 26px; margin: 56px 0 10px; }
+h3 { font-size: 18px; margin: 28px 0 8px; }
+.eyebrow { font: 600 12px var(--f-body); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 18px; color: var(--muted); max-width: 680px; }
+p { margin: 0 0 12px; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font: 13px/1.55 var(--f-mono); margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 13px; margin-top: 14px; }
+.meta b { color: var(--ink); font-weight: 600; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 18px; font-size: 14px; }
+.toc a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+.toc a:hover { border-bottom-color: var(--accent); }
+
+.journey { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+@media (max-width: 1000px) { .journey { grid-template-columns: minmax(0, 1fr); } }
+.jstep { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.jstep .n { font: 700 13px var(--f-mono); color: var(--accent); }
+.jstep b { display: block; margin: 2px 0 4px; font-family: var(--f-display); font-size: 16px; }
+.jstep p { font-size: 14px; color: var(--muted); margin: 0; }
+
+/* ===================== Mockups (studio palette) ===================== */
+.mock-wrap { margin-top: 18px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); }
+.mock-bar { background: #0c0a14; color: #8d84ab; font: 12px var(--f-mono); padding: 8px 14px; display: flex; gap: 10px; align-items: center; }
+.mock-bar i { width: 10px; height: 10px; border-radius: 50%; background: #3a3354; display: inline-block; }
+.mock { background: var(--st-bg); color: var(--st-ink); font: 14px "Segoe UI", system-ui, sans-serif; padding: 18px; color-scheme: dark; }
+.mock .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mock .title { font-size: 20px; font-weight: 700; color: var(--st-gold); }
+.mock .dim { color: var(--st-dim); font-size: 12px; }
+.mock .btn { background: #2a2342; border: 1px solid var(--st-line2); color: var(--st-ink); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.mock .btn:hover { background: #352c52; }
+.mock button:focus-visible, .mock input:focus-visible { outline: 2px solid var(--st-gold); outline-offset: 1px; }
+.mock .btn.primary { background: var(--st-green); border-color: #3e7a5c; font-weight: 600; }
+.mock .btn.quiet { background: none; border-color: transparent; color: var(--st-dim); }
+.mock .btn.on { background: var(--st-on); border-color: var(--st-gold); color: #fff; }
+.mock .btn.small { font-size: 11px; padding: 4px 8px; }
+.mock .card { background: var(--st-card); border: 1px solid var(--st-line); border-radius: 12px; padding: 14px; }
+.mock .tabs { display: flex; gap: 6px; margin: 2px 0 14px; flex-wrap: wrap; }
+.mock .chip { background: var(--st-card2); border: 1px solid #3a3160; color: #bfb6dd; padding: 5px 12px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 13px; }
+.mock .chip.on { background: var(--st-on); color: #fff; border-color: var(--st-gold); }
+.mock .collapsed { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.mock .thumb { width: 40px; height: 40px; border-radius: 6px; background: repeating-conic-gradient(#221c38 0% 25%, #2a2342 0% 50%) 0 0 / 10px 10px; flex: none; }
+.fx-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.fx-head h4 { margin: 0; font-size: 16px; color: var(--st-gold); font-family: "Segoe UI", system-ui, sans-serif; }
+.fx-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; gap: 12px; }
+@media (max-width: 960px) { .fx-grid { grid-template-columns: minmax(0, 1fr); } }
+.col-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--st-dim); margin: 0 0 6px; }
+.scope { display: inline-flex; border: 1px solid #3a3160; border-radius: 8px; overflow: hidden; margin-bottom: 8px; width: 100%; }
+.scope button { flex: 1; background: var(--st-field); color: #cfc6ea; border: none; padding: 6px 6px; font: inherit; font-size: 12px; cursor: pointer; }
+.scope button.on { background: var(--st-on); color: #fff; }
+.moment { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; background: var(--st-card2); border: 1px solid #3a3160; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; color: var(--st-ink); cursor: pointer; font: inherit; }
+.moment.on { border-color: var(--st-gold); background: #2e2650; }
+.moment .m-name { font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+.moment .m-when { font-size: 11px; color: var(--st-dim); line-height: 1.35; }
+.count { font-size: 10px; background: #3a3160; color: #d8d0f2; padding: 1px 7px; border-radius: 8px; font-weight: 600; align-self: center; white-space: nowrap; }
+.count.zero { background: transparent; color: var(--st-dim); border: 1px dashed #4a4070; }
+.count.inh { background: transparent; color: #a5d5f0; border: 1px solid #274a63; }
+.why { font-size: 10px; color: #8d84ab; margin-top: 2px; }
+.stage { background: #0d0b14; border: 1px solid var(--st-line); border-radius: 10px; overflow: hidden; }
+.stage-top { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--st-line); font-size: 12px; color: var(--st-dim); flex-wrap: wrap; }
+.stage-top b { color: var(--st-ink); font-weight: 600; }
+.stage canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; aspect-ratio: 16 / 9; }
+.stage-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px; border-top: 1px solid var(--st-line); }
+.meter { margin-left: auto; font-size: 11px; color: var(--st-dim); display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.meter .bar { width: 120px; height: 6px; border-radius: 3px; background: #2a2342; overflow: hidden; }
+.meter .bar span { display: block; height: 100%; background: var(--st-ok); width: 20%; }
+.layers { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.layer { display: flex; align-items: center; gap: 8px; background: var(--st-card2); border: 1px solid #3a3160; border-radius: 8px; padding: 7px 9px; cursor: pointer; color: var(--st-ink); font: inherit; font-size: 13px; text-align: left; width: 100%; }
+.layer.on { border-color: var(--st-gold); }
+.layer.locked { cursor: default; opacity: .8; border-style: dashed; }
+.layer .kind { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: #274a63; color: #a5d5f0; flex: none; }
+.layer .kind.tween { background: #4a3d0d; color: #ffe95a; }
+.layer .kind.screen { background: #4a2432; color: #ffb3c5; }
+.layer .kind.lock { background: #2a2342; color: #bfb6dd; }
+.layer .src { margin-left: auto; font-size: 10px; color: var(--st-dim); text-align: right; }
+.layer .eye { flex: none; width: 18px; text-align: center; color: var(--st-dim); }
+.add-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.add-row .btn { font-size: 12px; padding: 5px 9px; }
+.twin { background: #1d2a3a; border: 1px solid #274a63; border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #cfe4f3; margin-top: 10px; }
+.insp h5 { margin: 0 0 2px; font-size: 14px; font-family: "Segoe UI", system-ui, sans-serif; }
+.preset { background: #241d3c; border-left: 3px solid var(--st-gold); border-radius: 0 8px 8px 0; padding: 8px 10px; font-size: 12px; color: #d5cdea; margin: 8px 0 10px; }
+.preset.editing { border-left-color: var(--st-bad); background: #33202b; }
+.preset .row { margin-top: 6px; }
+.field { display: grid; grid-template-columns: 86px minmax(0, 1fr) 40px 10px 16px; gap: 6px; align-items: center; margin: 7px 0; font-size: 12px; }
+.field label { color: #cfc6ea; }
+.field input[type=range] { width: 100%; accent-color: var(--st-gold); }
+.field output { font: 11px var(--f-mono); color: var(--st-dim); text-align: right; }
+.odot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-gold); }
+.odot.none { background: transparent; }
+.reset { background: none; border: none; color: var(--st-dim); cursor: pointer; font-size: 13px; padding: 0; }
+.reset:hover { color: var(--st-gold); }
+.swatches { display: flex; gap: 4px; align-items: center; }
+.swatches span { width: 22px; height: 16px; border-radius: 4px; border: 1px solid #00000055; }
+.seg { display: inline-flex; border: 1px solid #3a3160; border-radius: 8px; overflow: hidden; }
+.seg button { background: var(--st-field); color: #cfc6ea; border: none; padding: 4px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+.seg button.on { background: var(--st-on); color: #fff; }
+.curve { background: var(--st-field); border: 1px solid #3a3160; border-radius: 8px; margin: 6px 0; touch-action: none; }
+.curve svg { display: block; width: 100%; height: auto; }
+.curve circle { cursor: grab; }
+.mock-note { font-size: 12px; color: var(--st-dim); margin-top: 10px; }
+.callouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 14px; }
+.callout { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; font-size: 14px; color: var(--muted); min-width: 0; }
+.callout b { color: var(--ink); display: block; font-size: 14px; }
+
+/* Stage editor mock */
+.sg-grid { display: grid; grid-template-columns: 230px minmax(0, 1fr) 240px; gap: 12px; }
+@media (max-width: 960px) { .sg-grid { grid-template-columns: minmax(0, 1fr); } }
+.opt { display: block; width: 100%; text-align: left; background: var(--st-card2); border: 1px solid #3a3160; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; color: var(--st-ink); cursor: pointer; font: inherit; }
+.opt.on { border-color: var(--st-gold); background: #2e2650; }
+.opt b { font-size: 13px; display: block; }
+.opt span { font-size: 11px; color: var(--st-dim); display: block; line-height: 1.35; }
+.spots { margin: 4px 0 6px 10px; display: flex; flex-direction: column; gap: 4px; }
+.spots button { text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; color: #cfc6ea; padding: 3px 6px; font: 12px var(--f-mono); cursor: pointer; }
+.spots button.on { border-color: var(--st-gold); color: #fff; }
+.palette { display: flex; gap: 4px; flex-wrap: wrap; margin: 8px 0; }
+.palette button { display: flex; align-items: center; gap: 5px; background: var(--st-field); border: 1px solid #3a3160; border-radius: 6px; color: #cfc6ea; padding: 4px 7px; font: 11px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.palette button.on { border-color: var(--st-gold); color: #fff; }
+.palette i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; font-style: normal; font-size: 9px; line-height: 12px; text-align: center; color: #141020; font-weight: 700; }
+.painter { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 1px; background: #0d0b14; border: 1px solid var(--st-line); border-radius: 8px; padding: 6px; touch-action: none; user-select: none; }
+.painter div { aspect-ratio: 1; border-radius: 1px; display: flex; align-items: center; justify-content: center; font: 700 9px var(--f-mono); color: #141020; cursor: crosshair; }
+.clip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
+.check { border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-bottom: 8px; }
+.check.ok { background: #183527; color: #bdf0d3; border: 1px solid #2c5140; }
+.check.bad { background: #3a1d27; color: #ffd0dc; border: 1px solid #7a3e50; }
+.check b { display: block; font-size: 12px; margin-bottom: 2px; }
+
+/* Service map */
+.map-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-top: 16px; }
+.map-wrap svg { display: block; min-width: 900px; width: 100%; height: auto; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+.lg-new::before { background: var(--new-soft); border-color: var(--new) !important; }
+.lg-chg::before { background: var(--changed-soft); border-color: var(--changed) !important; }
+.lg-same::before { background: var(--same-soft); border-color: var(--same) !important; }
+svg .n-new rect { fill: var(--new-soft); stroke: var(--new); }
+svg .n-chg rect { fill: var(--changed-soft); stroke: var(--changed); }
+svg .n-same rect { fill: var(--same-soft); stroke: var(--same); }
+svg rect { stroke-width: 1.5; }
+svg .t1 { font: 600 13px var(--f-body); fill: var(--ink); }
+svg .t2 { font: 11px var(--f-mono); fill: var(--muted); }
+svg .lane { font: 600 11px var(--f-body); fill: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+svg .edge { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg .edge.dash { stroke-dasharray: 4 4; }
+svg .wall { stroke: var(--changed); stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
+svg .wall-t { font: 600 11px var(--f-body); fill: var(--changed); }
+svg marker path { fill: var(--muted); }
+
+/* Data, sweep, plan */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.two > div { min-width: 0; }
+.cap { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tbl { overflow-x: auto; margin-top: 12px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { font: 600 12px var(--f-body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td.moment-id { font-family: var(--f-mono); font-size: 13px; white-space: nowrap; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+.tag.new { background: var(--new-soft); color: var(--new); }
+.tag.chg { background: var(--changed-soft); color: var(--changed); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.sweep td:first-child { font-family: var(--f-mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+.sweep td:nth-child(2) b { display: block; }
+.sweep td { min-width: 180px; }
+.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-top: 12px; }
+.phase-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.phase-h .pn { font: 700 13px var(--f-mono); color: var(--accent); }
+.phase-h h3 { margin: 0; }
+.phase-h .risk { margin-left: auto; font-size: 12px; color: var(--muted); }
+.phase ul { margin: 8px 0 0; padding-left: 20px; }
+.phase li { margin: 4px 0; }
+.done { margin-top: 10px; font-size: 14px; color: var(--muted); }
+.done b { color: var(--ink); }
+.q { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-top: 10px; }
+.q b { font-family: var(--f-display); }
+.q .rec { color: var(--new); font-size: 14px; margin-top: 4px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="page">
+  <header class="prose">
+    <div class="eyebrow">PlayPen · Art Studio · design for review · revision 2</div>
+    <h1>Tile Effects Studio</h1>
+    <p class="lede">An <b>Effects</b> panel on every tile's page in the Art Studio, where Casey and Miranda build the particles, squishes and screen hits a tile plays at the moments the game already knows about. Every control in this design changes something real in the game, and where something isn't editable the panel says so instead of hiding it.</p>
+    <div class="meta"><span><b>For</b> Sean, Casey, Miranda</span><span><b>Status</b> proposal, no code changed</span><span><b>Revised</b> 18 Nov 2026: real preview stages, illusion sweep</span></div>
+    <nav class="toc" aria-label="Sections"><a href="#journey">Journey</a><a href="#panel">Effects panel</a><a href="#stages">Preview stages</a><a href="#sweep">Illusion sweep</a><a href="#map">Service map</a><a href="#data">Data</a><a href="#plan">Action plan</a><a href="#decisions">Decisions</a></nav>
+  </header>
+
+  <section id="journey">
+    <h2>The journey</h2>
+    <p class="prose">Casey wants mist where the Greenhouse waterfall hits the pool. Today that's a request to Sean. With this design she does it herself, and every number she touches has a result she can see in a real room.</p>
+    <div class="journey">
+      <div class="jstep"><span class="n">1</span><b>Open the tile</b><p>Gallery → Waterfall. Below the art is an Effects card listing the moments a waterfall can really have.</p></div>
+      <div class="jstep"><span class="n">2</span><b>Pick the moment</b><p>"Meets a pool" already has the first-pass splash. "Meets lava" shows the game-wide steam it inherits.</p></div>
+      <div class="jstep"><span class="n">3</span><b>Start from a preset</b><p>Add effect → Particles → "Mist". Her slider changes are kept for this tile; the shared preset stays as it was unless she edits it on purpose.</p></div>
+      <div class="jstep"><span class="n">4</span><b>Watch it in a real spot</b><p>The preview runs the real game: the Greenhouse fall itself, or a small stage built from the tile.</p></div>
+      <div class="jstep"><span class="n">5</span><b>Try it, publish it</b><p>"Play in Greenhouse" drops her into the room. Publish art ships it through the same merging publish as everything else.</p></div>
+    </div>
+  </section>
+
+  <section id="panel">
+    <h2>The Effects panel</h2>
+    <p class="prose">Drawn in the studio's own colors. It's live: switch tiles, switch between this tile and the game-wide defaults, pick moments and effects, drag sliders and the squish curve's dots. A gold dot marks a value this tile has changed from its preset.</p>
+
+    <div class="mock-wrap" role="region" aria-label="Interactive mockup of the Effects panel">
+      <div class="mock-bar"><i></i><i></i><i></i><span>playpen.pages.dev/?art · tile page</span></div>
+      <div class="mock">
+        <div class="row" style="margin-bottom:10px">
+          <button class="btn quiet" type="button">← Back to gallery</button>
+          <span class="title" id="mTitle">Waterfall</span>
+          <span class="dim" id="mSub">tile 'V'</span>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Mockup tile">
+          <button class="chip on" type="button" id="tabFall" role="tab" aria-selected="true">Waterfall</button>
+          <button class="chip" type="button" id="tabPad" role="tab" aria-selected="false">Bounce Pad</button>
+        </div>
+        <div class="card collapsed">
+          <span class="thumb" aria-hidden="true"></span>
+          <div><b style="font-size:13px">Art</b><div class="dim" id="mArt"></div></div>
+          <span style="flex:1"></span><button class="btn" type="button">Show art tools</button>
+        </div>
+
+        <div class="card">
+          <div class="fx-head">
+            <h4>✨ Effects</h4>
+            <span class="dim">What plays when something happens to this tile. Looks only: effects never change how the game plays.</span>
+          </div>
+          <div class="fx-grid">
+            <div>
+              <p class="col-label">Editing</p>
+              <div class="scope" role="tablist" aria-label="Scope">
+                <button type="button" id="scTile" class="on" role="tab" aria-selected="true">This tile</button>
+                <button type="button" id="scAll" role="tab" aria-selected="false">Every tile</button>
+              </div>
+              <p class="col-label">Moments</p>
+              <div id="moments"></div>
+            </div>
+            <div style="min-width:0">
+              <p class="col-label">Preview</p>
+              <div class="stage">
+                <div class="stage-top"><span>Stage:</span><b id="stageName"></b><span style="flex:1"></span><button class="btn small" type="button" id="bStage">Change stage…</button></div>
+                <canvas id="stage" width="320" height="180" aria-label="Effect preview"></canvas>
+                <div class="stage-bar">
+                  <button class="btn on" type="button" id="bLoop" aria-pressed="true">⟳ Run</button>
+                  <button class="btn" type="button" id="bSlow" aria-pressed="false">½× slow</button>
+                  <button class="btn" type="button" id="bTrigger" title="Fires the effect at the target now, skipping the real event">⚡ Fire now</button>
+                  <span class="meter"><span id="mCount">preview: 0 particles</span><span class="bar"><span id="mBar"></span></span><span id="mWorst"></span></span>
+                </div>
+              </div>
+              <div class="row" style="margin-top:8px">
+                <button class="btn" type="button" id="bPlay">▶ Play in Greenhouse</button>
+                <span class="dim">The stage runs the real game in replay mode. ⚡ is a shortcut, not the real event.</span>
+              </div>
+              <p class="col-label" style="margin-top:14px" id="layersLabel">Effects at this moment</p>
+              <div class="layers" id="layers"></div>
+              <div class="add-row" id="addRow">
+                <button class="btn" type="button">+ Particles</button>
+                <button class="btn" type="button">+ Squish &amp; stretch</button>
+                <button class="btn" type="button">+ Glow</button>
+                <button class="btn" type="button">+ Screen shake</button>
+                <button class="btn" type="button">+ Screen flash</button>
+              </div>
+              <div id="twin"></div>
+            </div>
+            <div class="insp" id="insp" style="min-width:0"></div>
+          </div>
+        </div>
+        <p class="mock-note">The finished panel adds undo, copy/paste of an effect between tiles, and the board row (status · owner · note) already on this page.</p>
+      </div>
+    </div>
+
+    <div class="callouts">
+      <div class="callout"><b>Two levels, both visible</b>"Every tile" holds the game-wide defaults (today's hardcoded splashes). A tile either adds to them or replaces them, and the moment says which.</div>
+      <div class="callout"><b>Sliders tweak this tile</b>Changes made while linked are kept as this tile's own values, marked with a dot. Editing the shared preset is a separate, deliberate mode that says how many tiles it touches.</div>
+      <div class="callout"><b>Locked rows tell the truth</b>Sound and hit-stop still come from code. They appear as locked rows with who owns them, so nobody tunes a splash and wonders why the sound didn't change.</div>
+      <div class="callout"><b>Cost from real rooms</b>The meter shows what the preview is drawing and also the worst case in the game: the most cells of this tile on one screen, in any room, times the emit rate.</div>
+    </div>
+  </section>
+
+  <section id="stages">
+    <h2>Preview stages</h2>
+    <p class="prose">Revision 1's preview was a drawing made for two tiles. A preview needs a real scene, and hand-building one per effect wouldn't scale. So a preview is a <b>stage</b>: a small room grid, a target cell, and an optional actor clip, played through the same replay-mode <code>Game</code> that rewatches player sessions (<code>src/game/replay.ts</code>). Falls really flow, the actor really bounces, and effects fire from the real events at their real timing.</p>
+    <div class="two">
+      <div><h3 style="margin-top:6px">One stage per kind of moment</h3><p>Stages live in <code>vfx.json</code> next to the presets, and each moment names a default: "Bounced on" uses <i>Drop onto it</i>, "Meets a pool" uses <i>Fall into a basin</i>. The studio puts the tile being previewed into the stage's <code>@</code> cells. About six stages cover every moment, and a new tile gets working previews with no setup at all.</p></div>
+      <div><h3 style="margin-top:6px">Three ways to change it</h3><p><b>A real spot:</b> pick any place the tile actually appears (the level filter already knows them), and the preview runs that room around that cell. <b>A custom stage:</b> paint a grid, record the actor by playing a few seconds, save it for this tile or as a new shared stage. <b>⚡ Fire now:</b> skip the event for fast slider work, labelled as a shortcut.</p></div>
+    </div>
+
+    <div class="mock-wrap" role="region" aria-label="Interactive mockup of the stage picker and painter">
+      <div class="mock-bar"><i></i><i></i><i></i><span>Change stage… · Bounce Pad · Bounced on</span></div>
+      <div class="mock">
+        <div class="sg-grid">
+          <div>
+            <p class="col-label">Stage for "Bounced on"</p>
+            <button type="button" class="opt on" data-opt="default"><b>Default: Drop onto it</b><span>Shared stage · used by 4 moments on 3 tiles</span></button>
+            <button type="button" class="opt" data-opt="spot"><b>A real spot</b><span>Run the actual room around one of this tile's cells</span></button>
+            <div class="spots" id="spots" hidden>
+              <button type="button" class="on">The Gap · x 34, y 9</button>
+              <button type="button">Storage · x 12, y 14</button>
+              <button type="button">The Yard · x 60, y 11</button>
+            </div>
+            <button type="button" class="opt" data-opt="custom"><b>Custom stage</b><span>Paint your own; save for this tile or share it</span></button>
+          </div>
+          <div style="min-width:0">
+            <p class="col-label" id="pLabel">Stage grid (read-only: shared default)</p>
+            <div class="palette" id="palette"></div>
+            <div class="painter" id="painter" aria-label="Stage grid painter"></div>
+            <div class="clip">
+              <span class="dim">Actor clip:</span><b id="clipName">fall from start · 1.4 s · 0 inputs</b>
+              <button type="button" class="btn small">● Record new clip</button>
+              <button type="button" class="btn small">▶ Play clip</button>
+            </div>
+          </div>
+          <div>
+            <p class="col-label">Checks (run on save)</p>
+            <div id="checks"></div>
+            <div class="row" style="margin-top:10px">
+              <button type="button" class="btn primary" id="sgSave">Use this stage</button>
+              <button type="button" class="btn" id="sgShare" hidden>Save as shared stage</button>
+            </div>
+            <p class="dim" style="margin-top:8px">A stage can't be saved until it really raises its moment. The same check runs in the test suite for every default stage.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two">
+      <div>
+        <p class="cap">A stage in <code>vfx.json</code>. The clip uses the session recorder's own format: fixed-step index, key, down.</p>
+<pre>"stages": [
+  { "id": "drop_onto", "name": "Drop onto it",
+    "for": ["bounce", "land"],
+    "map": [ "..........",
+             "....P.....",
+             "..........",
+             "..........",
+             "....@.....",
+             "##########" ],
+    "clip": [],
+    "seconds": 1.4 },
+  { "id": "fall_basin", "name": "Fall into a basin",
+    "for": ["fallImpact:fluid"],
+    "map": [ "####@#####", "#........#", "#........#",
+             "#~~~~~~~~#", "##########" ],
+    "seconds": 3 } ]</pre>
+      </div>
+      <div>
+        <p class="cap">What the runner does, in order</p>
+        <ol style="margin:0;padding-left:20px;font-size:14px">
+          <li>Builds a one-room content bundle from the draft: the stage map with <code>@</code> replaced by this tile's char, and the draft's tiles, entities and effects.</li>
+          <li>Starts a replay-mode <code>Game</code> on it, feeds the clip by step, and loops after <code>seconds</code>. For a real spot it loads the actual room and frames the camera on the cell.</li>
+          <li>Draws through the real renderer into the stage canvas, culled to the camera, and stops whenever the panel re-renders (live sync, navigation), the way the Environments preview does.</li>
+          <li>Counts the moment events it saw. Zero after a full loop flags the stage as broken, in the panel and in CI.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="sweep">
+    <h2>Illusion sweep</h2>
+    <p class="prose">Everything in revision 1 that looked like control but wasn't wired to anything real, checked against the code. Each row has the fix this revision builds in. Two came from the code itself, not the mockup: the crafted Spring is a different object from the Bounce Pad, and element events don't say which tile they happened to.</p>
+    <div class="tbl"><table class="sweep">
+      <thead><tr><th>#</th><th>What it looked like</th><th>What's actually true</th><th>Fix in this design</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><b>A live preview</b>The stage showed a waterfall and a bouncing player.</td><td>It was a hand-drawn canvas for two tiles. Nothing tied it to the game.</td><td>Preview stages run through replay mode (above), with a CI check that every default stage raises its moment.</td></tr>
+        <tr><td>2</td><td><b>"This tile's" fire, melt and steam</b>Element moments listed on each tile.</td><td>Those events carry only a position and a color (<code>room.ts</code> <code>events.push</code>). No tile is named, so no tile can own them.</td><td>Add the affected tile's id to each element event, meaning the tile it happened <i>to</i> before it changed. A cosmetic field, read by nothing in the sim.</td></tr>
+        <tr><td>3</td><td><b>Built-ins become editable per tile</b></td><td>Today's bursts are one <code>switch</code> in <code>game.ts</code>: game-wide by nature. Moving them to a tile would mean editing 20 tiles to retune one splash.</td><td>An "Every tile" level holding the defaults. A tile binding either adds to or replaces the default, stored as <code>mode</code>, and the moment shows "inherited" when it has none of its own.</td></tr>
+        <tr><td>4</td><td><b>Squishing the Bounce Pad</b></td><td>The crafted Spring you place is a separate item (<code>items.json spring</code>, placed entities) with its own hardcoded burst. Editing the tile wouldn't touch it.</td><td>Placeable items get the same <code>vfx</code> field. The Bounce Pad page shows a "Bounces the same way: Spring (placed)" row to link or split them.</td></tr>
+        <tr><td>5</td><td><b>Dragging a slider on a linked preset</b></td><td>Unclear whether it edited the preset (and 3 other tiles) or just this tile.</td><td>Sliders write this tile's override (gold dot, ↺ back to the preset value). "Edit shared preset" is its own mode, with a red border and the count of tiles affected.</td></tr>
+        <tr><td>6</td><td><b>Only moments this tile can have</b></td><td>Derived from tile fields alone, it would miss rule-driven moments: <code>rules.json</code> targets properties like <code>flammable</code>, and tiles are also reached by transforms.</td><td>One pure <code>tileMoments(content, tileId)</code> built on the engine's own <code>parseRuleLine</code>, used by both the panel and a test that compares it with what the engine actually raises.</td></tr>
+        <tr><td>7</td><td><b>The particle meter</b></td><td>It counted the preview's particles. In a room, an ambient effect runs on every visible cell of the tile at once.</td><td>The meter also shows the worst case from real rooms: most cells of this tile in one 640×360 view, times rate times lifetime. The 600 cap is enforced in the player, and the panel says it drops the oldest.</td></tr>
+        <tr><td>8</td><td><b>Squash and Overshoot sliders, and draggable curve dots</b></td><td>Two controls for one curve, and the dots didn't move.</td><td>The keyframes are the stored value and the dots drag them (live in the mockup now). Sliders are gone; shape presets write keyframes.</td></tr>
+        <tr><td>9</td><td><b>"Meets a pool"</b></td><td>A fall lands on floors too, and revision 1's data had no way to tell the two apart.</td><td>The moment is stored as <code>fallImpact:fluid</code> or <code>fallImpact:solid</code>, decided by the tile below in <code>tickFalls</code>.</td></tr>
+        <tr><td>10</td><td><b>Tuning a built-in splash</b></td><td>Each built-in also plays a synth sound, and shatter also sets hit-stop. Neither moves to data in this round.</td><td>Locked rows: "Sound: splash · set in code" and "Hit-stop 42 ms · set by Sean in the editor". Visible, not editable here.</td></tr>
+        <tr><td>11</td><td><b>Shape: "My art…"</b></td><td>No field, importer path or publish scope for a particle image existed.</td><td>A particle layer carries <code>SpriteFields</code> (still or animated), uses the studio's importers, and joins <code>SPRITE_FIELDS</code>. Otherwise the button doesn't ship.</td></tr>
+        <tr><td>12</td><td><b>"Used by 3 tiles"</b></td><td>A made-up number.</td><td>Computed from every binding, item and default that names the preset. Deleting a preset still in use is refused with the list.</td></tr>
+        <tr><td>13</td><td><b>The same panel in the editor</b></td><td>Editor tile forms are schema-driven. A field missing from <code>TILE_SCHEMA</code> is invisible there.</td><td>Declare <code>vfx</code> in the schema and render it with this panel, not a JSON box.</td></tr>
+        <tr><td>14</td><td><b>Effects arriving from another artist</b></td><td>Live sync re-renders the page. A preview holding old content objects would keep playing stale effects.</td><td>The stage runner is stopped and rebuilt on every render, keeping the selected moment and effect.</td></tr>
+        <tr><td>15</td><td><b>Conflicts on effects</b></td><td>The conflict dialog would show a raw JSON blob.</td><td>Conflict groups name the preset or binding (<code>vfx.json#splash</code>), and the dialog renders effect values as a small table. A side-by-side live preview waits for a later round.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="map">
+    <h2>Service map</h2>
+    <p class="prose">Effects follow the same path as art: authored in the studio, stored in <code>content/</code>, published through the art scope, read by the game. The firm line is the sim wall: nothing on the right of it can change a run, which keeps session replays exact.</p>
+    <div class="map-wrap">
+      <svg viewBox="0 0 1000 540" role="img" aria-label="Service map: authoring, content, publish, and runtime components for tile effects">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+        <text class="lane" x="20" y="24">Author</text>
+        <text class="lane" x="265" y="24">Content</text>
+        <text class="lane" x="505" y="24">Publish · load</text>
+        <text class="lane" x="760" y="24">Runtime (cosmetic)</text>
+
+        <g class="n-new"><rect x="20" y="40" width="210" height="64" rx="10"/><text class="t1" x="32" y="64">Effects panel</text><text class="t2" x="32" y="84">src/studio/effects.ts</text></g>
+        <g class="n-new"><rect x="20" y="118" width="210" height="64" rx="10"/><text class="t1" x="32" y="142">Stage runner + painter</text><text class="t2" x="32" y="162">replay-mode Game, stages</text></g>
+        <g class="n-chg"><rect x="20" y="196" width="210" height="64" rx="10"/><text class="t1" x="32" y="220">Tile + item pages</text><text class="t2" x="32" y="240">studio.ts detailView</text></g>
+        <g class="n-chg"><rect x="20" y="274" width="210" height="64" rx="10"/><text class="t1" x="32" y="298">Editor tile form</text><text class="t2" x="32" y="318">TILE_SCHEMA vfx → panel</text></g>
+
+        <g class="n-new"><rect x="265" y="40" width="210" height="64" rx="10"/><text class="t1" x="277" y="64">Presets · defaults · stages</text><text class="t2" x="277" y="84">content/vfx.json</text></g>
+        <g class="n-chg"><rect x="265" y="118" width="210" height="64" rx="10"/><text class="t1" x="277" y="142">Bindings</text><text class="t2" x="277" y="162">tiles.json, items.json vfx</text></g>
+        <g class="n-new"><rect x="265" y="196" width="210" height="64" rx="10"/><text class="t1" x="277" y="220">Moment resolver</text><text class="t2" x="277" y="240">tileMoments() on parseRuleLine</text></g>
+        <g class="n-chg"><rect x="265" y="274" width="210" height="64" rx="10"/><text class="t1" x="277" y="298">Schema</text><text class="t2" x="277" y="318">types.ts Vfx*</text></g>
+
+        <g class="n-chg"><rect x="505" y="40" width="220" height="64" rx="10"/><text class="t1" x="517" y="64">Art publish scope</text><text class="t2" x="517" y="84">_artscope.js: vfx, vfx.json</text></g>
+        <g class="n-same"><rect x="505" y="118" width="220" height="64" rx="10"/><text class="t1" x="517" y="142">3-way merge + conflicts</text><text class="t2" x="517" y="162">_merge.js (keyed per id)</text></g>
+        <g class="n-chg"><rect x="505" y="196" width="220" height="64" rx="10"/><text class="t1" x="517" y="220">Content assemble</text><text class="t2" x="517" y="240">content.ts ART_KEYS + vfx.json</text></g>
+        <g class="n-same"><rect x="505" y="274" width="220" height="64" rx="10"/><text class="t1" x="517" y="298">Live sync · board</text><text class="t2" x="517" y="318">collab.ts, board.ts</text></g>
+
+        <g class="n-new"><rect x="760" y="40" width="220" height="64" rx="10"/><text class="t1" x="772" y="64">VfxPlayer</text><text class="t2" x="772" y="84">src/engine/vfx.ts</text></g>
+        <g class="n-chg"><rect x="760" y="118" width="220" height="64" rx="10"/><text class="t1" x="772" y="142">Particles</text><text class="t2" x="772" y="162">shapes, ramp, sprites, cap</text></g>
+        <g class="n-chg"><rect x="760" y="196" width="220" height="64" rx="10"/><text class="t1" x="772" y="220">Tile tweens</text><text class="t2" x="772" y="240">drawTile per-cell, on animT</text></g>
+        <g class="n-chg"><rect x="760" y="274" width="220" height="64" rx="10"/><text class="t1" x="772" y="298">Screen effects</text><text class="t2" x="772" y="318">camera shake, capped flash</text></g>
+
+        <path class="wall" d="M 740 360 L 740 526"/>
+        <text class="wall-t" x="748" y="378">sim wall: effects read events,</text>
+        <text class="wall-t" x="748" y="394">never write state</text>
+        <g class="n-chg"><rect x="505" y="418" width="220" height="96" rx="10"/><text class="t1" x="517" y="442">Moment sources</text><text class="t2" x="517" y="462">player.ts bounce, land, enter</text><text class="t2" x="517" y="478">room.ts events + tile id (new)</text><text class="t2" x="517" y="494">tickFalls fallImpact (new)</text><text class="t2" x="517" y="508">placed spring (item)</text></g>
+        <g class="n-same"><rect x="265" y="418" width="210" height="96" rx="10"/><text class="t1" x="277" y="442">Simulation</text><text class="t2" x="277" y="462">fixed step, simNow, seeded RNG</text><text class="t2" x="277" y="478">replay-exact, untouched</text></g>
+
+        <path class="edge" d="M230 72 H265" marker-end="url(#ar)"/>
+        <path class="edge" d="M230 82 C248 82 248 150 265 150" marker-end="url(#ar)"/>
+        <path class="edge" d="M125 196 V182"/>
+        <path class="edge" d="M125 118 V104"/>
+        <path class="edge" d="M125 274 V260"/>
+        <path class="edge" d="M265 228 C245 228 245 72 230 72" marker-end="url(#ar)"/>
+        <path class="edge" d="M475 72 H505" marker-end="url(#ar)"/>
+        <path class="edge" d="M475 150 C490 150 490 82 505 82" marker-end="url(#ar)"/>
+        <path class="edge" d="M615 104 V118" marker-end="url(#ar)"/>
+        <path class="edge" d="M615 182 V196" marker-end="url(#ar)"/>
+        <path class="edge" d="M725 228 C742 228 742 72 760 72" marker-end="url(#ar)"/>
+        <path class="edge" d="M475 466 H505" marker-end="url(#ar)"/>
+        <path class="edge" d="M725 466 C752 466 752 92 760 92" marker-end="url(#ar)"/>
+        <path class="edge" d="M870 104 V118" marker-end="url(#ar)"/>
+        <path class="edge" d="M960 104 C990 104 990 228 980 228" marker-end="url(#ar)"/>
+        <path class="edge" d="M970 104 C1000 104 1000 306 980 306" marker-end="url(#ar)"/>
+        <path class="edge dash" d="M125 182 C125 390 370 390 370 418" marker-end="url(#ar)"/>
+      </svg>
+      <div class="legend"><span class="lg-new">New</span><span class="lg-chg">Changed</span><span class="lg-same">Unchanged, relied on</span><span>Dashed: the stage runner drives the real simulation in replay mode</span></div>
+    </div>
+
+    <h3>Moments a tile can bind to</h3>
+    <p class="prose">Each is an event the engine already raises, or one cosmetic event added beside existing code. The panel lists a moment only when <code>tileMoments()</code> says the engine can raise it for this tile.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Moment</th><th>Artist label</th><th>Offered when</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td class="moment-id">bounce</td><td>Bounced on</td><td>tile has <code>bounce</code>; item places a spring</td><td><code>player.ts</code> <code>ev.bounced</code>, placed spring in <code>game.ts</code> <span class="tag chg">exists</span></td></tr>
+        <tr><td class="moment-id">land</td><td>Landed on</td><td><code>solid</code></td><td><code>ev.landed</code> + tile below <span class="tag chg">exists</span></td></tr>
+        <tr><td class="moment-id">enter / exit</td><td>Player jumps in / climbs out</td><td><code>fluid</code></td><td>player overlap edge <span class="tag new">small add</span></td></tr>
+        <tr><td class="moment-id">fallImpact:fluid / :solid</td><td>Meets a pool / Meets the floor</td><td><code>fallSpawns</code></td><td><code>tickFalls</code> base cell <span class="tag new">cosmetic event</span></td></tr>
+        <tr><td class="moment-id">ambient</td><td>Always</td><td>any tile</td><td>on-screen cells, rate per second <span class="tag new">emitter</span></td></tr>
+        <tr><td class="moment-id">ignite · melt · freeze · shatter · extinguish · dissolve · fizzle</td><td>Catches fire, Melts, …</td><td>a rule in <code>rules.json</code> can target the tile (element or property)</td><td><code>room.ts</code> events <span class="tag warn">needs tile id</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="data">
+    <h2>What gets stored</h2>
+    <p class="prose">All artist-owned. A shared library of presets, game-wide defaults and stages, plus a short list on each tile or placeable item. Per-tile values sit on top of the preset, the same model as behavior attachments, so a tweak never forks the preset.</p>
+    <div class="two">
+      <div>
+        <p class="cap"><code>content/vfx.json</code> (new, wholly artist-owned like <code>layers.json</code>)</p>
+<pre>{
+  "presets": [
+    { "id": "splash", "name": "Splash",
+      "layers": [ { "id": "drops", "kind": "particles",
+        "count": 14, "cone": 70, "dir": -90,
+        "speed": 90, "gravity": 320, "life": 0.45,
+        "size": [3, 1],
+        "colors": ["#e6f7ff", "#4fc3f7"],
+        "shape": "round", "blend": "normal" } ] },
+    { "id": "squish", "name": "Squish",
+      "layers": [ { "id": "squash", "kind": "tween",
+        "target": "tile", "ms": 260, "anchor": "bottom",
+        "scaleY": [[0, 1], [0.25, 0.55],
+                   [0.6, 1.15], [1, 1]] } ] }
+  ],
+  "defaults": {
+    "ignite":  [ { "preset": "builtin_ignite" } ],
+    "shatter": [ { "preset": "builtin_shatter" } ],
+    "bounce":  [ { "preset": "builtin_spring" } ]
+  },
+  "stages": [ … ]
+}</pre>
+      </div>
+      <div>
+        <p class="cap">Bindings on a tile or placeable item (new art field <code>vfx</code>)</p>
+<pre>{ "id": "waterfall", …,
+  "vfx": [
+    { "id": "splash", "on": "fallImpact:fluid",
+      "preset": "splash",
+      "params": { "drops": { "count": 10,
+                             "speed": 70 } } },
+    { "id": "mist", "on": "fallImpact:fluid",
+      "preset": "mist", "while": true }
+  ] }
+
+{ "id": "spring", "char": "S", …,
+  "vfx": [
+    { "id": "squish", "on": "bounce",
+      "preset": "squish", "mode": "add" }
+  ],
+  "vfxStage": { "bounce": "drop_onto" } }</pre>
+        <p class="cap" style="margin-top:10px"><code>mode: "add"</code> plays on top of the game-wide default; <code>"replace"</code> silences it for this tile. <code>params</code> are keyed by the preset's layer ids, so per-tile values survive the preset being reordered. <code>while</code> streams for as long as the moment keeps happening (a fall lands every flow tick).</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="plan">
+    <h2>Action plan for the agent</h2>
+    <p class="prose">Seven phases, each shippable on its own and each ending green. Invisible, test-pinned work comes first, so the panel lands on a model that's already proven.</p>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 1</span><h3>Schema, defaults, and moving the built-ins out of code</h3><span class="risk">Risk: low · no visible change</span></div>
+      <ul>
+        <li><code>types.ts</code>: <code>VfxLayer</code> (particles · tween · glow · shake · flash, each with an <code>id</code>), <code>VfxPreset</code>, <code>VfxBinding { id, on, preset, params?, mode?, while? }</code>, <code>VfxStage</code>; <code>vfx?</code> on <code>TileDef</code> and <code>ItemDef</code>.</li>
+        <li><code>content/vfx.json</code>: a <code>builtin_*</code> preset and a <code>defaults</code> entry for every hardcoded <code>particles.burst</code> in <code>game.ts</code> (element effects, land dust, tile bounce, placed spring), values copied exactly.</li>
+        <li><code>content.ts</code>: assemble <code>vfx.json</code>; add <code>vfx</code> and <code>vfxStage</code> to <code>ART_KEYS</code> so a removed binding stays removed.</li>
+        <li>Tests first, <code>tests/vfx-model.test.ts</code>: preset resolution, per-layer params, add/replace over defaults, used-by counts, and parity of each built-in with the old literals.</li>
+      </ul>
+      <p class="done"><b>Done when</b> the game looks identical and parity passes.</p>
+    </div>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 2</span><h3>Moment events and the resolver</h3><span class="risk">Risk: medium · touches room.ts and game.ts event paths</span></div>
+      <ul>
+        <li>Element events in <code>room.ts</code> gain <code>tileId</code> (the tile before the change). A cosmetic field; no sim code reads it.</li>
+        <li>New cosmetic events: <code>fallImpact:fluid|solid</code> in <code>tickFalls</code>, fluid <code>enter</code>/<code>exit</code> from player overlap. Placed-spring bounce raises <code>bounce</code> with the item id.</li>
+        <li><code>tileMoments(content, id)</code>, a pure function over the engine's own <code>parseRuleLine</code> plus tile and item fields.</li>
+        <li>Tests: <code>tests/vfx-moments.test.ts</code> drives small rooms headlessly and asserts each moment <code>tileMoments</code> lists is really raised, and nothing it omits is. <code>tests/vfx-determinism.test.ts</code> asserts identical sim state per step with effects on and off. The fluids suite stays green.</li>
+      </ul>
+      <p class="done"><b>Done when</b> every event names its tile and a recorded session still replays with 0 px drift.</p>
+    </div>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 3</span><h3>VfxPlayer</h3><span class="risk">Risk: medium · replaces the particle path</span></div>
+      <ul>
+        <li><code>src/engine/vfx.ts</code>: resolves defaults plus bindings for an event and plays them. Particles gain shape, color ramp, size curve, cone and direction, additive blend, sprite particles (<code>SpriteFields</code>), and an enforced 600 cap that drops the oldest.</li>
+        <li>Tile tweens: a per-cell transform map read by <code>drawTile</code>, timed on <code>animT</code> like parallax, so replays stay pixel-identical.</li>
+        <li>Screen layers reuse <code>camera.shake</code>; a flash capped at 3 per second. All honor the <code>juice</code> toggles. Hit-stop and sound stay in code and are reported to the panel as locked rows.</li>
+        <li>Switch every <code>game.ts</code> burst over to the player.</li>
+      </ul>
+      <p class="done"><b>Done when</b> the game still looks identical, now driven entirely from <code>vfx.json</code>.</p>
+    </div>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 4</span><h3>Publish scope and merge</h3><span class="risk">Risk: low · pinned by existing suites</span></div>
+      <ul>
+        <li><code>_artscope.js</code>: <code>vfx</code>, <code>vfxStage</code> into <code>SPRITE_FIELDS</code>; <code>vfx.json</code> into <code>ART_OWNED_FILES</code>.</li>
+        <li>Bindings and layers carry ids, so <code>_merge.js</code> merges them per item unchanged. Add a <code>collab-publish.test.ts</code> case: two artists editing different presets, and one conflict on the same preset field.</li>
+        <li><code>artist-publish.test.ts</code>: an artist can publish <code>vfx</code>, can't touch <code>bounce</code>, <code>fallSpawns</code> or hit-stop.</li>
+      </ul>
+    </div>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 5</span><h3>Stage runner</h3><span class="risk">Risk: medium · new, but built on replay mode</span></div>
+      <ul>
+        <li><code>src/studio/stage.ts</code>: builds a one-room bundle from a stage and the draft, runs a replay-mode <code>Game</code> with the clip, loops, counts moment events, culls to camera, stops on re-render.</li>
+        <li>Real spots from <code>assetLevels</code>: load the actual room, frame the cell.</li>
+        <li>Painter reusing the room editor's paint tools; clip recording through <code>Input.onTransition</code>, as the session recorder does.</li>
+        <li>Default stages for every moment kind, plus <code>tests/vfx-stages.test.ts</code>: each default stage, with a representative tile, raises its moment within <code>seconds</code>.</li>
+      </ul>
+      <p class="done"><b>Done when</b> every default stage passes in CI and a broken custom stage refuses to save.</p>
+    </div>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 6</span><h3>The Effects panel</h3><span class="risk">Risk: medium · biggest UI surface</span></div>
+      <ul>
+        <li><code>src/studio/effects.ts</code>: This tile / Every tile scope, moments from <code>tileMoments</code>, effect stack with locked rows, inspector with per-tile overrides and a separate "edit shared preset" mode, draggable keyframe curve, used-by counts, worst-case meter from real rooms, the Spring twin row.</li>
+        <li>Mount on tile and placeable-item pages, and in the editor through <code>TILE_SCHEMA</code> and <code>ITEM_SCHEMA</code>.</li>
+        <li>Saves go through <code>store.saveFile</code>, so live sync, the busy guard and the board work unchanged. Conflict dialog labels <code>vfx.json#preset</code> groups and renders effect values as a table.</li>
+      </ul>
+      <p class="done"><b>Done when</b> an artist builds the mist effect from the journey without help, verified in the browser pane.</p>
+    </div>
+
+    <div class="phase">
+      <div class="phase-h"><span class="pn">Phase 7</span><h3>First-pass effects, docs, ship</h3><span class="risk">Risk: low · content and docs</span></div>
+      <ul>
+        <li>Waterfall: Splash plus a light Mist stream on <code>fallImpact:fluid</code>. Lavafall: additive Embers. Bounce Pad and placed Spring: Squish (scaleY 1 → 0.55 → 1.15 → 1 over 260 ms, anchored at the base) added on top of the default burst.</li>
+        <li>All ordinary presets in <code>vfx.json</code>, so Casey can open, tweak or delete each one. Captured in Greenhouse, The Vault and The Gap with <code>PP.capture()</code>.</li>
+        <li><code>ARTIST_HANDOFF.md</code> "Effects" section; <code>CLAUDE.md</code>: sim wall, moments table, the stage check. Local two-artist run, <code>content:pull</code>, deploy, provenance commit.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <h2>Decisions for Sean</h2>
+    <div class="q"><b>Can artists add screen shake and flash?</b><p style="margin:4px 0 0">Both are looks. Hit-stop pauses the sim for a beat, which is feel, so it shows as a locked row either way.</p><div class="rec">Recommended: shake and flash in the artist scope with hard caps; hit-stop and sound stay yours.</div></div>
+    <div class="q"><b>Tiles and placeable items only, or entities too?</b><p style="margin:4px 0 0">Brazier and checkpoint are the obvious next ask. The model is the same; entities add moments like "lit" and "activated".</p><div class="rec">Recommended: tiles and placeable items this round; entities next, as new moments rather than new machinery.</div></div>
+    <div class="q"><b>A "reduce flashing" setting for players?</b><p style="margin:4px 0 0">Artist-made flashes raise the photosensitivity question before Steam.</p><div class="rec">Recommended: yes, beside the screen-shake toggle, with the 3-per-second cap regardless.</div></div>
+    <div class="q"><b>Sound in the panel later?</b><p style="margin:4px 0 0">Sounds are WebAudio synth patches in <code>audio.ts</code>, so the same preset model could cover them, but that's a sound designer's tool, not an artist's.</p><div class="rec">Recommended: leave sound as locked rows for now; revisit when someone owns audio.</div></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  function el(tag, props = {}, ...kids) { const e = document.createElement(tag); Object.assign(e, props); for (const k of kids) e.append(k); return e; }
+
+  // ---------------- data (proposed first-pass values) ----------------
+  const PRESETS = {
+    splash: { name: "Splash", used: 3, p: { count: 14, speed: 90, cone: 70, gravity: 320, life: 0.45, size: 3 }, colors: ["#e6f7ff", "#4fc3f7"] },
+    mist: { name: "Mist", used: 2, p: { count: 3, speed: 22, cone: 160, gravity: -30, life: 1.1, size: 4 }, colors: ["#ffffff", "#bfe9ff"] },
+    squish: { name: "Squish", used: 2, p: { ms: 260 }, keys: [[0, 1], [0.25, 0.55], [0.6, 1.15], [1, 1]] },
+    builtin_spring: { name: "Bounce sparks", used: 2, builtin: true, p: { count: 10, speed: 80, cone: 120, gravity: 300, life: 0.4, size: 3 }, colors: ["#b6f2d8", "#5ad1a5"] },
+    builtin_steam: { name: "Steam", used: 6, builtin: true, p: { count: 10, speed: 50, cone: 120, gravity: -80, life: 0.6, size: 3 }, colors: ["#cfd8dc", "#90a4ae"] },
+    builtin_freeze: { name: "Frost puff", used: 4, builtin: true, p: { count: 12, speed: 60, cone: 360, gravity: 40, life: 0.5, size: 3 }, colors: ["#e1f5fe", "#b3e5fc"] },
+    builtin_land: { name: "Land dust", used: 1, builtin: true, p: { count: 6, speed: 50, cone: 140, gravity: 240, life: 0.35, size: 3 }, colors: ["#8a82a6", "#6a6284"] },
+    shake: { name: "Shake", used: 0, p: { mag: 2, ms: 150 } },
+  };
+  const KIND = { splash: "particles", mist: "particles", builtin_spring: "particles", builtin_steam: "particles", builtin_freeze: "particles", builtin_land: "particles", squish: "tween", shake: "screen" };
+  const DEFAULTS = {
+    bounce: [{ preset: "builtin_spring" }],
+    extinguish: [{ preset: "builtin_steam" }],
+    freeze: [{ preset: "builtin_freeze" }],
+    land: [{ preset: "builtin_land" }],
+  };
+  const LOCKED = {
+    bounce: "Sound: bounce · set in code",
+    extinguish: "Sound: splash · set in code",
+    freeze: "Sound: freeze · set in code",
+    land: "Sound: land · set in code",
+  };
+  const TILES = {
+    fall: {
+      title: "Waterfall", sub: "tile 'V' · 🗺 Greenhouse, The Vault", art: "3 frames · 8 fps · waterfall.aseprite#flow", room: "Greenhouse", worst: { cells: 6, room: "Greenhouse" },
+      moments: [
+        { id: "fallImpact", name: "Meets a pool", when: "The falling water lands in water below", why: "has fallSpawns", stage: "Fall into a basin", own: [{ id: "splash", preset: "splash", over: { count: 10, speed: 70 } }, { id: "mist", preset: "mist", over: {}, stream: true }] },
+        { id: "fallSolid", name: "Meets the floor", when: "The falling water lands on solid ground", why: "has fallSpawns", stage: "Fall onto a floor", own: [] },
+        { id: "ambient", name: "Always", when: "Plays on every visible waterfall cell", why: "every tile", stage: "Fall into a basin", own: [] },
+        { id: "extinguish", name: "Meets lava", when: "Water touches lava and hardens it", why: "rule: water + lava", stage: "Lava meets water", own: [] },
+        { id: "freeze", name: "Freezes", when: "Frost turns it to ice", why: "rule: frost + water", stage: "Frost a pool", own: [] },
+      ],
+    },
+    pad: {
+      title: "Bounce Pad", sub: "tile 'S' · 🗺 Storage, The Gap, The Yard", art: "1 frame · bouncepad.aseprite", room: "The Gap", worst: { cells: 3, room: "The Yard" }, twin: true,
+      moments: [
+        { id: "bounce", name: "Bounced on", when: "The player lands on it and is launched", why: "has bounce", stage: "Drop onto it", own: [{ id: "squish", preset: "squish", over: {} }, { id: "shake", preset: "shake", over: {}, off: true }] },
+        { id: "land", name: "Landed on", when: "Something lands on it without bouncing", why: "solid", stage: "Drop onto it", own: [] },
+        { id: "ambient", name: "Always", when: "Plays on every visible pad", why: "every tile", stage: "Stand beside it", own: [] },
+      ],
+    },
+  };
+  const SPECS = {
+    particles: [["count", "Amount", 1, 40, 1], ["speed", "Speed", 5, 200, 1], ["cone", "Spread °", 10, 360, 5], ["gravity", "Gravity", -200, 600, 10], ["life", "Lifetime s", 0.1, 2, 0.05], ["size", "Size px", 1, 8, 0.5]],
+    tween: [["ms", "Length ms", 80, 600, 10]],
+    screen: [["mag", "Strength", 0.5, 6, 0.5], ["ms", "Length ms", 50, 500, 10]],
+  };
+  const ORIGINAL = JSON.parse(JSON.stringify(PRESETS));
+  let tileKey = "fall", scope = "tile", momentIdx = 0, layerIdx = 0, running = true, slow = false, editShared = false;
+  const tile = () => TILES[tileKey];
+  const moment = () => tile().moments[momentIdx];
+  const val = (b, k) => (b.over && k in b.over ? b.over[k] : PRESETS[b.preset].p[k]);
+
+  // The effect rows the selected moment shows: own bindings (this tile) or defaults (every tile),
+  // plus inherited defaults and the locked rows that come from code.
+  function rows() {
+    const m = moment(), out = [];
+    if (scope === "all") {
+      for (const b of DEFAULTS[m.id] || []) out.push({ b: { id: b.preset, preset: b.preset, over: {} }, src: "game-wide default", shared: true });
+    } else {
+      for (const b of m.own) out.push({ b, src: b.off ? "off" : "this tile · " + PRESETS[b.preset].name });
+      for (const b of DEFAULTS[m.id] || []) out.push({ b: { id: b.preset, preset: b.preset, over: {} }, src: "inherited from Every tile", inherited: true });
+    }
+    if (LOCKED[m.id]) out.push({ locked: LOCKED[m.id] });
+    return out;
+  }
+
+  function renderMoments() {
+    const box = $("moments"); box.replaceChildren();
+    tile().moments.forEach((m, i) => {
+      const own = m.own.filter((b) => !b.off).length, inh = (DEFAULTS[m.id] || []).length;
+      let badge;
+      if (scope === "all") badge = el("span", { className: "count" + (inh ? "" : " zero") }, inh ? inh + " default" : "none");
+      else if (own) badge = el("span", { className: "count" }, own + (inh ? " + default" : ""));
+      else if (inh) badge = el("span", { className: "count inh" }, "inherited");
+      else badge = el("span", { className: "count zero" }, "+ add");
+      const b = el("button", { type: "button", className: "moment" + (i === momentIdx ? " on" : "") },
+        el("span", { className: "m-name" }, m.name, badge), el("span", { className: "m-when" }, m.when), el("span", { className: "why" }, "offered because: " + m.why));
+      b.onclick = () => { momentIdx = i; layerIdx = 0; editShared = false; parts.length = 0; renderAll(); };
+      box.append(b);
+    });
+  }
+  function renderLayers() {
+    const box = $("layers"); box.replaceChildren();
+    $("layersLabel").textContent = scope === "all" ? "Game-wide default for every tile" : "Effects at this moment";
+    const rs = rows();
+    if (!rs.length) box.append(el("div", { className: "dim" }, "Nothing plays here yet. Add an effect below, or start from a preset."));
+    rs.forEach((r, i) => {
+      if (r.locked) { box.append(el("div", { className: "layer locked", title: "Not editable in the studio" }, el("span", { className: "eye" }, "🔒"), el("span", { className: "kind lock" }, "locked"), el("span", {}, r.locked))); return; }
+      const k = KIND[r.b.preset];
+      const b = el("button", { type: "button", className: "layer" + (i === layerIdx ? " on" : "") },
+        el("span", { className: "eye" }, r.b.off ? "◌" : "●"),
+        el("span", { className: "kind " + (k === "tween" ? "tween" : k === "screen" ? "screen" : "") }, k === "tween" ? "squish" : k),
+        el("span", {}, PRESETS[r.b.preset].name), el("span", { className: "src" }, r.src));
+      b.onclick = () => { layerIdx = i; editShared = false; renderLayers(); renderInspector(); };
+      box.append(b);
+    });
+    $("twin").replaceChildren();
+    if (tileKey === "pad" && scope === "tile" && moment().id === "bounce") {
+      const t = el("div", { className: "twin" }, "↔ Bounces the same way: ", el("b", {}, "Spring (placed item)"), ". Its effects are linked to this pad's. ");
+      t.append(el("button", { type: "button", className: "btn small" }, "Give it its own effects"));
+      $("twin").append(t);
+    }
+  }
+  function renderInspector() {
+    const box = $("insp"); box.replaceChildren();
+    box.append(el("p", { className: "col-label" }, "Selected effect"));
+    const r = rows()[layerIdx];
+    if (!r || r.locked) { box.append(el("div", { className: "dim" }, "Pick an effect to tune it.")); return; }
+    const pr = PRESETS[r.b.preset], kind = KIND[r.b.preset];
+    box.append(el("h5", {}, pr.name));
+    if (r.inherited) {
+      const n = el("div", { className: "preset" }, "This comes from the game-wide default, so it plays on every tile at this moment.");
+      n.append(el("div", { className: "row" }, el("button", { type: "button", className: "btn small" }, "Add my own on top"), el("button", { type: "button", className: "btn small" }, "Replace it for this tile"), el("button", { type: "button", className: "btn small", onclick: () => { scope = "all"; syncScope(); } }, "Edit the default")));
+      box.append(n);
+    }
+    const shared = editShared || r.shared;
+    if (!r.inherited) {
+      const n = el("div", { className: "preset" + (shared ? " editing" : "") });
+      if (shared) n.append(`Editing the shared "${pr.name}" ${pr.builtin ? "built-in" : "preset"} itself. This changes ${pr.used} tile${pr.used === 1 ? "" : "s"}.`);
+      else n.append(`Linked to the "${pr.name}" preset (used by ${pr.used} tiles). Your changes are kept for this tile only.`);
+      const btns = el("div", { className: "row" });
+      if (!r.shared) btns.append(el("button", { type: "button", className: "btn small", onclick: () => { editShared = !editShared; renderInspector(); } }, shared ? "Back to this tile only" : "Edit shared preset"));
+      btns.append(el("button", { type: "button", className: "btn small" }, "Make my own copy"));
+      n.append(btns);
+      box.append(n);
+    }
+    for (const [key, label, min, max, step] of SPECS[kind]) {
+      const id = `f-${tileKey}-${momentIdx}-${layerIdx}-${key}`;
+      const cur = shared ? pr.p[key] : val(r.b, key);
+      const out = el("output", {}, fmt(cur));
+      const dot = el("span", { className: "odot" + (!shared && r.b.over && key in r.b.over ? "" : " none"), title: "Changed for this tile" });
+      const input = el("input", { type: "range", id, min, max, step, value: cur, disabled: !!r.inherited });
+      input.oninput = () => {
+        const v = +input.value;
+        if (shared) pr.p[key] = v; else { r.b.over[key] = v; dot.className = "odot"; }
+        out.textContent = fmt(v); if (kind !== "particles") fire();
+      };
+      const reset = el("button", { type: "button", className: "reset", title: shared ? "Back to the original" : "Back to the preset's value", ariaLabel: `Reset ${label}` }, "↺");
+      reset.onclick = () => {
+        if (shared) pr.p[key] = ORIGINAL[r.b.preset].p[key]; else delete r.b.over[key];
+        const v = shared ? pr.p[key] : val(r.b, key);
+        input.value = v; out.textContent = fmt(v); dot.className = "odot" + (!shared && key in r.b.over ? "" : " none");
+      };
+      box.append(el("div", { className: "field" }, el("label", { htmlFor: id }, label), input, out, dot, reset));
+    }
+    if (kind === "particles") {
+      const sw = el("span", { className: "swatches" }); for (const c of pr.colors) sw.append(el("span", { style: `background:${c}` }));
+      box.append(el("div", { className: "field" }, el("label", {}, "Colors"), sw, el("span"), el("span"), el("span")));
+      box.append(el("div", { className: "field" }, el("label", {}, "Shape"), el("span", { className: "seg" }, ...["Square", "Round", "My art…"].map((s, i) => el("button", { type: "button", className: i === 1 ? "on" : "" }, s))), el("span"), el("span"), el("span")));
+      box.append(el("div", { className: "field" }, el("label", {}, "Blend"), el("span", { className: "seg" }, ...["Normal", "Glow"].map((s, i) => el("button", { type: "button", className: i === 0 ? "on" : "" }, s))), el("span"), el("span"), el("span")));
+    }
+    if (kind === "tween") box.append(curveView(pr));
+    if (kind === "screen") {
+      const t = el("button", { type: "button", className: "btn small" + (r.b.off ? "" : " on") }, r.b.off ? "Turn on" : "On");
+      t.onclick = () => { r.b.off = !r.b.off; renderAll(); };
+      box.append(el("div", { className: "row" }, t, el("span", { className: "dim" }, "Honors the player's screen-shake setting.")));
+    }
+  }
+  // The keyframes ARE the stored value: the dots drag them directly.
+  function curveView(pr) {
+    const w = 280, h = 110, pad = 10;
+    const toXY = ([t, v]) => [pad + t * (w - 2 * pad), h - pad - (v - 0.3) / 1.0 * (h - 2 * pad)];
+    const fromXY = (x, y) => [Math.min(1, Math.max(0, (x - pad) / (w - 2 * pad))), Math.min(1.3, Math.max(0.3, 0.3 + (h - pad - y) / (h - 2 * pad)))];
+    const wrap = el("div", { className: "curve" });
+    const draw = () => {
+      const xy = pr.keys.map(toXY);
+      const base = toXY([0, 1])[1];
+      wrap.innerHTML = `<svg viewBox="0 0 ${w} ${h}" aria-label="Squish curve: height over time"><line x1="${pad}" x2="${w - pad}" y1="${base}" y2="${base}" stroke="#4a4070" stroke-dasharray="3 3"/><path d="${xy.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ")}" stroke="#ffd166" stroke-width="2" fill="none"/>${xy.map((p, i) => `<circle data-i="${i}" cx="${p[0]}" cy="${p[1]}" r="${i === 0 || i === xy.length - 1 ? 3.5 : 5.5}" fill="#1c1730" stroke="#ffd166" stroke-width="1.5"/>`).join("")}<text x="12" y="13" fill="#9f96bd" font-size="9">height</text><text x="${w - 40}" y="${h - 2}" fill="#9f96bd" font-size="9">time →</text></svg>`;
+    };
+    draw();
+    let drag = -1;
+    const pt = (e) => { const r = wrap.querySelector("svg").getBoundingClientRect(); return [(e.clientX - r.left) / r.width * w, (e.clientY - r.top) / r.height * h]; };
+    wrap.addEventListener("pointerdown", (e) => { const c = e.target.closest("circle"); if (!c) return; const i = +c.dataset.i; if (i === 0 || i === pr.keys.length - 1) return; drag = i; wrap.setPointerCapture(e.pointerId); });
+    wrap.addEventListener("pointermove", (e) => {
+      if (drag < 0) return;
+      let [t, v] = fromXY(...pt(e));
+      t = Math.min(pr.keys[drag + 1][0] - 0.05, Math.max(pr.keys[drag - 1][0] + 0.05, t));
+      pr.keys[drag] = [+t.toFixed(2), +v.toFixed(2)]; draw();
+    });
+    const end = () => { if (drag >= 0) { drag = -1; fire(); } };
+    wrap.addEventListener("pointerup", end); wrap.addEventListener("pointercancel", end);
+    return el("div", {}, wrap, el("div", { className: "dim" }, "Drag the middle dots. Anchored at the base, so the pad squashes down instead of toward its middle."));
+  }
+  const fmt = (v) => (Math.abs(v) < 10 && v % 1 ? v.toFixed(2) : String(Math.round(v)));
+  function syncScope() {
+    $("scTile").classList.toggle("on", scope === "tile"); $("scTile").setAttribute("aria-selected", scope === "tile");
+    $("scAll").classList.toggle("on", scope === "all"); $("scAll").setAttribute("aria-selected", scope === "all");
+    layerIdx = 0; editShared = false; renderAll();
+  }
+  function renderAll() {
+    const t = tile();
+    $("mTitle").textContent = t.title; $("mSub").textContent = t.sub; $("mArt").textContent = t.art;
+    $("bPlay").textContent = "▶ Play in " + t.room;
+    $("stageName").textContent = moment().stage + " (default)";
+    $("tabFall").classList.toggle("on", tileKey === "fall"); $("tabFall").setAttribute("aria-selected", tileKey === "fall");
+    $("tabPad").classList.toggle("on", tileKey === "pad"); $("tabPad").setAttribute("aria-selected", tileKey === "pad");
+    $("addRow").hidden = false;
+    renderMoments(); renderLayers(); renderInspector();
+  }
+  $("tabFall").onclick = () => { tileKey = "fall"; momentIdx = 0; layerIdx = 0; scope = "tile"; parts.length = 0; syncScope(); };
+  $("tabPad").onclick = () => { tileKey = "pad"; momentIdx = 0; layerIdx = 0; scope = "tile"; parts.length = 0; syncScope(); };
+  $("scTile").onclick = () => { scope = "tile"; syncScope(); };
+  $("scAll").onclick = () => { scope = "all"; syncScope(); };
+  $("bLoop").onclick = () => { running = !running; $("bLoop").classList.toggle("on", running); $("bLoop").setAttribute("aria-pressed", running); };
+  $("bSlow").onclick = () => { slow = !slow; $("bSlow").classList.toggle("on", slow); $("bSlow").setAttribute("aria-pressed", slow); };
+  $("bTrigger").onclick = () => fire();
+  $("bStage").onclick = () => document.getElementById("stages").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+
+  // ---------------- preview canvas (stand-in for the real stage runner) ----------------
+  const cv = $("stage"), ctx = cv.getContext("2d");
+  const W = 320, H = 180, T = 16;
+  const parts = [];
+  let tween = null, shake = null, blobY = -48, blobVy = 0, clock = 0, sinceFire = 0, mistAcc = 0;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const active = () => rows().filter((r) => !r.locked && !r.b.off).map((r) => ({ kind: KIND[r.b.preset], pr: PRESETS[r.b.preset], b: r.b, shared: r.shared }));
+  const params = (a) => (a.shared ? a.pr.p : { ...a.pr.p, ...a.b.over });
+
+  function emit(a, x, y, n) {
+    const p = params(a);
+    const count = n ?? Math.round(p.count);
+    for (let i = 0; i < count; i++) {
+      const ang = (-90 + (Math.random() - 0.5) * p.cone) * Math.PI / 180, s = p.speed * (0.35 + Math.random() * 0.65);
+      parts.push({ x: x + (Math.random() - 0.5) * 6, y, vx: Math.cos(ang) * s, vy: Math.sin(ang) * s, life: p.life * (0.6 + Math.random() * 0.4), max: p.life, g: p.gravity, size: p.size, c0: a.pr.colors[0], c1: a.pr.colors[1] });
+    }
+    if (parts.length > 600) parts.splice(0, parts.length - 600);
+  }
+  function fire() {
+    sinceFire = 0;
+    const pt = tileKey === "fall" ? { x: 160, y: 120 } : { x: 160, y: 148 };
+    for (const a of active()) {
+      if (a.kind === "particles") emit(a, pt.x, pt.y);
+      if (a.kind === "tween") tween = { t: 0, a };
+      if (a.kind === "screen" && !reduce) shake = { t: 0, a };
+    }
+  }
+  function mix(a, b, t) {
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const ch = (s) => Math.round(((pa >> s) & 255) * (1 - t) + ((pb >> s) & 255) * t);
+    return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+  }
+  function wall(x, y) { ctx.fillStyle = "#4b4466"; ctx.fillRect(x, y, T, T); ctx.fillStyle = "#5c5480"; ctx.fillRect(x + 1, y + 1, T - 2, 3); ctx.fillStyle = "#3b3552"; ctx.fillRect(x, y + T - 2, T, 2); }
+  function squishAt(a, ms) {
+    const keys = a.pr.keys, t = Math.min(1, ms / params(a).ms);
+    for (let i = 1; i < keys.length; i++) if (t <= keys[i][0]) { const p = keys[i - 1], q = keys[i]; const u = (t - p[0]) / Math.max(0.001, q[0] - p[0]); return p[1] + (q[1] - p[1]) * (0.5 - Math.cos(u * Math.PI) / 2); }
+    return 1;
+  }
+  function drawScene() {
+    ctx.save();
+    if (shake) { const p = params(shake.a), k = 1 - shake.t / p.ms; ctx.translate((Math.random() - 0.5) * p.mag * 2 * k, (Math.random() - 0.5) * p.mag * 2 * k); }
+    ctx.fillStyle = "#17132a"; ctx.fillRect(-10, -10, W + 20, H + 20);
+    if (tileKey === "fall") {
+      for (let x = 0; x < W; x += T) wall(x, H - T);
+      for (let x = 80; x < 240; x += T) wall(x, H - 2 * T);
+      wall(80, H - 3 * T); wall(224, H - 3 * T);
+      ctx.globalAlpha = 0.85; ctx.fillStyle = "#4fc3f7"; ctx.fillRect(96, 120, 128, 28); ctx.globalAlpha = 1;
+      ctx.fillStyle = "#8adcfb"; for (let x = 96; x < 224; x += 8) ctx.fillRect(x, 120 + Math.sin(clock * 4 + x) * 1.2, 6, 2);
+      for (let x = 112; x < 208; x += T) wall(x, 0);
+      ctx.fillStyle = "#4fc3f7"; ctx.fillRect(152, T, T, 104);
+      ctx.fillStyle = "#b8ecff"; for (let y = T + ((clock * 90) % 12); y < 120; y += 12) { ctx.fillRect(155, y, 2, 6); ctx.fillRect(162, y + 5, 2, 5); }
+    } else {
+      for (let x = 0; x < W; x += T) wall(x, H - T);
+      let sx = 1, sy = 1;
+      if (tween) { sy = squishAt(tween.a, tween.t); sx = 1 + (1 - sy) * 0.6; }
+      ctx.save(); ctx.translate(160, H - T); ctx.scale(sx, sy); ctx.translate(-8, -T);
+      ctx.fillStyle = "#2f8f6e"; ctx.fillRect(0, 10, T, 6); ctx.fillStyle = "#5ad1a5";
+      ctx.beginPath(); ctx.moveTo(1, 10); for (let i = 0; i <= 4; i++) ctx.lineTo(1 + i * 3.5, i % 2 ? 5 : 9); ctx.lineTo(T - 1, 10); ctx.fill();
+      ctx.fillStyle = "#b6f2d8"; ctx.fillRect(2, 2, T - 4, 3);
+      ctx.restore();
+      const by = H - 2 * T - 14 + blobY;
+      ctx.fillStyle = "#e9e4f7"; ctx.fillRect(154, by, 12, 14);
+      ctx.fillStyle = "#17132a"; ctx.fillRect(157, by + 4, 2, 2); ctx.fillRect(162, by + 4, 2, 2);
+    }
+    for (const p of parts) {
+      const t = 1 - p.life / p.max;
+      ctx.globalAlpha = Math.min(1, (p.life / p.max) * 1.6);
+      ctx.fillStyle = mix(p.c0, p.c1, t);
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 - t * 0.5) / 2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+  let last = performance.now();
+  function frame(now) {
+    let dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (slow) dt *= 0.5;
+    if (running) {
+      clock += dt; sinceFire += dt;
+      const m = moment();
+      if (tileKey === "fall") {
+        // Stand-in for the stage: a fall lands every flow tick, so bursts repeat and streams flow.
+        if (m.id === "fallImpact" || m.id === "ambient") {
+          for (const a of active()) {
+            if (a.b.stream) { mistAcc += dt * params(a).count * 6; while (mistAcc >= 1) { mistAcc--; emit(a, 160, 120, 1); } }
+          }
+          if (sinceFire > 0.45) { sinceFire = 0; for (const a of active()) if (!a.b.stream && a.kind === "particles") emit(a, 160, 120); }
+        } else if (sinceFire > 1.2) fire();
+      } else {
+        // The actor clip: drop from 3 tiles up; the moment fires when it really touches the pad.
+        blobVy += 620 * dt; blobY += blobVy * dt;
+        if (blobY >= 0) { blobY = 0; if (m.id === "bounce") { blobVy = -330; fire(); } else { blobVy = 0; if (sinceFire > 0.05) fire(); } }
+        if (m.id !== "bounce" && blobY === 0 && sinceFire > 1.2) { blobY = -48; blobVy = 0; sinceFire = 0; }
+      }
+      for (let i = parts.length - 1; i >= 0; i--) { const p = parts[i]; p.life -= dt; if (p.life <= 0) { parts.splice(i, 1); continue; } p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+      if (tween) { tween.t += dt * 1000; if (tween.t > params(tween.a).ms) tween = null; }
+      if (shake) { shake.t += dt * 1000; if (shake.t > params(shake.a).ms) shake = null; }
+    }
+    drawScene();
+    // Worst case in the game: the most cells of this tile on one screen, times what each emits.
+    const per = active().filter((a) => a.kind === "particles").reduce((s, a) => { const p = params(a); return s + (a.b.stream ? p.count * 6 * p.life : p.count * (p.life / 0.45)); }, 0);
+    const worst = Math.round(per * tile().worst.cells);
+    $("mCount").textContent = `preview: ${parts.length} particles`;
+    $("mWorst").textContent = `worst in game: ≈ ${worst} (${tile().worst.cells} on screen in ${tile().worst.room}) · cap 600`;
+    $("mBar").style.width = Math.min(100, worst / 6) + "%";
+    $("mBar").style.background = worst > 360 ? "#ffb454" : "#6fd6a0";
+    requestAnimationFrame(frame);
+  }
+  syncScope();
+  requestAnimationFrame(frame);
+
+  // ---------------- stage picker + painter ----------------
+  const PAL = [[".", "Air", "#17132a", ""], ["#", "Wall", "#5c5480", ""], ["~", "Water", "#4fc3f7", ""], ["@", "This tile", "#ffd166", "@"], ["P", "Actor start", "#e9e4f7", "P"]];
+  const COLS = 20, ROWS = 10;
+  const def = [];
+  for (let y = 0; y < ROWS; y++) { const row = []; for (let x = 0; x < COLS; x++) row.push(y === ROWS - 1 ? "#" : "."); def.push(row); }
+  def[ROWS - 2][9] = "@"; def[2][9] = "P";
+  let grid = def.map((r) => r.slice()), opt = "default", brush = "#", painting = false;
+  const pal = $("palette");
+  for (const [ch, name, color, mark] of PAL) {
+    const b = el("button", { type: "button", className: ch === brush ? "on" : "" }, el("i", { style: `background:${color}` }, mark), name);
+    b.onclick = () => { brush = ch; [...pal.children].forEach((c) => c.classList.remove("on")); b.classList.add("on"); };
+    pal.append(b);
+  }
+  const painter = $("painter");
+  const colorOf = (ch) => (PAL.find((p) => p[0] === ch) || PAL[0]);
+  function drawGrid() {
+    painter.replaceChildren();
+    grid.forEach((row, y) => row.forEach((ch, x) => {
+      const [, , color, mark] = colorOf(ch);
+      const c = el("div", { style: `background:${color}` }, mark);
+      c.dataset.x = x; c.dataset.y = y;
+      painter.append(c);
+    }));
+    runChecks();
+  }
+  function paintAt(e) {
+    if (opt !== "custom") return;
+    const c = e.target.closest("[data-x]"); if (!c) return;
+    const x = +c.dataset.x, y = +c.dataset.y;
+    if (brush === "P") grid.forEach((r) => r.forEach((ch, i) => { if (ch === "P") r[i] = "."; }));
+    grid[y][x] = brush; drawGrid();
+  }
+  painter.addEventListener("pointerdown", (e) => { painting = true; paintAt(e); });
+  painter.addEventListener("pointerover", (e) => { if (painting && brush !== "P") paintAt(e); });
+  window.addEventListener("pointerup", () => { painting = false; });
+  // The real check runs the stage and counts moment events; this stand-in checks the same thing geometrically:
+  // does the actor fall straight onto a target cell?
+  function runChecks() {
+    const box = $("checks"); box.replaceChildren();
+    if (opt === "spot") {
+      box.append(el("div", { className: "check ok" }, el("b", {}, "✓ Real room"), "The Gap loads around x 34, y 9. The actor clip is optional here: falls and ambient effects run as they do in play."));
+      $("sgSave").disabled = false; return;
+    }
+    let px = -1, py = -1, targets = 0;
+    grid.forEach((r, y) => r.forEach((ch, x) => { if (ch === "P") { px = x; py = y; } if (ch === "@") targets++; }));
+    const list = [];
+    list.push(targets ? ["ok", "✓ Has a target", `${targets} cell${targets > 1 ? "s" : ""} will show this tile.`] : ["bad", "✗ No target", "Paint at least one @ cell."]);
+    let hit = false;
+    if (px >= 0) { for (let y = py + 1; y < ROWS; y++) { const ch = grid[y][px]; if (ch === "@") { hit = true; break; } if (ch === "#" || ch === "~") break; } }
+    list.push(px < 0 ? ["bad", "✗ No actor", "Place P where the player starts."] : hit ? ["ok", "✓ Raises \"Bounced on\"", "The actor lands on the target within 1.4 s."] : ["bad", "✗ Never raises \"Bounced on\"", "The actor doesn't reach a target. Move P above an @, or record a clip that walks onto one."]);
+    for (const [k, t, d] of list) box.append(el("div", { className: "check " + k }, el("b", {}, t), d));
+    $("sgSave").disabled = list.some((l) => l[0] === "bad");
+  }
+  document.querySelectorAll(".opt").forEach((b) => b.addEventListener("click", () => {
+    opt = b.dataset.opt;
+    document.querySelectorAll(".opt").forEach((o) => o.classList.toggle("on", o === b));
+    $("spots").hidden = opt !== "spot";
+    $("sgShare").hidden = opt !== "custom";
+    $("pLabel").textContent = opt === "custom" ? "Stage grid (your copy: click or drag to paint)" : opt === "spot" ? "Real room (shown in the preview; not editable here)" : "Stage grid (read-only: shared default)";
+    $("palette").style.opacity = opt === "custom" ? 1 : 0.4;
+    $("clipName").textContent = opt === "spot" ? "none needed · room runs live" : opt === "custom" ? "fall from start · 1.4 s · 0 inputs (record to change)" : "fall from start · 1.4 s · 0 inputs";
+    if (opt !== "custom") grid = def.map((r) => r.slice());
+    drawGrid();
+  }));
+  document.querySelectorAll("#spots button").forEach((b) => b.addEventListener("click", () => { document.querySelectorAll("#spots button").forEach((o) => o.classList.toggle("on", o === b)); }));
+  $("palette").style.opacity = 0.4;
+  drawGrid();
+})();
+</script>
