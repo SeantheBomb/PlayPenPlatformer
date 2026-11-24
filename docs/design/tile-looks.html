@@ -1,0 +1,673 @@
+<title>Tile Looks by Placement</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column for the design doc; the mockups break out wider
+   and are drawn in the Art Studio's own (fixed, dark) palette so they read as the real tool. */
+:root {
+  --bg: #f6f4fb; --surface: #ffffff; --ink: #1d1830; --muted: #625a7d; --line: #ddd7ec;
+  --accent: #8a5a00; --accent-soft: #fff3d1; --new: #1f7a52; --new-soft: #e2f5ea;
+  --changed: #8a5a00; --changed-soft: #fff3d1; --same: #6e6890; --same-soft: #eeebf6;
+  --warn: #a3324f; --warn-soft: #fbe6ec;
+  --code-bg: #efecf7;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  /* The studio's own colors (src/studio/shell.ts STUDIO_CSS), identical in both themes. */
+  --st-bg: #141020; --st-card: #1c1730; --st-card2: #241d3c; --st-line: #322a4e; --st-line2: #4a4070;
+  --st-ink: #ece6f8; --st-dim: #9f96bd; --st-gold: #ffd166; --st-green: #2c5140;
+  --st-field: #100d1c; --st-on: #453a6e; --st-ok: #6fd6a0; --st-bad: #ff8aa5;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121019; --surface: #1a1726; --ink: #ece8f6; --muted: #a39cbd; --line: #2e2943;
+  --accent: #ffd166; --accent-soft: #3a3016; --new: #7fdcaa; --new-soft: #183527;
+  --changed: #ffd166; --changed-soft: #3a3016; --same: #a39cbd; --same-soft: #25213a;
+  --warn: #ff8aa5; --warn-soft: #3a1d27;
+  --code-bg: #221e33; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121019; --surface: #1a1726; --ink: #ece8f6; --muted: #a39cbd; --line: #2e2943;
+  --accent: #ffd166; --accent-soft: #3a3016; --new: #7fdcaa; --new-soft: #183527;
+  --changed: #ffd166; --changed-soft: #3a3016; --same: #a39cbd; --same-soft: #25213a;
+  --warn: #ff8aa5; --warn-soft: #3a1d27;
+  --code-bg: #221e33; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.page { max-width: 1080px; margin: 0 auto; padding-block: 40px 80px; }
+.prose { max-width: 720px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: 40px; margin: 6px 0 10px; letter-spacing: -0.01em; }
+h2 { font-size: 26px; margin: 56px 0 10px; }
+h3 { font-size: 18px; margin: 28px 0 8px; }
+.eyebrow { font: 600 12px var(--f-body); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 18px; color: var(--muted); max-width: 680px; }
+p { margin: 0 0 12px; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font: 13px/1.55 var(--f-mono); margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 13px; margin-top: 14px; }
+.meta b { color: var(--ink); font-weight: 600; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 18px; font-size: 14px; }
+.toc a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+.toc a:hover { border-bottom-color: var(--accent); }
+
+.journey { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+@media (max-width: 1000px) { .journey { grid-template-columns: minmax(0, 1fr); } }
+.jstep { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.jstep .n { font: 700 13px var(--f-mono); color: var(--accent); }
+.jstep b { display: block; margin: 2px 0 4px; font-family: var(--f-display); font-size: 16px; }
+.jstep p { font-size: 14px; color: var(--muted); margin: 0; }
+
+/* ===================== Mockups (studio palette) ===================== */
+.mock-wrap { margin-top: 18px; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); }
+.mock-bar { background: #0c0a14; color: #8d84ab; font: 12px var(--f-mono); padding: 8px 14px; display: flex; gap: 10px; align-items: center; }
+.mock-bar i { width: 10px; height: 10px; border-radius: 50%; background: #3a3354; display: inline-block; }
+.mock { background: var(--st-bg); color: var(--st-ink); font: 14px "Segoe UI", system-ui, sans-serif; padding: 18px; color-scheme: dark; }
+.mock .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mock .title { font-size: 20px; font-weight: 700; color: var(--st-gold); }
+.mock .dim { color: var(--st-dim); font-size: 12px; }
+.mock .btn { background: #2a2342; border: 1px solid var(--st-line2); color: var(--st-ink); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.mock .btn:hover { background: #352c52; }
+.mock button:focus-visible, .mock input:focus-visible { outline: 2px solid var(--st-gold); outline-offset: 1px; }
+.mock .btn.primary { background: var(--st-green); border-color: #3e7a5c; font-weight: 600; }
+.mock .btn.quiet { background: none; border-color: transparent; color: var(--st-dim); }
+.mock .btn.on { background: var(--st-on); border-color: var(--st-gold); color: #fff; }
+.mock .btn.small { font-size: 11px; padding: 4px 8px; }
+.mock .card { background: var(--st-card); border: 1px solid var(--st-line); border-radius: 12px; padding: 14px; }
+.mock .tabs { display: flex; gap: 6px; margin: 2px 0 14px; flex-wrap: wrap; }
+.mock .chip { background: var(--st-card2); border: 1px solid #3a3160; color: #bfb6dd; padding: 5px 12px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 13px; }
+.mock .chip.on { background: var(--st-on); color: #fff; border-color: var(--st-gold); }
+.mock .collapsed { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.mock .thumb { width: 40px; height: 40px; border-radius: 6px; background: repeating-conic-gradient(#221c38 0% 25%, #2a2342 0% 50%) 0 0 / 10px 10px; flex: none; }
+/* Service map */
+.map-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-top: 16px; }
+.map-wrap svg { display: block; min-width: 900px; width: 100%; height: auto; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1.5px solid; }
+.lg-new::before { background: var(--new-soft); border-color: var(--new) !important; }
+.lg-chg::before { background: var(--changed-soft); border-color: var(--changed) !important; }
+.lg-same::before { background: var(--same-soft); border-color: var(--same) !important; }
+svg .n-new rect { fill: var(--new-soft); stroke: var(--new); }
+svg .n-chg rect { fill: var(--changed-soft); stroke: var(--changed); }
+svg .n-same rect { fill: var(--same-soft); stroke: var(--same); }
+svg rect { stroke-width: 1.5; }
+svg .t1 { font: 600 13px var(--f-body); fill: var(--ink); }
+svg .t2 { font: 11px var(--f-mono); fill: var(--muted); }
+svg .lane { font: 600 11px var(--f-body); fill: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+svg .edge { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg .edge.dash { stroke-dasharray: 4 4; }
+svg .wall { stroke: var(--changed); stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; }
+svg .wall-t { font: 600 11px var(--f-body); fill: var(--changed); }
+svg marker path { fill: var(--muted); }
+
+/* Data, sweep, plan */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.two > div { min-width: 0; }
+.cap { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tbl { overflow-x: auto; margin-top: 12px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { font: 600 12px var(--f-body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td.moment-id { font-family: var(--f-mono); font-size: 13px; white-space: nowrap; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+.tag.new { background: var(--new-soft); color: var(--new); }
+.tag.chg { background: var(--changed-soft); color: var(--changed); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.sweep td:first-child { font-family: var(--f-mono); font-size: 13px; color: var(--muted); white-space: nowrap; }
+.sweep td:nth-child(2) b { display: block; }
+.sweep td { min-width: 180px; }
+.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-top: 12px; }
+.phase-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.phase-h .pn { font: 700 13px var(--f-mono); color: var(--accent); }
+.phase-h h3 { margin: 0; }
+.phase-h .risk { margin-left: auto; font-size: 12px; color: var(--muted); }
+.phase ul { margin: 8px 0 0; padding-left: 20px; }
+.phase li { margin: 4px 0; }
+.done { margin-top: 10px; font-size: 14px; color: var(--muted); }
+.done b { color: var(--ink); }
+
+/* ===================== Asset page with looks (this page) ===================== */
+.ap-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.ap-top .name { font-size: 17px; font-weight: 700; }
+.strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: stretch; background: var(--st-card); border: 1px solid var(--st-line); border-radius: 12px; padding: 8px; margin-bottom: 12px; }
+.lk { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 92px; background: var(--st-card2); border: 1px solid #3a3160; border-radius: 9px; padding: 6px 4px; color: var(--st-ink); cursor: pointer; font: 12px/1.2 "Segoe UI", system-ui, sans-serif; position: relative; }
+.lk.on { border-color: var(--st-gold); background: #2e2650; }
+.lk .sw { width: 34px; height: 34px; border-radius: 5px; border: 1px solid #00000055; }
+.lk .ord { position: absolute; top: 3px; left: 6px; font: 600 10px var(--f-mono); color: var(--st-dim); }
+.lk small { color: var(--st-dim); font-size: 10px; text-align: center; }
+.lk.warn small { color: #ffb3c5; }
+.lk.add { border-style: dashed; justify-content: center; color: var(--st-dim); }
+.ap-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; }
+@media (max-width: 960px) { .ap-grid { grid-template-columns: minmax(0, 1fr); } }
+.ap-grid > div { min-width: 0; }
+.sect { background: var(--st-card); border: 1px solid var(--st-line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+.sect h5 { margin: 0 0 6px; font: 600 13px "Segoe UI", system-ui, sans-serif; color: var(--st-gold); }
+.zooms { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.zooms canvas { image-rendering: pixelated; border-radius: 6px; background: repeating-conic-gradient(#221c38 0% 25%, #2a2342 0% 50%) 0 0 / 12px 12px; }
+.frames { display: flex; gap: 5px; margin: 8px 0; flex-wrap: wrap; }
+.frames span { width: 30px; height: 30px; border-radius: 5px; border: 1px solid #3a3160; display: inline-block; }
+.when { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 620px) { .when { grid-template-columns: minmax(0, 1fr); } }
+.nb { display: grid; grid-template-columns: repeat(3, 70px); gap: 4px; }
+.nb button { height: 54px; border-radius: 8px; border: 1px solid #3a3160; background: var(--st-field); color: var(--st-ink); font: 11px/1.25 "Segoe UI", system-ui, sans-serif; cursor: pointer; padding: 4px; overflow: hidden; }
+.nb button.set { border-color: #a5d5f0; background: #1d2a3a; color: #d7ecfa; }
+.nb button.center { background: #3a3016; border-color: var(--st-gold); color: var(--st-gold); cursor: default; font-weight: 600; }
+.pop { background: var(--st-card2); border: 1px solid var(--st-line2); border-radius: 10px; padding: 10px; margin-top: 8px; }
+.pop .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pop label { display: inline-flex; gap: 5px; align-items: center; background: var(--st-card); border: 1px solid #3a3160; border-radius: 14px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.pop label.any { border-style: dashed; }
+.sentence { background: #1d2a3a; border: 1px solid #274a63; color: #d7ecfa; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin: 0 0 8px; }
+.states { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--st-dim); }
+.check { border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-top: 8px; }
+.check.ok { background: #183527; color: #c9f1db; border: 1px solid #2c5140; }
+.check.bad { background: #3a1d27; color: #ffd0dc; border: 1px solid #7a3e50; }
+.check.info { background: #241d3c; color: #d8d0f2; border: 1px solid #3a3160; }
+.tog { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #cfc6ea; margin-top: 8px; }
+.room { background: #0d0b14; border: 1px solid var(--st-line); border-radius: 10px; overflow: hidden; }
+.room canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.room-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 8px; border-top: 1px solid var(--st-line); font-size: 12px; color: var(--st-dim); }
+.legend2 { display: flex; flex-direction: column; gap: 4px; padding: 8px; font-size: 12px; }
+.legend2 span { display: flex; gap: 6px; align-items: center; }
+.legend2 i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+.legend2 b { margin-left: auto; font: 500 11px var(--f-mono); color: var(--st-dim); }
+.below { opacity: .55; border-style: dashed !important; }
+.fact { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+@media (max-width: 900px) { .facts { grid-template-columns: minmax(0, 1fr); } }
+.fact b { font-family: var(--f-display); display: block; margin-bottom: 4px; }
+.fact p { font-size: 14px; color: var(--muted); margin: 0; }
+.answers { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; }
+@media (max-width: 760px) { .answers { grid-template-columns: minmax(0, 1fr); } }
+.ans { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+.ans b { font-family: var(--f-display); display: block; }
+.ans span { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="page">
+  <header class="prose">
+    <div class="eyebrow">PlayPen · Art Studio · design for review · revision 2</div>
+    <h1>Tile Looks by Placement</h1>
+    <p class="lede">Looks live <b>inside the asset page you already use</b>. A strip of looks sits at the top of the art editor: the main art, the built-in looks, and any the artist adds. Pick a look and the whole page edits that look: its art, its frames, and when it shows. It works the same for tiles, objects, and the placed Spring.</p>
+    <div class="meta"><span><b>For</b> Sean, Casey, Miranda</span><span><b>Status</b> proposal, no code changed</span><span><b>Revised</b> 19 Nov 2026 with Sean's answers: built into the asset page, objects included, no shipped looks</span></div>
+    <nav class="toc" aria-label="Sections"><a href="#answers">Your answers</a><a href="#today">What's true today</a><a href="#journey">Journey</a><a href="#panel">The asset page</a><a href="#rules">How a look decides</a><a href="#objects">Objects</a><a href="#sweep">Illusion sweep</a><a href="#map">Service map</a><a href="#data">Data</a><a href="#plan">Action plan</a><a href="#decisions">Open questions</a></nav>
+  </header>
+
+  <section id="answers">
+    <h2>Your answers, and what they changed</h2>
+    <div class="answers">
+      <div class="ans"><b>Eight neighbours, all optional</b><span>Every square starts at Anything and all eight look the same; corners aren't dimmed. A look sets only the squares it cares about.</span></div>
+      <div class="ans"><b>Off the room's edge reads as Empty</b><span>Same as the game's deep-water check now.</span></div>
+      <div class="ans"><b>"9 would be all neighbours plus the original"</b><span>That's the 3×3 grid: 8 neighbours around the tile in the centre. The cap I proposed was something else, the number of looks per tile. It works out to 9 there too: the main art plus up to 8 looks.</span></div>
+      <div class="ans"><b>Base game stays as is</b><span>Nothing new ships. The built-in looks keep working exactly as they do, and "Under the waterfall" is something the artists add themselves (a suggestion offers it).</span></div>
+      <div class="ans"><b>All objects with variants</b><span>Doors, braziers, lockers, checkpoints, fuse boxes, capacitors, notes, exits, the placed Spring. Their existing "second look" (open, unlit…) becomes the first entry in the same strip of looks.</span></div>
+      <div class="ans"><b>Not its own window</b><span>No separate panel. The strip retargets the art editor that's already there: import, pixel and shape editors, speed, pattern, Aseprite tags.</span></div>
+    </div>
+  </section>
+
+  <section id="today">
+    <h2>What's true today</h2>
+    <div class="facts">
+      <div class="fact"><b>Built-in looks are code-only</b><p><code>drawMap</code> passes <code>capped</code> (deep water and lava, looking up through grates) and <code>gooNeighbors</code> (floor, wall, ceiling). Only the built-in drawings use them.</p></div>
+      <div class="fact"><b>Custom art switches them off</b><p><code>drawTile</code> draws the sprite and returns early. Water, lava and both falls have 16-frame art, so every cell of a pool looks the same right now.</p></div>
+      <div class="fact"><b>Objects have one extra slot</b><p><code>spriteAlt</code> is a single still for the second state (open door, unlit brazier). It can't animate and can't depend on where the object sits.</p></div>
+    </div>
+  </section>
+
+  <section id="journey">
+    <h2>The journey</h2>
+    <div class="journey">
+      <div class="jstep"><span class="n">1</span><b>Open Water</b><p>The art editor now has a strip of looks: <i>Main</i>, <i>Deep water</i> (built-in, using the main art for now), <i>+ Add look</i>.</p></div>
+      <div class="jstep"><span class="n">2</span><b>Pick Deep water</b><p>The zooms, frames, drop zone and pixel editor all switch to that look. She drops a darker loop in. The Greenhouse preview on the right updates.</p></div>
+      <div class="jstep"><span class="n">3</span><b>Add a look</b><p>The add menu suggests "Under a fall that pours water", built from the tile data. It opens as a look with the square above set to Waterfall.</p></div>
+      <div class="jstep"><span class="n">4</span><b>See where it lands</b><p>The room preview colours each cell by its look. Each look's tab shows a count and any warning, such as "never shows" or "in no level".</p></div>
+      <div class="jstep"><span class="n">5</span><b>Publish</b><p>Looks are art, so they go out through the same art publish, merged per look.</p></div>
+    </div>
+  </section>
+
+  <section id="panel">
+    <h2>The asset page, with looks</h2>
+    <p class="prose">Interactive mockup. Switch assets, pick a look in the strip, and click a neighbour square to set what it needs. The room on the right uses the same first-match resolver the game would, so the colours, counts and warnings are worked out live.</p>
+    <div class="mock-wrap">
+      <div class="mock-bar"><i></i><i></i><i></i><span>Art Studio › Gallery › <span id="crumb">Water</span></span></div>
+      <div class="mock">
+        <div class="tabs" id="assetTabs" role="tablist" aria-label="Asset (mock only)"></div>
+        <div class="ap-top"><button class="btn quiet">← Back to gallery</button><span class="name" id="aname">Water</span><span class="dim" id="asub">tile 'w' · 16 frames</span></div>
+        <div class="strip" id="strip" role="tablist" aria-label="Looks"></div>
+        <div class="ap-grid">
+          <div id="editor"></div>
+          <div>
+            <div class="room">
+              <canvas id="room" width="352" height="280" aria-label="Sample room, each cell coloured by the look it gets"></canvas>
+              <div class="legend2" id="legend"></div>
+              <div class="room-bar"><button class="btn small on" id="tint">Colour by look</button><button class="btn small" id="runSim">▶ Let the water move</button><span id="simNote"></span></div>
+            </div>
+            <div class="check info">In the studio this is each real level the asset appears in, drawn by the game's own <code>drawMap</code>. Counts are at level start; "Let the water move" runs the real simulation on the Effects stage runner.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="rules">
+    <h2>How a look decides</h2>
+    <div class="two">
+      <div>
+        <ul>
+          <li><b>First look that fits wins</b>, left to right in the strip, the same as <code>rules.json</code>. Main is pinned first in the strip but checked last: it's "everywhere else".</li>
+          <li><b>3×3 around the tile</b>: 8 optional neighbour squares around the tile itself. Each accepts any of This tile · Not this tile · Empty · Solid · Not solid · Any fluid, plus specific tiles by id. A square left at Anything isn't checked.</li>
+          <li><b>Off the room edge = Empty.</b></li>
+          <li><b>Look through grates</b>, per look: a grate counts as whatever is past it. The built-in deep looks have it on, matching today.</li>
+        </ul>
+      </div>
+      <div>
+        <ul>
+          <li><b>No art yet ⇒ falls through</b> to the next look that fits, then the main art, then the game's built-in drawing. An empty look never changes what players see.</li>
+          <li><b>Built-in looks</b> (deep water and lava, goo on wall or ceiling, object states) show in the strip with a "built-in" badge. They can be reordered, edited, switched off, and restored.</li>
+          <li><b>One clock, one pattern.</b> Looks animate on the asset's own clock and use the tile's world-aligned pattern, so seams line up. A look whose frame count differs from a neighbour it touches gets a warning.</li>
+          <li><b>Up to 8 looks</b> plus the main art.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="objects">
+    <h2>Objects</h2>
+    <div class="two">
+      <div>
+        <h3>State looks join the strip</h3>
+        <p>An object's state (open, unlit, tripped, occupied, active, live) becomes one more condition on a look, shown as a row of chips above the grid: <i>Any state · Lit · Unlit</i>. The old second-look slot becomes the built-in "Unlit" look. Its existing art (<code>spriteAlt</code>) is read as that look's art, so nothing needs migrating and nothing an artist made is lost. It can now animate, too.</p>
+      </div>
+      <div>
+        <h3>Neighbours around a footprint</h3>
+        <p>Objects aren't on the tile grid, so their squares mean the tiles touching the footprint's edges. "Below" is satisfied when <b>every</b> cell along the bottom edge fits; a corner is the single diagonal cell. A one-tile brazier reads like a tile, and a two-tall door checks both cells beside it. The resolver uses the object's live position and state each draw, so a placed Spring dropped on a grate picks its look right away.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sweep">
+    <h2>Illusion sweep</h2>
+    <div class="tbl"><table class="sweep">
+      <thead><tr><th>Risk</th><th>What would go wrong</th><th>Design answer</th></tr></thead>
+      <tbody>
+        <tr><td>art erases looks</td><td><b>Editing looks the game never draws</b>Custom art turns the built-in looks off today.</td><td>Built-in looks become data with the exact current conditions. A parity test compares the old <code>capped</code>/<code>gooNeighbors</code> code against the resolver on every cell of every shipped room, grates included.</td></tr>
+        <tr><td>old saves</td><td><b>No backfill for art fields</b>An older publish without <code>looks</code> would otherwise lose deep water.</td><td>No <code>looks</code> key at all ⇒ built-ins derived from the tile style or object kind, the same pattern as <code>enemyAttachments</code>. An empty list means the artist removed them.</td></tr>
+        <tr><td>one editor, many slots</td><td><b>Which art am I editing?</b>Retargeting the editor could leave someone painting the wrong look.</td><td>The selected tab is outlined in gold, and every art control names the look ("Drop <i>Deep water</i> art here"). The pixel editor's title carries the look name, and so does the board card.</td></tr>
+        <tr><td>order</td><td><b>Two looks both fit</b></td><td>The strip's order is the order the game checks, and it's draggable. Shadowing is computed exactly per square, and the tab says "never shows".</td></tr>
+        <tr><td>dead looks</td><td><b>A placement no level has</b></td><td>Per-level counts on the tab. For fluids, "may still appear as fluid moves", with the live-sim button right there.</td></tr>
+        <tr><td>live changes</td><td><b>Neighbours change during play</b>Water flows, ice melts, doors open.</td><td>Resolved from the live map and object state on every draw, on-screen cells only. Nothing is cached at load.</td></tr>
+        <tr><td>grate overlay</td><td><b>Water carried under a grate</b></td><td><code>drawElementOverlays</code> calls the same resolver for the carried fluid.</td></tr>
+        <tr><td>old second look</td><td><b>Two places to put a door's open art</b></td><td>There's one place now. The old slot is retired and its art shows as the built-in state look. The editor's sprite panel follows the same strip.</td></tr>
+        <tr><td>ids</td><td><b>Tiles stored by char</b></td><td>By tile id, shown by name and swatch.</td></tr>
+        <tr><td>Aseprite</td><td><b>One import per look</b></td><td>Tags fill looks of the same name (<code>asepick</code>); re-dropping the same file updates them; unmatched tags are listed.</td></tr>
+        <tr><td>gallery &amp; board</td><td><b>"Has art" overstates</b></td><td>The card reads "2 of 3 looks drawn". Board keys per look: <code>tile:water#deep</code>.</td></tr>
+        <tr><td>conflicts</td><td><b>Raw JSON when two artists edit a look</b></td><td>Merged per look id; the dialog shows the 3×3 picture and the art thumbnail.</td></tr>
+        <tr><td>moving things</td><td><b>Enemies and NPCs change position every frame</b></td><td>Out of scope. Placement looks are for things that stay put: tiles, objects, placed items.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="map">
+    <h2>Service map</h2>
+    <div class="map-wrap">
+      <svg viewBox="0 0 1000 470" role="img" aria-label="Service map for looks: the asset page, content and publish, and the draw-only runtime">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z"/></marker></defs>
+        <text class="lane" x="20" y="24">Asset page</text>
+        <text class="lane" x="360" y="24">Content &amp; publish</text>
+        <text class="lane" x="700" y="24">Runtime (draw only)</text>
+        <g class="n-chg"><rect x="20" y="40" width="300" height="62" rx="10"/><text class="t1" x="34" y="64">Detail view: look strip + "when" card</text><text class="t2" x="34" y="84">studio.ts detailView · altSlot retired</text></g>
+        <g class="n-chg"><rect x="20" y="118" width="300" height="52" rx="10"/><text class="t1" x="34" y="140">ArtAsset slots per look</text><text class="t2" x="34" y="158">assets.ts read/write(look)</text></g>
+        <g class="n-same"><rect x="20" y="186" width="300" height="52" rx="10"/><text class="t1" x="34" y="208">Import · Aseprite tags · pixel/shape</text><text class="t2" x="34" y="226">importers · asepick · editors</text></g>
+        <g class="n-same"><rect x="20" y="254" width="300" height="52" rx="10"/><text class="t1" x="34" y="276">Stage runner (from Effects)</text><text class="t2" x="34" y="294">stage.ts look-only mode</text></g>
+        <g class="n-chg"><rect x="20" y="322" width="300" height="52" rx="10"/><text class="t1" x="34" y="344">Editor sprite panel follows the strip</text><text class="t2" x="34" y="362">editor.ts · roomeditor.ts</text></g>
+        <g class="n-chg"><rect x="360" y="40" width="300" height="62" rx="10"/><text class="t1" x="374" y="64">looks[] on tiles · entities · items</text><text class="t2" x="374" y="84">types.ts Look · LookWhen</text></g>
+        <g class="n-chg"><rect x="360" y="118" width="300" height="52" rx="10"/><text class="t1" x="374" y="140">Art scope + per-look merge</text><text class="t2" x="374" y="158">_artscope SPRITE_FIELDS · _merge</text></g>
+        <g class="n-chg"><rect x="360" y="186" width="300" height="52" rx="10"/><text class="t1" x="374" y="208">Assemble: absent ⇒ built-ins</text><text class="t2" x="374" y="226">content.ts · spriteAlt read as state look</text></g>
+        <g class="n-chg"><rect x="360" y="254" width="300" height="52" rx="10"/><text class="t1" x="374" y="276">Gallery count · board per look · conflicts</text><text class="t2" x="374" y="294">studio.ts · board.ts · collab.ts</text></g>
+        <g class="n-new"><rect x="700" y="40" width="280" height="62" rx="10"/><text class="t1" x="714" y="64">Look resolver (pure)</text><text class="t2" x="714" y="84">src/engine/looks.ts lookFor()</text></g>
+        <g class="n-chg"><rect x="700" y="118" width="280" height="52" rx="10"/><text class="t1" x="714" y="140">drawMap / drawTile · overlays</text><text class="t2" x="714" y="158">renderer.ts · room.ts</text></g>
+        <g class="n-chg"><rect x="700" y="186" width="280" height="52" rx="10"/><text class="t1" x="714" y="208">Objects + placed items</text><text class="t2" x="714" y="226">room.ts drawEntitySprite · drawPlaced</text></g>
+        <g class="n-same"><rect x="700" y="290" width="280" height="62" rx="10"/><text class="t1" x="714" y="314">Simulation</text><text class="t2" x="714" y="334">untouched · never reads looks</text></g>
+        <path class="wall" d="M690 270 L990 270"/><text class="wall-t" x="700" y="264">sim wall: looks are read by drawing only</text>
+        <path class="edge" marker-end="url(#ar)" d="M320 71 L358 71"/>
+        <path class="edge" marker-end="url(#ar)" d="M170 102 L170 116"/>
+        <path class="edge" marker-end="url(#ar)" d="M170 186 L170 172"/>
+        <path class="edge" marker-end="url(#ar)" d="M320 144 C340 144 340 86 358 82"/>
+        <path class="edge dash" marker-end="url(#ar)" d="M320 280 C600 280 640 100 698 84"/>
+        <path class="edge" marker-end="url(#ar)" d="M510 102 L510 116"/>
+        <path class="edge" marker-end="url(#ar)" d="M660 71 L698 71"/>
+        <path class="edge" marker-end="url(#ar)" d="M840 102 L840 116"/>
+        <path class="edge" marker-end="url(#ar)" d="M980 80 C996 120 996 200 982 212"/>
+        <path class="edge dash" marker-end="url(#ar)" d="M170 40 C170 10 840 10 840 38"/>
+        <text class="t2" x="440" y="14">room preview calls the same resolver</text>
+      </svg>
+    </div>
+    <div class="legend"><span class="lg-new">New</span><span class="lg-chg">Changed</span><span class="lg-same">Unchanged, relied on</span></div>
+  </section>
+
+  <section id="data">
+    <h2>What gets stored</h2>
+    <div class="two">
+      <div>
+        <p class="cap">A tile: the art field <code>looks</code> (only once an artist touches it)</p>
+<pre>{ "id": "water", "spriteFrames": ["…main art…"],
+  "looks": [
+    { "id": "under_fall", "name": "Under the waterfall",
+      "when": { "up": { "tiles": ["waterfall"] } },
+      "spriteFrames": ["…"], "spriteFps": 10 },
+    { "id": "deep", "name": "Deep water", "builtin": "deep",
+      "throughGrates": true,
+      "when": { "up": { "is": ["self", "solid"] } } }
+  ] }</pre>
+      </div>
+      <div>
+        <p class="cap">An object: state plus placement</p>
+<pre>{ "id": "brazier", "sprite": "…lit…",
+  "looks": [
+    { "id": "unlit_wall", "name": "Unlit on a wall",
+      "when": { "state": "alt",
+                "left": { "is": ["solid"] } },
+      "sprite": "…" },
+    { "id": "unlit", "name": "Unlit", "builtin": "alt",
+      "when": { "state": "alt" } }
+  ] }
+// up · down · left · right · upLeft · upRight · downLeft · downRight
+// is: self | notSelf | empty | solid | notSolid | fluid
+// tiles: [ids]  ·  absent square = Anything
+// state: "alt" (open / unlit / tripped / …) | "main"</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="plan">
+    <h2>Action plan for the agent</h2>
+    <div class="phase"><div class="phase-h"><span class="pn">Phase 1</span><h3>Model, resolver, built-in parity</h3><span class="risk">Risk: low · no visible change</span></div>
+      <ul>
+        <li><code>types.ts</code>: <code>Look extends SpriteFields { id, name, when, throughGrates?, builtin? }</code>, with <code>looks?</code> on TileDef, EntityTypeDef and ItemDef.</li>
+        <li><code>src/engine/looks.ts</code>: <code>lookFor(map, cell | footprint, def, state?)</code>, first match, off-map = empty; <code>builtinLooks(def)</code> for anything with no <code>looks</code> key; <code>shadowedBy()</code>.</li>
+        <li><code>drawMap</code> and <code>drawEntitySprite</code> use the resolved look; <code>capped</code>/<code>gooNeighbors</code>/<code>spriteAlt</code> become what the built-in looks select.</li>
+        <li><code>tests/looks.test.ts</code>: parity with the old code on every cell of every shipped room; footprint rule; first match; shadowing; off-map.</li>
+      </ul><p class="done"><b>Done when</b> captures of Greenhouse, The Vault and Mess Hall are pixel-identical before and after.</p></div>
+    <div class="phase"><div class="phase-h"><span class="pn">Phase 2</span><h3>Art per look in the renderer</h3><span class="risk">Risk: low</span></div>
+      <ul><li>Fall-through chain; pattern alignment; shared clock; the grate-fluid overlay path; placed items. Tests for each.</li></ul></div>
+    <div class="phase"><div class="phase-h"><span class="pn">Phase 3</span><h3>Content, publish, merge</h3><span class="risk">Risk: low · pinned by existing suites</span></div>
+      <ul><li><code>SPRITE_FIELDS += "looks"</code>; absent ⇒ built-ins; <code>[]</code> ⇒ none; <code>spriteAlt</code> read as the built-in state look. Conflict labels and preview per look. Tests extend artist-publish, collab-publish and content-art-merge.</li></ul></div>
+    <div class="phase"><div class="phase-h"><span class="pn">Phase 4</span><h3>The look strip on the asset page</h3><span class="risk">Risk: medium · reworks the detail view</span></div>
+      <ul>
+        <li><code>studio.ts</code> detailView: the strip above the art; selecting a look retargets zooms, frames, drop zone, import, pixel/shape editors, speed and Aseprite. A "When this look shows" card holds the state chips, the 3×3, the sentence and the grates toggle. <code>altSlot</code> is removed.</li>
+        <li>Room preview per level with look tint and counts, plus live sim via <code>StageRunner</code>. Suggestions from data. Warnings on the tabs.</li>
+        <li>Gallery "N of M looks drawn"; board cards per look; the editor's sprite panel gets the same strip.</li>
+      </ul><p class="done"><b>Done when</b> the water and brazier journeys work end to end in the browser pane, and the Effects card still sits below the art.</p></div>
+    <div class="phase"><div class="phase-h"><span class="pn">Phase 5</span><h3>Aseprite tags to looks</h3><span class="risk">Risk: low</span></div>
+      <ul><li>One file fills every look whose name matches a tag; reimport loop; unmatched tags listed. Extend <code>aseprite.test.ts</code>.</li></ul></div>
+    <div class="phase"><div class="phase-h"><span class="pn">Phase 6</span><h3>Docs and ship</h3><span class="risk">Risk: low · no content changes</span></div>
+      <ul><li>ARTIST_HANDOFF "Looks" section; CLAUDE.md notes. Deploy code only. No looks are added to content, so players see no change.</li></ul></div>
+  </section>
+
+  <section id="decisions">
+    <h2>Open questions</h2>
+    <div class="q"><b>Should Effects move into the same strip?</b><p>Effects is already a card on this same page, below the art. It could become per-look (squish only on the deep look), but that's a bigger change.</p><p class="rec">Recommended: leave Effects as the card below the art for now.</p></div>
+    <div class="q"><b>NPC bodies, enemies, the player?</b><p>They move every frame, so where they're standing changes all the time.</p><p class="rec">Recommended: out of scope; their art stays as it is.</p></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const TILES = {
+    wall: { name: "Wall", solid: true, color: "#6b6486" },
+    platform: { name: "Metal Grate", grate: true, color: "#9aa3b5" },
+    water: { name: "Water", fluid: true, color: "#4fc3f7" },
+    waterfall: { name: "Waterfall", fall: "water", color: "#9be1ff" },
+    lava: { name: "Lava", fluid: true, color: "#ff7043" },
+    goo: { name: "Goo", color: "#8bd44f" },
+    wood: { name: "Wood", solid: true, color: "#a0703c" },
+  };
+  const CH = { "#": "wall", "=": "platform", "w": "water", "V": "waterfall", "L": "lava", "G": "goo", "W": "wood" };
+  const ROOM = [
+    "################",
+    "#...V..........#",
+    "#...V..........#",
+    "#G..V.........G#",
+    "#...V.........G#",
+    "#wwwwww..LLLLL.#",
+    "#w====w..LLLLL.#",
+    "#wwwwww..LLLLL.#",
+    "#wwwwww..#####.#",
+    "######.G..G....#",
+    "#......G...WW..#",
+    "#.GGG......WW..#",
+    "################",
+  ];
+  // Braziers in the sample room: tile position + state ("main" = lit, "alt" = unlit).
+  const BRAZIERS = [{ x: 1, y: 10, state: "alt" }, { x: 14, y: 10, state: "main" }, { x: 8, y: 4, state: "alt" }];
+  const W = ROOM[0].length, H = ROOM.length;
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? null : CH[ROOM[y][x]] ?? null;
+  const SQ = ["upLeft", "up", "upRight", "left", null, "right", "downLeft", "down", "downRight"];
+  const D = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0], upLeft: [-1, -1], upRight: [1, -1], downLeft: [-1, 1], downRight: [1, 1] };
+  const KIND = { self: "This tile", notSelf: "Not this tile", empty: "Empty", solid: "Solid", notSolid: "Not solid", fluid: "Any fluid" };
+  const WHERE = { up: "above", down: "below", left: "to the left", right: "to the right", upLeft: "up-left", upRight: "up-right", downLeft: "down-left", downRight: "down-right" };
+  const PAL = ["#9be1ff", "#1f5f86", "#ffd166", "#c58cff", "#7fdcaa", "#ff8aa5", "#f7a35c", "#b0e57c"];
+
+  const ASSETS = {
+    water: { name: "Water", sub: "tile 'w' · 16 frames", kind: "tile", color: "#4fc3f7", main: "Surface", looks: [
+      { id: "deep", name: "Deep water", builtin: true, throughGrates: true, when: { up: { is: ["self", "solid"] } }, art: false },
+    ] },
+    lava: { name: "Lava", sub: "tile 'L' · 16 frames", kind: "tile", color: "#ff7043", main: "Surface", looks: [
+      { id: "deep", name: "Deep lava", builtin: true, throughGrates: true, when: { up: { is: ["self", "solid"] } }, art: false },
+    ] },
+    goo: { name: "Goo", sub: "tile 'G' · built-in drawing", kind: "tile", color: "#8bd44f", main: "On the floor", looks: [
+      { id: "ceiling", name: "On the ceiling", builtin: true, when: { up: { is: ["solid"] }, down: { is: ["notSolid"] } }, art: false },
+      { id: "left", name: "On a left wall", builtin: true, when: { left: { is: ["solid"] }, down: { is: ["notSolid"] } }, art: false },
+      { id: "right", name: "On a right wall", builtin: true, when: { right: { is: ["solid"] }, down: { is: ["notSolid"] } }, art: false },
+    ] },
+    brazier: { name: "Brazier", sub: "object · 16×16", kind: "object", color: "#ffb74d", main: "Lit", looks: [
+      { id: "unlit", name: "Unlit", builtin: true, when: { state: "alt" }, art: true, artNote: "your existing second-look art (spriteAlt)" },
+    ] },
+  };
+  let cur = "water", sel = -1, openSq = null, tint = true, sim = null;
+
+  // ---------- resolver (what src/engine/looks.ts would do) ----------
+  const peek = (x, y, dx, dy, through) => { let nx = x + dx, ny = y + dy, t = at(nx, ny); while (through && t === "platform") { nx += dx; ny += dy; t = at(nx, ny); } return t; };
+  const accepts = (c, self, t) => {
+    if ((c.tiles ?? []).includes(t)) return true;
+    const d = t ? TILES[t] : null;
+    return (c.is ?? []).some((k) => k === "self" ? t === self : k === "notSelf" ? t !== self : k === "empty" ? !t
+      : k === "solid" ? !!d?.solid : k === "notSolid" ? !d?.solid : k === "fluid" ? !!d?.fluid : false);
+  };
+  const fits = (l, self, x, y, state) => Object.entries(l.when).every(([k, c]) =>
+    k === "state" ? c === state : accepts(c, self, peek(x, y, D[k][0], D[k][1], l.throughGrates)));
+  const lookAt = (id, x, y, state) => { const L = ASSETS[id].looks; for (let i = 0; i < L.length; i++) if (fits(L[i], id, x, y, state)) return i; return -1; };
+  const universe = [null, ...Object.keys(TILES)];
+  const acc = (l, k, self) => l.when[k] ? universe.filter((t) => accepts(l.when[k], self, t)) : universe;
+  const shadow = (id, i) => {
+    const L = ASSETS[id].looks;
+    for (let j = 0; j < i; j++) {
+      const a = L[j], b = L[i];
+      if (!!a.throughGrates !== !!b.throughGrates) continue;
+      if (a.when.state && a.when.state !== b.when.state) continue;
+      if (Object.keys(D).every((k) => acc(b, k, id).every((t) => acc(a, k, id).includes(t)))) return a;
+    }
+    return null;
+  };
+  const cells = (id) => ASSETS[id].kind === "object" ? BRAZIERS.map((b) => [b.x, b.y, b.state])
+    : (() => { const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (at(x, y) === id) out.push([x, y]); return out; })();
+  const counts = (id) => { const n = new Map(); for (const [x, y, s] of cells(id)) { const i = lookAt(id, x, y, s); n.set(i, (n.get(i) ?? 0) + 1); } return n; };
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+  const $ = (id) => document.getElementById(id);
+  const h = (tag, props = {}, ...kids) => { const e = document.createElement(tag); Object.assign(e, props); for (const k of kids) if (k !== null && k !== "") e.append(k); return e; };
+
+  function sentence(l, a) {
+    const parts = [];
+    if (l.when.state) parts.push(`it's ${l.when.state === "alt" ? "unlit" : "lit"}`);
+    for (const [k, c] of Object.entries(l.when)) {
+      if (k === "state") continue;
+      parts.push(`the tile ${WHERE[k]} is ${[...(c.is ?? []).map((x) => KIND[x].toLowerCase()), ...(c.tiles ?? []).map((t) => TILES[t].name)].join(" or ")}`);
+    }
+    return parts.length ? `Shows when ${parts.join(", and ")}${l.throughGrates ? " (looking through grates)" : ""}.` : "Every square is Anything, so this look fits everywhere and the looks after it can never show.";
+  }
+
+  function render() {
+    const a = ASSETS[cur];
+    $("crumb").textContent = a.name; $("aname").textContent = a.name; $("asub").textContent = a.sub;
+    const tabs = $("assetTabs"); tabs.replaceChildren(h("span", { className: "dim" }, "Mock only, pick an asset:"));
+    for (const id of Object.keys(ASSETS)) tabs.append(h("button", { className: `chip ${id === cur ? "on" : ""}`, role: "tab", ariaSelected: String(id === cur), onclick: () => { cur = id; sel = -1; openSq = null; render(); } }, ASSETS[id].name));
+    const c = counts(cur), unit = a.kind === "object" ? "object" : "cell";
+    // strip
+    const strip = $("strip"); strip.replaceChildren();
+    strip.append(h("button", { className: `lk ${sel === -1 ? "on" : ""}`, role: "tab", ariaSelected: String(sel === -1), onclick: () => { sel = -1; openSq = null; render(); } },
+      h("span", { className: "sw", style: `background:${a.color}` }), `Main · ${a.main}`, h("small", {}, `everywhere else · ${plural(c.get(-1) ?? 0, unit)}`)));
+    a.looks.forEach((l, i) => {
+      const sh = shadow(cur, i);
+      const note = sh ? "never shows" : !l.art ? (l.builtin ? "built-in · main art for now" : "no art yet") : l.builtin ? "built-in" : "";
+      strip.append(h("button", { className: `lk ${sel === i ? "on" : ""} ${sh ? "warn" : ""}`, role: "tab", ariaSelected: String(sel === i), onclick: () => { sel = i; openSq = null; render(); } },
+        h("span", { className: "ord" }, String(i + 1)),
+        h("span", { className: `sw ${l.art ? "" : "below"}`, style: `background:${PAL[i % PAL.length]}` }), l.name,
+        h("small", {}, `${note ? note + " · " : ""}${plural(c.get(i) ?? 0, unit)}`)));
+    });
+    if (a.looks.length < 8) strip.append(addButton(a));
+    renderEditor(c, unit);
+    renderLegend(c);
+    draw();
+  }
+  function addButton(a) {
+    const box = h("div", { style: "display:flex;flex-direction:column;gap:4px" });
+    const fall = Object.entries(TILES).find(([, t]) => t.fall === cur);
+    const sug = [];
+    if (fall && !a.looks.some((l) => l.when.up?.tiles?.includes(fall[0]))) sug.push(["Under a fall that pours " + a.name.toLowerCase(), { up: { tiles: [fall[0]] } }, "Under the " + fall[1].name.toLowerCase()]);
+    if (a.kind === "tile" && !a.looks.some((l) => l.id === "top_edge")) sug.push(["Top edge", { up: { is: ["notSelf"] } }, "Top edge"]);
+    if (a.kind === "object" && !a.looks.some((l) => l.id === "unlit_wall")) sug.push(["Unlit against a wall", { state: "alt", left: { is: ["solid"] } }, "Unlit on a wall"]);
+    const add = (when, name, id) => { a.looks.unshift({ id, name, when: JSON.parse(JSON.stringify(when)), art: false }); sel = 0; render(); };
+    box.append(h("button", { className: "lk add", onclick: () => { a.looks.push({ id: "look_" + a.looks.length, name: "New look", when: {}, art: false }); sel = a.looks.length - 1; render(); } }, "+ Add look"));
+    for (const [label, when, name] of sug) box.append(h("button", { className: "btn small", onclick: () => add(when, name, name.toLowerCase().replace(/\W+/g, "_")) }, "✨ " + label));
+    return box;
+  }
+  function renderEditor(c, unit) {
+    const a = ASSETS[cur], ed = $("editor"); ed.replaceChildren();
+    const l = sel >= 0 ? a.looks[sel] : null;
+    const lname = l ? l.name : `Main · ${a.main}`;
+    const color = l ? PAL[sel % PAL.length] : a.color;
+    // The existing art editor, retargeted to the selected look.
+    const art = h("div", { className: "sect" }, h("h5", {}, `Art · ${lname}`));
+    const zooms = h("div", { className: "zooms" });
+    for (const z of [2, 4, 8]) {
+      const cv = h("canvas", { width: 16 * z, height: 16 * z, style: `width:${16 * z * 0.6}px;height:${16 * z * 0.6}px` });
+      const g = cv.getContext("2d"); const has = !l || l.art;
+      g.fillStyle = color; g.globalAlpha = has ? 1 : .4; g.fillRect(0, l && !has ? 4 * z : 0, 16 * z, 16 * z);
+      if (has) { g.fillStyle = "#ffffff88"; for (let i = 0; i < 5; i++) g.fillRect(((i * 5) % 14 + 1) * z, ((i * 7) % 12 + 2) * z, 2 * z, 2 * z); }
+      zooms.append(cv);
+    }
+    art.append(zooms);
+    if (!l || l.art) {
+      const fr = h("div", { className: "frames" });
+      for (let i = 0; i < 8; i++) fr.append(h("span", { style: `background:${color};opacity:${0.55 + (i % 4) * 0.12}` }));
+      art.append(fr, h("div", { className: "dim" }, l?.artNote ? `Art: ${l.artNote}.` : "Plays on the asset's clock · 10 fps"));
+    } else {
+      art.append(h("div", { className: "check info" }, l.builtin
+        ? (a.kind === "tile" && cur !== "goo" ? "No art for this look yet, so these cells show the main art, as they do today. Draw one to tell them apart." : "No art for this look yet, so the game's built-in drawing for it is used.")
+        : "No art yet. Until there is, these cells show the next look that fits."));
+    }
+    art.append(h("div", { className: "row", style: "margin-top:8px" },
+      h("button", { className: "btn small", onclick: () => { if (l) { l.art = !l.art; render(); } } }, l ? (l.art ? "Clear this look's art" : `⬇ Drop ${lname} art here (mock: add)`) : `⬇ Drop ${lname} art here`),
+      h("button", { className: "btn small" }, "✏️ Pixel editor"), h("button", { className: "btn small" }, "△ Shape editor")));
+    ed.append(art);
+    // When this look shows
+    const when = h("div", { className: "sect" }, h("h5", {}, "When this look shows"));
+    if (!l) {
+      when.append(h("div", { className: "sentence" }, `Everywhere none of the looks fits. It's checked last, so the strip order is the order the game tries them.`));
+      ed.append(when);
+      return;
+    }
+    if (a.kind === "object") {
+      const st = h("div", { className: "states" }, "State:");
+      for (const [v, label] of [[undefined, "Any state"], ["main", "Lit"], ["alt", "Unlit"]]) {
+        st.append(h("button", { className: `chip ${l.when.state === v ? "on" : ""}`, onclick: () => { if (v) l.when.state = v; else delete l.when.state; render(); } }, label));
+      }
+      when.append(st);
+    }
+    const nb = h("div", { className: "nb", role: "group", ariaLabel: "Neighbour squares, all optional" });
+    SQ.forEach((k) => {
+      if (k === null) { nb.append(h("button", { className: "center", disabled: true }, a.name)); return; }
+      const cnd = l.when[k];
+      const txt = cnd ? [...(cnd.is ?? []).map((x) => KIND[x]), ...(cnd.tiles ?? []).map((t) => TILES[t].name)].join(" or ") : "Anything";
+      nb.append(h("button", { className: cnd ? "set" : "", ariaLabel: `${k}: ${txt}`, ariaExpanded: String(openSq === k), onclick: () => { openSq = openSq === k ? null : k; renderEditor(counts(cur), unit); } }, txt));
+    });
+    const right = h("div", {}, h("div", { className: "sentence" }, sentence(l, a)));
+    const tg = h("input", { type: "checkbox", checked: !!l.throughGrates, id: "thru" });
+    tg.onchange = () => { l.throughGrates = tg.checked; render(); };
+    right.append(h("label", { className: "tog", htmlFor: "thru" }, tg, h("span", {}, h("b", {}, "Look through grates. "), "A grate counts as whatever is past it.")));
+    const sh = shadow(cur, sel), n = c.get(sel) ?? 0;
+    if (sh) right.append(h("div", { className: "check bad" }, h("b", {}, "Never shows"), `"${sh.name}" comes first and fits everywhere this does. Drag this look earlier, or narrow "${sh.name}".`));
+    else if (!n) right.append(h("div", { className: "check info" }, h("b", {}, "Not in this room"), TILES[cur]?.fluid ? "0 at level start. It may still appear as fluid moves; try ▶ Let the water move." : "0 here. The studio lists the levels where it does show."));
+    else right.append(h("div", { className: "check ok" }, h("b", {}, `${plural(n, unit)} here`), "Highlighted in the room."));
+    right.append(h("div", { className: "row", style: "margin-top:8px" },
+      h("button", { className: "btn small", disabled: sel === 0, onclick: () => { const L = a.looks; [L[sel - 1], L[sel]] = [L[sel], L[sel - 1]]; sel--; render(); } }, "◀ Earlier"),
+      h("button", { className: "btn small", disabled: sel === a.looks.length - 1, onclick: () => { const L = a.looks; [L[sel + 1], L[sel]] = [L[sel], L[sel + 1]]; sel++; render(); } }, "Later ▶"),
+      h("button", { className: "btn small quiet", onclick: () => { a.looks.splice(sel, 1); sel = Math.min(sel, a.looks.length - 1); render(); } }, l.builtin ? "Switch off" : "✕ Delete look")));
+    when.append(h("div", { className: "when" }, nb, right));
+    if (openSq) when.append(popover(l, openSq));
+    ed.append(when);
+  }
+  function popover(l, k) {
+    const cnd = l.when[k] ?? { is: [], tiles: [] };
+    const box = h("div", { className: "pop" }, h("div", { className: "dim" }, `The tile ${WHERE[k]} can be any of:`));
+    const opts = h("div", { className: "opts" });
+    const commit = () => { if (!(cnd.is?.length || cnd.tiles?.length)) delete l.when[k]; else l.when[k] = cnd; render(); };
+    opts.append(h("label", { className: "any" }, h("input", { type: "checkbox", checked: !l.when[k], onchange: () => { delete l.when[k]; render(); } }), "Anything (not checked)"));
+    for (const kind of Object.keys(KIND)) {
+      const cb = h("input", { type: "checkbox", checked: (cnd.is ?? []).includes(kind) });
+      cb.onchange = () => { cnd.is = cb.checked ? [...(cnd.is ?? []), kind] : (cnd.is ?? []).filter((x) => x !== kind); commit(); };
+      opts.append(h("label", {}, cb, KIND[kind]));
+    }
+    for (const [id, t] of Object.entries(TILES)) {
+      const cb = h("input", { type: "checkbox", checked: (cnd.tiles ?? []).includes(id) });
+      cb.onchange = () => { cnd.tiles = cb.checked ? [...(cnd.tiles ?? []), id] : (cnd.tiles ?? []).filter((x) => x !== id); commit(); };
+      opts.append(h("label", {}, cb, h("span", { style: `display:inline-block;width:9px;height:9px;border-radius:2px;background:${t.color}` }), t.name));
+    }
+    box.append(opts);
+    return box;
+  }
+  function renderLegend(c) {
+    const a = ASSETS[cur], lg = $("legend"); lg.replaceChildren();
+    a.looks.forEach((l, i) => lg.append(h("span", {}, h("i", { style: `background:${PAL[i % PAL.length]}` }), l.name, h("b", {}, String(c.get(i) ?? 0)))));
+    lg.append(h("span", {}, h("i", { style: `background:${a.color}` }), `Main · ${a.main}`, h("b", {}, String(c.get(-1) ?? 0))));
+  }
+  function draw() {
+    const cv = $("room"), g = cv.getContext("2d"), S = 22, a = ASSETS[cur];
+    g.fillStyle = "#1b1726"; g.fillRect(0, 0, cv.width, cv.height);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const t = at(x, y); if (!t) continue;
+      const def = TILES[t], px = x * S, py = y * S - 6, mine = t === cur;
+      let col = def.color;
+      if (mine && tint) { const i = lookAt(cur, x, y); if (i >= 0) col = PAL[i % PAL.length]; }
+      g.globalAlpha = mine || !tint || a.kind === "object" ? 1 : 0.35;
+      g.fillStyle = col;
+      if (def.grate) for (let i = 0; i < 3; i++) g.fillRect(px, py + 3 + i * 6, S, 2);
+      else if (def.fall) g.fillRect(px + 3, py, S - 6, S);
+      else g.fillRect(px + 1, py + 1, S - 2, S - 2);
+      if (mine && tint) { const i = lookAt(cur, x, y); if (i >= 0 && !a.looks[i].art) { g.strokeStyle = "#ffffffaa"; g.setLineDash([3, 3]); g.strokeRect(px + 2.5, py + 2.5, S - 5, S - 5); g.setLineDash([]); } }
+    }
+    g.globalAlpha = 1;
+    for (const b of BRAZIERS) {
+      const px = b.x * S + S / 2, py = b.y * S - 6 + S / 2;
+      let col = b.state === "alt" ? "#5a5470" : "#ffb74d";
+      if (cur === "brazier" && tint) { const i = lookAt("brazier", b.x, b.y, b.state); col = i >= 0 ? PAL[i % PAL.length] : a.color; }
+      g.fillStyle = col; g.beginPath(); g.arc(px, py, 8, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "#0d0b14"; g.lineWidth = 2; g.stroke(); g.lineWidth = 1;
+    }
+  }
+  $("tint").onclick = () => { tint = !tint; $("tint").classList.toggle("on", tint); draw(); };
+  $("runSim").onclick = () => {
+    if (sim) return;
+    const before = ROOM.slice();
+    ROOM[4] = "#wwwwVww...L...#";
+    $("simNote").textContent = "The pool rose a row; looks re-resolved.";
+    sim = setTimeout(() => { ROOM.splice(0, ROOM.length, ...before); sim = null; $("simNote").textContent = ""; render(); }, 3500);
+    render();
+  };
+  render();
+})();
+</script>
